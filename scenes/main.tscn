@@ -1,0 +1,95 @@
+[gd_scene load_steps=7 format=3 uid="uid://main_scene"]
+
+[ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
+[ext_resource type="Script" path="res://scripts/grid_manager.gd" id="2_grid"]
+[ext_resource type="Script" path="res://scripts/placement_controller.gd" id="3_place"]
+[ext_resource type="Script" path="res://scripts/item_palette.gd" id="4_palette"]
+[ext_resource type="Script" path="res://scripts/camera_controller.gd" id="5_camera"]
+[ext_resource type="Script" path="res://scripts/weather_controller.gd" id="6_weather"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_ground"]
+size = Vector3(30, 0.1, 30)
+
+[node name="Main" type="Node3D"]
+script = ExtResource("1_main")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866, -0.354, 0.354, 0, 0.707, 0.707, -0.5, -0.612, 0.612, 10, 20, 10)
+light_energy = 1.2
+shadow_enabled = true
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(0.707107, -0.5, 0.5, 0, 0.707107, 0.707107, -0.707107, -0.5, 0.5, 14, 18, 14)
+projection = 1
+size = 16.0
+current = true
+
+[node name="GridManager" type="Node3D" parent="."]
+script = ExtResource("2_grid")
+
+[node name="Objects" type="Node3D" parent="GridManager"]
+
+[node name="GroundBody" type="StaticBody3D" parent="GridManager"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.05, 12)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="GridManager/GroundBody"]
+shape = SubResource("BoxShape3D_ground")
+
+[node name="CameraController" type="Node" parent="."]
+script = ExtResource("5_camera")
+
+[node name="WeatherController" type="Node" parent="."]
+script = ExtResource("6_weather")
+
+[node name="PlacementController" type="Node" parent="."]
+script = ExtResource("3_place")
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="ItemPalette" type="PanelContainer" parent="UI"]
+offset_left = 12.0
+offset_top = 12.0
+offset_right = 240.0
+offset_bottom = 560.0
+script = ExtResource("4_palette")
+
+[node name="Toolbar" type="HBoxContainer" parent="UI"]
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -220.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = 52.0
+grow_horizontal = 0
+theme_override_constants/separation = 8
+
+[node name="SaveBtn" type="Button" parent="UI/Toolbar"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Save"
+
+[node name="LoadBtn" type="Button" parent="UI/Toolbar"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Load"
+
+[node name="StatusBar" type="PanelContainer" parent="UI"]
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -300.0
+offset_top = -48.0
+offset_right = 300.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="StatusLabel" type="Label" parent="UI/StatusBar"]
+layout_mode = 2
+text = "Ready"
+horizontal_alignment = 1
