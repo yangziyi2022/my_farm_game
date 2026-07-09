@@ -20,6 +20,11 @@ enum ItemType {
 	SHED,
 	HOUSE,
 	BARN,
+	WINDMILL,
+	GRANARY,
+	BRIDGE,
+	LAMPPOST,
+	WELL,
 	COW,
 	CHICKEN,
 	SHEEP,
@@ -138,6 +143,58 @@ const ITEMS: Dictionary = {
 		"offset_y": 0.8,
 		"rotatable": true,
 	},
+	ItemType.WINDMILL: {
+		"id": "windmill",
+		"name": "Windmill",
+		"category": Category.STRUCTURE,
+		"color": Color(0.82, 0.78, 0.7),
+		"blade_color": Color(0.75, 0.75, 0.78),
+		"roof_color": Color(0.55, 0.28, 0.18),
+		"size": Vector3(1.4, 2.2, 1.4),
+		"offset_y": 1.1,
+		"rotatable": true,
+	},
+	ItemType.GRANARY: {
+		"id": "granary",
+		"name": "Granary",
+		"category": Category.STRUCTURE,
+		"color": Color(0.72, 0.68, 0.55),
+		"roof_color": Color(0.48, 0.32, 0.22),
+		"door_color": Color(0.45, 0.3, 0.18),
+		"size": Vector3(1.6, 1.5, 1.4),
+		"offset_y": 0.75,
+		"rotatable": true,
+	},
+	ItemType.BRIDGE: {
+		"id": "bridge",
+		"name": "Bridge",
+		"category": Category.DECOR,
+		"color": Color(0.55, 0.38, 0.22),
+		"rail_color": Color(0.45, 0.3, 0.15),
+		"size": Vector3(1.2, 0.25, 0.8),
+		"offset_y": 0.15,
+		"rotatable": true,
+	},
+	ItemType.LAMPPOST: {
+		"id": "lamppost",
+		"name": "Lamp Post",
+		"category": Category.DECOR,
+		"color": Color(0.35, 0.35, 0.38),
+		"light_color": Color(0.95, 0.9, 0.6),
+		"size": Vector3(0.2, 1.1, 0.2),
+		"offset_y": 0.55,
+		"rotatable": true,
+	},
+	ItemType.WELL: {
+		"id": "well",
+		"name": "Well",
+		"category": Category.DECOR,
+		"color": Color(0.5, 0.5, 0.52),
+		"roof_color": Color(0.55, 0.28, 0.18),
+		"size": Vector3(0.9, 0.9, 0.9),
+		"offset_y": 0.45,
+		"rotatable": true,
+	},
 	ItemType.COW: {
 		"id": "cow",
 		"name": "Cow",
@@ -190,44 +247,48 @@ const ITEMS: Dictionary = {
 	},
 	ItemType.FLOWER_RED: {
 		"id": "flower_red",
-		"name": "Red Flower",
+		"name": "Red Flower Seed",
 		"category": Category.PLANT,
 		"color": Color(0.85, 0.15, 0.2),
 		"stem_color": Color(0.2, 0.55, 0.2),
+		"dirt_color": Color(0.55, 0.38, 0.22),
 		"size": Vector3(0.3, 0.45, 0.3),
 		"offset_y": 0.22,
-		"rotatable": true,
+		"rotatable": false,
 	},
 	ItemType.FLOWER_YELLOW: {
 		"id": "flower_yellow",
-		"name": "Yellow Flower",
+		"name": "Yellow Flower Seed",
 		"category": Category.PLANT,
 		"color": Color(0.95, 0.85, 0.15),
 		"stem_color": Color(0.2, 0.55, 0.2),
+		"dirt_color": Color(0.55, 0.38, 0.22),
 		"size": Vector3(0.3, 0.45, 0.3),
 		"offset_y": 0.22,
-		"rotatable": true,
+		"rotatable": false,
 	},
 	ItemType.SUNFLOWER: {
 		"id": "sunflower",
-		"name": "Sunflower",
+		"name": "Sunflower Seed",
 		"category": Category.PLANT,
 		"color": Color(0.95, 0.78, 0.1),
 		"center_color": Color(0.45, 0.32, 0.12),
 		"stem_color": Color(0.22, 0.58, 0.18),
+		"dirt_color": Color(0.55, 0.38, 0.22),
 		"size": Vector3(0.5, 0.7, 0.5),
 		"offset_y": 0.35,
-		"rotatable": true,
+		"rotatable": false,
 	},
 	ItemType.TULIP: {
 		"id": "tulip",
-		"name": "Tulip",
+		"name": "Tulip Seed",
 		"category": Category.PLANT,
 		"color": Color(0.8, 0.25, 0.55),
 		"stem_color": Color(0.2, 0.55, 0.2),
+		"dirt_color": Color(0.55, 0.38, 0.22),
 		"size": Vector3(0.25, 0.5, 0.25),
 		"offset_y": 0.25,
-		"rotatable": true,
+		"rotatable": false,
 	},
 }
 
@@ -241,6 +302,8 @@ static func get_items_by_category(category: Category) -> Array:
 
 
 static func get_item_by_id(item_id: String) -> ItemType:
+	if item_id == "crop":
+		return ItemType.FLOWER_RED
 	for type in ITEMS:
 		if ITEMS[type]["id"] == item_id:
 			return type
@@ -255,6 +318,32 @@ static func get_item_name(item_type: ItemType) -> String:
 	return ITEMS[item_type]["name"]
 
 
+static func is_terrain(item_type: ItemType) -> bool:
+	return item_type in [ItemType.GRASS, ItemType.DIRT, ItemType.WATER]
+
+
+static func is_hoeable(item_type: ItemType) -> bool:
+	return item_type == ItemType.GRASS
+
+
+static func is_flower_seed(item_type: ItemType) -> bool:
+	return item_type in [
+		ItemType.FLOWER_RED,
+		ItemType.FLOWER_YELLOW,
+		ItemType.SUNFLOWER,
+		ItemType.TULIP,
+	]
+
+
+static func is_growable_plant(item_type: ItemType) -> bool:
+	return is_flower_seed(item_type)
+
+
+static func can_build_over(item_type: ItemType) -> bool:
+	# Any terrain tile can be replaced by buildings, decor, or animals.
+	return is_terrain(item_type)
+
+
 static func is_animal(item_type: ItemType) -> bool:
 	return ITEMS[item_type].get("category") == Category.ANIMAL
 
@@ -264,10 +353,6 @@ static func should_sway(item_type: ItemType) -> bool:
 		ItemType.GRASS,
 		ItemType.TREE,
 		ItemType.CROP_BED,
-		ItemType.FLOWER_RED,
-		ItemType.FLOWER_YELLOW,
-		ItemType.SUNFLOWER,
-		ItemType.TULIP,
 	]
 
 

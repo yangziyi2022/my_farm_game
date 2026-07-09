@@ -6,7 +6,7 @@ const SAVE_PATH := "user://farm_save.json"
 
 static func save_farm(grid_manager: GridManager) -> bool:
 	var data := {
-		"version": 1,
+		"version": 2,
 		"grid_width": GridManager.GRID_WIDTH,
 		"grid_height": GridManager.GRID_HEIGHT,
 		"objects": grid_manager.get_all_objects_data(),

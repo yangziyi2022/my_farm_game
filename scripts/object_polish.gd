@@ -16,6 +16,44 @@ static func setup(obj: Node3D, item_type: ItemData.ItemType, animate_placement: 
 	if ItemData.is_animal(item_type):
 		_attach_animal_behavior(obj)
 
+	if ItemData.is_growable_plant(item_type):
+		_attach_plant_growth(obj, item_type)
+
+
+static func _attach_plant_growth(obj: Node3D, item_type: ItemData.ItemType) -> void:
+	var growth := CropGrowth.new()
+	growth.name = "CropGrowth"
+	var start_stage: int = obj.get_meta("growth_stage", 0)
+	obj.add_child(growth)
+	growth.setup(obj, start_stage)
+	growth.stage_changed.connect(_on_plant_stage_changed.bind(obj, item_type))
+
+	if start_stage >= CropGrowth.STAGE_COUNT - 1:
+		_attach_flower_sway(obj)
+
+
+static func _on_plant_stage_changed(obj: Node3D, item_type: ItemData.ItemType, stage: int) -> void:
+	if stage >= CropGrowth.STAGE_COUNT - 1:
+		_attach_flower_sway(obj)
+
+
+static func _attach_flower_sway(obj: Node3D) -> void:
+	if obj.get_node_or_null("SwayPivot"):
+		return
+
+	var pivot := _create_visual_pivot(obj, SWAY_PIVOT_NAME)
+	for child in obj.get_children():
+		if child == pivot or child.name in ["TileCollider", "CropGrowth", "AnimalController"]:
+			continue
+		if child is Node3D and str(child.name).begins_with("Stage"):
+			child.reparent(pivot)
+
+	var sway := AmbientSway.new()
+	sway.name = "AmbientSway"
+	sway.sway_angle_deg = 2.2
+	sway.sway_speed = 1.1
+	pivot.add_child(sway)
+
 
 static func _attach_sway(obj: Node3D, item_type: ItemData.ItemType) -> void:
 	var pivot := _create_visual_pivot(obj, SWAY_PIVOT_NAME)

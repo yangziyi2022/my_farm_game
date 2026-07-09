@@ -2,7 +2,7 @@ class_name AnimalController
 extends Node
 
 # Reusable idle wander behavior for farm animals.
-# Moves a visual pivot locally so grid placement stays intact.
+# Moves and rotates a visual pivot locally so grid placement stays intact.
 
 enum State { IDLE, WALKING }
 
@@ -11,24 +11,25 @@ enum State { IDLE, WALKING }
 @export var idle_time_min: float = 2.5
 @export var idle_time_max: float = 6.5
 @export var walk_chance: float = 0.55
-@export var flip_chance: float = 0.35
+@export var look_around_chance: float = 0.4
+@export var turn_speed: float = 5.0
 
 var _pivot: Node3D
 var _state: State = State.IDLE
 var _timer: float = 0.0
 var _target_offset: Vector3 = Vector3.ZERO
-var _facing: float = 1.0
+var _facing_angle: float = 0.0
+var _target_angle: float = 0.0
 
 
 func setup(pivot: Node3D) -> void:
 	_pivot = pivot
-	_facing = 1.0 if randf() > 0.5 else -1.0
-	_apply_facing()
-	_reset_idle_timer()
+	_facing_angle = randf_range(0.0, TAU)
+	_target_angle = _facing_angle
+	_apply_rotation()
 
 
 func _ready() -> void:
-	# setup() is called before add_child; only fall back if used standalone.
 	if _pivot == null:
 		_pivot = get_parent() as Node3D
 	if _pivot:
@@ -38,6 +39,9 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if _pivot == null:
 		return
+
+	_facing_angle = lerp_angle(_facing_angle, _target_angle, turn_speed * delta)
+	_apply_rotation()
 
 	match _state:
 		State.IDLE:
@@ -50,13 +54,13 @@ func _process(delta: float) -> void:
 				_pivot.position = _target_offset
 				_enter_idle()
 			else:
+				_target_angle = atan2(to_target.x, to_target.z)
 				_pivot.position += to_target.normalized() * walk_speed * delta
 
 
 func _pick_next_action() -> void:
-	if randf() < flip_chance:
-		_facing *= -1.0
-		_apply_facing()
+	if randf() < look_around_chance:
+		_target_angle = randf_range(0.0, TAU)
 
 	if randf() < walk_chance:
 		_start_walk()
@@ -72,11 +76,7 @@ func _start_walk() -> void:
 		Vector3(-wander_radius, 0.0, -wander_radius),
 		Vector3(wander_radius, 0.0, wander_radius)
 	)
-
-	if _target_offset.x != 0.0:
-		_facing = 1.0 if _target_offset.x >= 0.0 else -1.0
-		_apply_facing()
-
+	_target_angle = atan2(_target_offset.x - _pivot.position.x, _target_offset.z - _pivot.position.z)
 	_state = State.WALKING
 
 
@@ -89,6 +89,6 @@ func _reset_idle_timer() -> void:
 	_timer = randf_range(idle_time_min, idle_time_max)
 
 
-func _apply_facing() -> void:
+func _apply_rotation() -> void:
 	if _pivot:
-		_pivot.scale.x = absf(_pivot.scale.x) * _facing
+		_pivot.rotation.y = _facing_angle

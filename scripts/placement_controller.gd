@@ -4,10 +4,11 @@ extends Node
 signal status_message(text: String)
 signal select_mode_requested
 
-enum Mode { PLACE, SELECT }
+enum Mode { PLACE, SELECT, HOE }
 
 var grid_manager: GridManager
 var camera: Camera3D
+var undo_manager: UndoManager
 var selected_item: ItemData.ItemType = ItemData.ItemType.GRASS
 var mode: Mode = Mode.SELECT
 
@@ -19,9 +20,10 @@ var _mouse_down_pos: Vector2 = Vector2.ZERO
 const DRAG_THRESHOLD: float = 8.0
 
 
-func setup(p_grid_manager: GridManager, p_camera: Camera3D) -> void:
+func setup(p_grid_manager: GridManager, p_camera: Camera3D, p_undo_manager: UndoManager) -> void:
 	grid_manager = p_grid_manager
 	camera = p_camera
+	undo_manager = p_undo_manager
 
 
 func enter_select_mode() -> void:
@@ -31,7 +33,16 @@ func enter_select_mode() -> void:
 	grid_manager.select_object(null)
 	_remove_ghost()
 	select_mode_requested.emit()
-	status_message.emit("Select mode — click objects to move, Esc to deselect")
+	status_message.emit("Select — click objects to move. Hoe dirt for flower seeds only.")
+
+
+func enter_hoe_mode() -> void:
+	mode = Mode.HOE
+	_dragging = false
+	_drag_object = null
+	grid_manager.select_object(null)
+	_remove_ghost()
+	status_message.emit("Hoe — click grass to turn it into dirt paths.")
 
 
 func set_selected_item(item_type: ItemData.ItemType) -> void:
@@ -41,7 +52,17 @@ func set_selected_item(item_type: ItemData.ItemType) -> void:
 	_drag_object = null
 	grid_manager.select_object(null)
 	_update_ghost()
-	status_message.emit("Place mode — %s (click Select or Esc to cancel)" % ItemData.get_item_name(item_type))
+	if ItemData.is_flower_seed(item_type):
+		status_message.emit("Plant %s on dirt — it will grow over time" % ItemData.get_item_name(item_type))
+	else:
+		status_message.emit("Place — %s" % ItemData.get_item_name(item_type))
+
+
+func perform_undo() -> void:
+	if undo_manager and undo_manager.undo(grid_manager):
+		enter_select_mode()
+	else:
+		status_message.emit("Nothing to undo")
 
 
 func _process(_delta: float) -> void:
@@ -51,6 +72,10 @@ func _process(_delta: float) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed:
+		if event.keycode == KEY_Z and event.ctrl_pressed:
+			perform_undo()
+			get_viewport().set_input_as_handled()
+			return
 		match event.keycode:
 			KEY_R:
 				_rotate_selected()
@@ -70,7 +95,6 @@ func _handle_mouse_button(event: InputEventMouseButton) -> void:
 			_on_left_press(event.position)
 		else:
 			_on_left_release(event.position)
-
 	elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
 		_on_right_click(event.position)
 
@@ -85,30 +109,36 @@ func _on_left_press(screen_pos: Vector2) -> void:
 	var grid_pos: Vector2i = hit["grid_pos"]
 	var hit_obj: Node3D = hit.get("object")
 
-	if mode == Mode.PLACE:
-		if hit_obj == null and grid_manager.is_in_bounds(grid_pos):
-			grid_manager.place_object(selected_item, grid_pos)
-			status_message.emit("Placed %s at (%d, %d)" % [
-				ItemData.get_item_name(selected_item), grid_pos.x, grid_pos.y
-			])
-		elif hit_obj:
-			mode = Mode.SELECT
-			grid_manager.select_object(hit_obj)
-			_remove_ghost()
-			_dragging = false
-			_drag_object = hit_obj
-			_drag_origin = hit_obj.get_meta("grid_pos")
-			status_message.emit("Selected — drag to move, R to rotate, Del to delete")
-	else:
-		if hit_obj:
-			grid_manager.select_object(hit_obj)
-			_dragging = false
-			_drag_object = hit_obj
-			_drag_origin = hit_obj.get_meta("grid_pos")
-			status_message.emit("Selected — drag to move, R to rotate, Del to delete")
-		else:
-			grid_manager.select_object(null)
-			status_message.emit("Deselected")
+	match mode:
+		Mode.HOE:
+			if grid_manager.hoe_grass(grid_pos):
+				status_message.emit("Hoed grass at (%d, %d)" % [grid_pos.x, grid_pos.y])
+			else:
+				status_message.emit("Hoe only works on grass")
+		Mode.PLACE:
+			if grid_manager.can_place_at(grid_pos, selected_item):
+				grid_manager.place_object(selected_item, grid_pos)
+				status_message.emit("Placed %s at (%d, %d)" % [
+					ItemData.get_item_name(selected_item), grid_pos.x, grid_pos.y
+				])
+			elif hit_obj:
+				mode = Mode.SELECT
+				grid_manager.select_object(hit_obj)
+				_remove_ghost()
+				_dragging = false
+				_drag_object = hit_obj
+				_drag_origin = hit_obj.get_meta("grid_pos")
+				status_message.emit("Selected — drag to move, R to rotate")
+		Mode.SELECT:
+			if hit_obj:
+				grid_manager.select_object(hit_obj)
+				_dragging = false
+				_drag_object = hit_obj
+				_drag_origin = hit_obj.get_meta("grid_pos")
+				status_message.emit("Selected — drag to move, R to rotate")
+			else:
+				grid_manager.select_object(null)
+				status_message.emit("Deselected")
 
 
 func _on_left_release(screen_pos: Vector2) -> void:
@@ -169,7 +199,7 @@ func _delete_selected() -> void:
 
 func _cancel_action() -> void:
 	enter_select_mode()
-	status_message.emit("Cancelled — Select mode")
+	status_message.emit("Cancelled")
 
 
 func _raycast(screen_pos: Vector2) -> Dictionary:
@@ -183,9 +213,15 @@ func _raycast(screen_pos: Vector2) -> Dictionary:
 
 	var result := space.intersect_ray(query)
 	var grid_pos: Vector2i
+	var hit_obj: Node3D = null
 
 	if result:
-		grid_pos = grid_manager.world_to_grid(result.position)
+		hit_obj = _resolve_object_from_collider(result.collider as Node)
+		if hit_obj:
+			grid_pos = hit_obj.get_meta("grid_pos")
+		else:
+			grid_pos = grid_manager.world_to_grid_nearest(result.position)
+			hit_obj = grid_manager.get_object_at(grid_pos)
 	else:
 		var ray_dir := camera.project_ray_normal(screen_pos)
 		if absf(ray_dir.y) < 0.001:
@@ -194,10 +230,21 @@ func _raycast(screen_pos: Vector2) -> Dictionary:
 		if t < 0:
 			return {}
 		var hit_point := from + ray_dir * t
-		grid_pos = grid_manager.world_to_grid(hit_point)
+		grid_pos = grid_manager.world_to_grid_nearest(hit_point)
+		hit_obj = grid_manager.get_object_at(grid_pos)
 
-	var hit_obj: Node3D = grid_manager.get_object_at(grid_pos)
 	return {"grid_pos": grid_pos, "object": hit_obj}
+
+
+func _resolve_object_from_collider(node: Node) -> Node3D:
+	var current: Node = node
+	while current:
+		if current is Node3D and current.has_meta("grid_pos"):
+			var grid_pos: Vector2i = current.get_meta("grid_pos")
+			if grid_manager.get_object_at(grid_pos) == current:
+				return current
+		current = current.get_parent()
+	return null
 
 
 func _update_ghost() -> void:
@@ -206,13 +253,18 @@ func _update_ghost() -> void:
 		return
 	_ghost = PlaceableObject.create(selected_item, Vector2i.ZERO, 0)
 	_ghost.name = "Ghost"
-	for child in _ghost.get_children():
-		if child is MeshInstance3D:
-			var mat: StandardMaterial3D = child.material_override
-			if mat:
-				mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-				mat.albedo_color.a = 0.5
+	_set_ghost_transparency(_ghost, 0.5)
 	grid_manager.objects_container.add_child(_ghost)
+
+
+func _set_ghost_transparency(node: Node, alpha: float) -> void:
+	if node is MeshInstance3D:
+		var mat: StandardMaterial3D = node.material_override
+		if mat:
+			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			mat.albedo_color.a = alpha
+	for child in node.get_children():
+		_set_ghost_transparency(child, alpha)
 
 
 func _remove_ghost() -> void:
@@ -234,9 +286,14 @@ func _update_ghost_position() -> void:
 	_ghost.visible = grid_manager.is_in_bounds(grid_pos)
 	_ghost.position = grid_manager.grid_to_world(grid_pos)
 
-	var valid := grid_manager.is_in_bounds(grid_pos) and not grid_manager.is_occupied(grid_pos)
-	for child in _ghost.get_children():
-		if child is MeshInstance3D:
-			var mat: StandardMaterial3D = child.material_override
-			if mat:
-				mat.albedo_color = Color(0.3, 0.9, 0.3, 0.5) if valid else Color(0.9, 0.3, 0.3, 0.5)
+	var valid := grid_manager.can_place_at(grid_pos, selected_item)
+	_set_ghost_color(_ghost, Color(0.3, 0.9, 0.3, 0.5) if valid else Color(0.9, 0.3, 0.3, 0.5))
+
+
+func _set_ghost_color(node: Node, color: Color) -> void:
+	if node is MeshInstance3D:
+		var mat: StandardMaterial3D = node.material_override
+		if mat:
+			mat.albedo_color = color
+	for child in node.get_children():
+		_set_ghost_color(child, color)

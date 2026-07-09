@@ -2,12 +2,13 @@ class_name PlaceableObject
 extends Node3D
 
 
-static func create(item_type: ItemData.ItemType, grid_pos: Vector2i, rotation: int = 0) -> Node3D:
+static func create(item_type: ItemData.ItemType, grid_pos: Vector2i, rotation: int = 0, growth_stage: int = 0) -> Node3D:
 	var obj := Node3D.new()
 	obj.name = "Object_%s_%d_%d" % [ItemData.get_item_id(item_type), grid_pos.x, grid_pos.y]
 	obj.set_meta("item_type", item_type)
 	obj.set_meta("grid_pos", grid_pos)
 	obj.set_meta("rotation", rotation)
+	obj.set_meta("growth_stage", growth_stage)
 
 	var info: Dictionary = ItemData.ITEMS[item_type]
 	obj.rotation.y = deg_to_rad(rotation * 90.0)
@@ -21,6 +22,16 @@ static func create(item_type: ItemData.ItemType, grid_pos: Vector2i, rotation: i
 			_build_house(obj, info)
 		ItemData.ItemType.BARN:
 			_build_barn(obj, info)
+		ItemData.ItemType.WINDMILL:
+			_build_windmill(obj, info)
+		ItemData.ItemType.GRANARY:
+			_build_granary(obj, info)
+		ItemData.ItemType.BRIDGE:
+			_build_bridge(obj, info)
+		ItemData.ItemType.LAMPPOST:
+			_build_lamppost(obj, info)
+		ItemData.ItemType.WELL:
+			_build_well(obj, info)
 		ItemData.ItemType.CROP_BED:
 			_build_crop_bed(obj, info)
 		ItemData.ItemType.COW:
@@ -34,9 +45,9 @@ static func create(item_type: ItemData.ItemType, grid_pos: Vector2i, rotation: i
 		ItemData.ItemType.DUCK:
 			_build_duck(obj, info)
 		ItemData.ItemType.FLOWER_RED, ItemData.ItemType.FLOWER_YELLOW, ItemData.ItemType.TULIP:
-			_build_flower(obj, info)
+			_build_growing_flower(obj, info, false)
 		ItemData.ItemType.SUNFLOWER:
-			_build_sunflower(obj, info)
+			_build_growing_flower(obj, info, true)
 		ItemData.ItemType.FENCE:
 			_build_box(obj, info)
 		_:
@@ -128,6 +139,102 @@ static func _build_barn(parent: Node3D, info: Dictionary) -> void:
 	_add_mesh(parent, door_mesh, info.get("door_color", Color(0.5, 0.32, 0.2)), Vector3(0.0, 0.4, 0.64))
 
 
+static func _build_windmill(parent: Node3D, info: Dictionary) -> void:
+	var tower_mesh := CylinderMesh.new()
+	tower_mesh.top_radius = 0.45
+	tower_mesh.bottom_radius = 0.55
+	tower_mesh.height = 1.4
+	_add_mesh(parent, tower_mesh, info["color"], Vector3(0.0, 0.7, 0.0))
+
+	var roof_mesh := CylinderMesh.new()
+	roof_mesh.top_radius = 0.0
+	roof_mesh.bottom_radius = 0.55
+	roof_mesh.height = 0.35
+	_add_mesh(parent, roof_mesh, info.get("roof_color", Color(0.55, 0.28, 0.18)), Vector3(0.0, 1.55, 0.0))
+
+	var hub_mesh := SphereMesh.new()
+	hub_mesh.radius = 0.1
+	hub_mesh.height = 0.1
+	_add_mesh(parent, hub_mesh, info.get("blade_color", Color(0.75, 0.75, 0.78)), Vector3(0.0, 1.1, 0.55))
+
+	for i in range(4):
+		var blade_mesh := BoxMesh.new()
+		blade_mesh.size = Vector3(0.08, 0.7, 0.14)
+		var angle := deg_to_rad(i * 90.0)
+		var pos := Vector3(sin(angle) * 0.35, 1.1, 0.55 + cos(angle) * 0.35)
+		var mesh_inst := _add_mesh(parent, blade_mesh, info.get("blade_color", Color(0.75, 0.75, 0.78)), pos)
+		mesh_inst.rotation.y = angle
+
+
+static func _build_granary(parent: Node3D, info: Dictionary) -> void:
+	var body_mesh := BoxMesh.new()
+	body_mesh.size = Vector3(1.3, 1.0, 1.1)
+	_add_mesh(parent, body_mesh, info["color"], Vector3(0.0, 0.5, 0.0))
+
+	var silo_mesh := CylinderMesh.new()
+	silo_mesh.top_radius = 0.35
+	silo_mesh.bottom_radius = 0.4
+	silo_mesh.height = 0.9
+	_add_mesh(parent, silo_mesh, Color(0.78, 0.74, 0.62), Vector3(0.45, 0.55, 0.0))
+
+	var roof_mesh := BoxMesh.new()
+	roof_mesh.size = Vector3(1.45, 0.12, 1.25)
+	_add_mesh(parent, roof_mesh, info.get("roof_color", Color(0.48, 0.32, 0.22)), Vector3(0.0, 1.06, 0.0))
+
+	var door_mesh := BoxMesh.new()
+	door_mesh.size = Vector3(0.35, 0.5, 0.05)
+	_add_mesh(parent, door_mesh, info.get("door_color", Color(0.45, 0.3, 0.18)), Vector3(-0.2, 0.3, 0.58))
+
+
+static func _build_bridge(parent: Node3D, info: Dictionary) -> void:
+	var deck_mesh := BoxMesh.new()
+	deck_mesh.size = Vector3(1.1, 0.08, 0.75)
+	_add_mesh(parent, deck_mesh, info["color"], Vector3(0.0, 0.12, 0.0))
+
+	for side in [-1.0, 1.0]:
+		var rail_mesh := BoxMesh.new()
+		rail_mesh.size = Vector3(1.1, 0.12, 0.06)
+		_add_mesh(parent, rail_mesh, info.get("rail_color", Color(0.45, 0.3, 0.15)), Vector3(0.0, 0.28, side * 0.34))
+
+
+static func _build_lamppost(parent: Node3D, info: Dictionary) -> void:
+	var pole_mesh := CylinderMesh.new()
+	pole_mesh.top_radius = 0.04
+	pole_mesh.bottom_radius = 0.05
+	pole_mesh.height = 0.9
+	_add_mesh(parent, pole_mesh, info["color"], Vector3(0.0, 0.45, 0.0))
+
+	var lamp_mesh := SphereMesh.new()
+	lamp_mesh.radius = 0.1
+	lamp_mesh.height = 0.12
+	var lamp := _add_mesh(parent, lamp_mesh, info.get("light_color", Color(0.95, 0.9, 0.6)), Vector3(0.0, 0.92, 0.0))
+	var lamp_mat: StandardMaterial3D = lamp.material_override
+	lamp_mat.emission_enabled = true
+	lamp_mat.emission = info.get("light_color", Color(0.95, 0.9, 0.6))
+	lamp_mat.emission_energy_multiplier = 0.6
+
+
+static func _build_well(parent: Node3D, info: Dictionary) -> void:
+	var base_mesh := CylinderMesh.new()
+	base_mesh.top_radius = 0.4
+	base_mesh.bottom_radius = 0.42
+	base_mesh.height = 0.35
+	_add_mesh(parent, base_mesh, info["color"], Vector3(0.0, 0.2, 0.0))
+
+	for i in range(4):
+		var post_mesh := CylinderMesh.new()
+		post_mesh.top_radius = 0.04
+		post_mesh.bottom_radius = 0.05
+		post_mesh.height = 0.55
+		var angle := deg_to_rad(45.0 + i * 90.0)
+		var pos := Vector3(cos(angle) * 0.32, 0.55, sin(angle) * 0.32)
+		_add_mesh(parent, post_mesh, info["color"], pos)
+
+	var roof_mesh := BoxMesh.new()
+	roof_mesh.size = Vector3(0.85, 0.08, 0.85)
+	_add_mesh(parent, roof_mesh, info.get("roof_color", Color(0.55, 0.28, 0.18)), Vector3(0.0, 0.86, 0.0))
+
+
 static func _build_crop_bed(parent: Node3D, info: Dictionary) -> void:
 	var bed_mesh := BoxMesh.new()
 	bed_mesh.size = info["size"]
@@ -137,6 +244,48 @@ static func _build_crop_bed(parent: Node3D, info: Dictionary) -> void:
 	crop_mesh.size = Vector3(0.15, 0.3, 0.15)
 	_add_mesh(parent, crop_mesh, info.get("crop_color", Color(0.3, 0.75, 0.2)), Vector3(-0.2, 0.25, -0.2))
 	_add_mesh(parent, crop_mesh, info.get("crop_color", Color(0.3, 0.75, 0.2)), Vector3(0.2, 0.25, 0.2))
+
+
+static func _build_growing_flower(parent: Node3D, info: Dictionary, is_sunflower: bool) -> void:
+	var dirt_mesh := BoxMesh.new()
+	dirt_mesh.size = Vector3(1.0, 0.1, 1.0)
+	_add_mesh(parent, dirt_mesh, info.get("dirt_color", Color(0.55, 0.38, 0.22)), Vector3(0.0, 0.05, 0.0))
+
+	for stage in range(4):
+		var stage_node := _make_flower_stage(info, stage, is_sunflower)
+		parent.add_child(stage_node)
+
+
+static func _make_flower_stage(info: Dictionary, stage: int, is_sunflower: bool) -> Node3D:
+	var node := Node3D.new()
+	node.name = "Stage%d" % stage
+
+	match stage:
+		0:
+			var seed_mesh := SphereMesh.new()
+			seed_mesh.radius = 0.04
+			_add_mesh(node, seed_mesh, Color(0.45, 0.32, 0.18), Vector3(0.0, 0.1, 0.0))
+		1:
+			var sprout_mesh := BoxMesh.new()
+			sprout_mesh.size = Vector3(0.05, 0.12, 0.05)
+			_add_mesh(node, sprout_mesh, info.get("stem_color", Color(0.22, 0.58, 0.18)), Vector3(0.0, 0.13, 0.0))
+		2:
+			var stem_mesh := CylinderMesh.new()
+			stem_mesh.top_radius = 0.018
+			stem_mesh.bottom_radius = 0.022
+			stem_mesh.height = 0.22
+			_add_mesh(node, stem_mesh, info.get("stem_color", Color(0.22, 0.58, 0.18)), Vector3(0.0, 0.16, 0.0))
+			var bud_mesh := SphereMesh.new()
+			bud_mesh.radius = 0.05
+			bud_mesh.height = 0.08
+			_add_mesh(node, bud_mesh, info["color"], Vector3(0.0, 0.3, 0.0))
+		3:
+			if is_sunflower:
+				_build_sunflower(node, info)
+			else:
+				_build_flower(node, info)
+
+	return node
 
 
 static func _build_cow(parent: Node3D, info: Dictionary) -> void:
