@@ -119,16 +119,21 @@ func _deselect() -> void:
 
 
 func _highlight_object(obj: Node3D, enabled: bool) -> void:
-	for child in obj.get_children():
-		if child is MeshInstance3D:
-			var mat: StandardMaterial3D = child.material_override
-			if mat:
-				mat.emission_enabled = enabled
-				mat.emission = Color(0.3, 0.5, 0.8) if enabled else Color.BLACK
-				mat.emission_energy_multiplier = 0.5 if enabled else 0.0
+	_apply_highlight_recursive(obj, enabled)
 
 
-func place_object(item_type: ItemData.ItemType, grid_pos: Vector2i, rotation: int = 0) -> Node3D:
+func _apply_highlight_recursive(node: Node, enabled: bool) -> void:
+	if node is MeshInstance3D:
+		var mat: StandardMaterial3D = node.material_override
+		if mat:
+			mat.emission_enabled = enabled
+			mat.emission = Color(0.3, 0.5, 0.8) if enabled else Color.BLACK
+			mat.emission_energy_multiplier = 0.5 if enabled else 0.0
+	for child in node.get_children():
+		_apply_highlight_recursive(child, enabled)
+
+
+func place_object(item_type: ItemData.ItemType, grid_pos: Vector2i, rotation: int = 0, animate_placement: bool = true) -> Node3D:
 	if not is_in_bounds(grid_pos) or is_occupied(grid_pos):
 		return null
 
@@ -136,6 +141,7 @@ func place_object(item_type: ItemData.ItemType, grid_pos: Vector2i, rotation: in
 	obj.position = grid_to_world(grid_pos)
 	objects_container.add_child(obj)
 	_objects[grid_pos] = obj
+	ObjectPolish.setup(obj, item_type, animate_placement)
 	object_placed.emit(grid_pos, obj)
 	return obj
 
@@ -202,4 +208,4 @@ func load_objects_data(data: Array) -> void:
 		var item_type := ItemData.get_item_by_id(entry.get("type", "grass"))
 		var grid_pos := Vector2i(entry.get("grid_x", 0), entry.get("grid_y", 0))
 		var rotation: int = entry.get("rotation", 0)
-		place_object(item_type, grid_pos, rotation)
+		place_object(item_type, grid_pos, rotation, false)

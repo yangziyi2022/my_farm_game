@@ -24,6 +24,7 @@ enum ItemType {
 	CHICKEN,
 	SHEEP,
 	PIG,
+	DUCK,
 	FLOWER_RED,
 	FLOWER_YELLOW,
 	SUNFLOWER,
@@ -177,6 +178,16 @@ const ITEMS: Dictionary = {
 		"offset_y": 0.28,
 		"rotatable": true,
 	},
+	ItemType.DUCK: {
+		"id": "duck",
+		"name": "Duck",
+		"category": Category.ANIMAL,
+		"color": Color(0.92, 0.78, 0.28),
+		"beak_color": Color(0.9, 0.55, 0.15),
+		"size": Vector3(0.4, 0.35, 0.5),
+		"offset_y": 0.2,
+		"rotatable": true,
+	},
 	ItemType.FLOWER_RED: {
 		"id": "flower_red",
 		"name": "Red Flower",
@@ -242,6 +253,22 @@ static func get_item_id(item_type: ItemType) -> String:
 
 static func get_item_name(item_type: ItemType) -> String:
 	return ITEMS[item_type]["name"]
+
+
+static func is_animal(item_type: ItemType) -> bool:
+	return ITEMS[item_type].get("category") == Category.ANIMAL
+
+
+static func should_sway(item_type: ItemType) -> bool:
+	return item_type in [
+		ItemType.GRASS,
+		ItemType.TREE,
+		ItemType.CROP_BED,
+		ItemType.FLOWER_RED,
+		ItemType.FLOWER_YELLOW,
+		ItemType.SUNFLOWER,
+		ItemType.TULIP,
+	]
 
 
 static func is_rotatable(item_type: ItemType) -> bool:

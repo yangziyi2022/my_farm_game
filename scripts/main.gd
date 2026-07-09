@@ -6,6 +6,7 @@ extends Node3D
 @onready var weather_controller: WeatherController = $WeatherController
 @onready var world_environment: WorldEnvironment = $WorldEnvironment
 @onready var sun_light: DirectionalLight3D = $DirectionalLight3D
+@onready var fill_light: OmniLight3D = $FillLight
 @onready var placement_controller: PlacementController = $PlacementController
 @onready var ui_layer: CanvasLayer = $UI
 @onready var item_palette: ItemPalette = $UI/ItemPalette
@@ -15,7 +16,7 @@ extends Node3D
 
 
 func _ready() -> void:
-	weather_controller.setup(world_environment, sun_light)
+	weather_controller.setup(world_environment, sun_light, fill_light)
 	camera_controller.setup(camera)
 	placement_controller.setup(grid_manager, camera)
 	item_palette.item_selected.connect(placement_controller.set_selected_item)

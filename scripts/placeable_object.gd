@@ -31,6 +31,8 @@ static func create(item_type: ItemData.ItemType, grid_pos: Vector2i, rotation: i
 			_build_sheep(obj, info)
 		ItemData.ItemType.PIG:
 			_build_pig(obj, info)
+		ItemData.ItemType.DUCK:
+			_build_duck(obj, info)
 		ItemData.ItemType.FLOWER_RED, ItemData.ItemType.FLOWER_YELLOW, ItemData.ItemType.TULIP:
 			_build_flower(obj, info)
 		ItemData.ItemType.SUNFLOWER:
@@ -204,6 +206,22 @@ static func _build_pig(parent: Node3D, info: Dictionary) -> void:
 	nose_mesh.bottom_radius = 0.08
 	nose_mesh.height = 0.06
 	_add_mesh(parent, nose_mesh, info.get("nose_color", Color(0.9, 0.5, 0.55)), Vector3(0.0, 0.28, 0.72), Vector3(90.0, 0.0, 0.0))
+
+
+static func _build_duck(parent: Node3D, info: Dictionary) -> void:
+	var body_mesh := SphereMesh.new()
+	body_mesh.radius = 0.18
+	body_mesh.height = 0.28
+	_add_mesh(parent, body_mesh, info["color"], Vector3(0.0, 0.2, 0.0))
+
+	var head_mesh := SphereMesh.new()
+	head_mesh.radius = 0.11
+	head_mesh.height = 0.16
+	_add_mesh(parent, head_mesh, info["color"], Vector3(0.0, 0.3, 0.16))
+
+	var beak_mesh := BoxMesh.new()
+	beak_mesh.size = Vector3(0.1, 0.05, 0.08)
+	_add_mesh(parent, beak_mesh, info.get("beak_color", Color(0.9, 0.55, 0.15)), Vector3(0.0, 0.27, 0.26))
 
 
 static func _build_flower(parent: Node3D, info: Dictionary) -> void:
