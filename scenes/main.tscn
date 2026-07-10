@@ -1,4 +1,4 @@
-[gd_scene load_steps=8 format=3 uid="uid://main_scene"]
+[gd_scene load_steps=12 format=3 uid="uid://main_scene"]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="Script" path="res://scripts/grid_manager.gd" id="2_grid"]
@@ -7,6 +7,9 @@
 [ext_resource type="Script" path="res://scripts/camera_controller.gd" id="5_camera"]
 [ext_resource type="Script" path="res://scripts/weather_controller.gd" id="6_weather"]
 [ext_resource type="Script" path="res://scripts/undo_manager.gd" id="7_undo"]
+[ext_resource type="Script" path="res://scripts/inventory_manager.gd" id="8_inventory"]
+[ext_resource type="Script" path="res://scripts/inventory_bar.gd" id="9_invbar"]
+[ext_resource type="Script" path="res://scripts/cursor_overlay.gd" id="10_cursor"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_ground"]
 size = Vector3(30, 0.1, 30)
@@ -54,6 +57,9 @@ script = ExtResource("6_weather")
 [node name="UndoManager" type="Node" parent="."]
 script = ExtResource("7_undo")
 
+[node name="InventoryManager" type="Node" parent="."]
+script = ExtResource("8_inventory")
+
 [node name="PlacementController" type="Node" parent="."]
 script = ExtResource("3_place")
 
@@ -63,8 +69,28 @@ script = ExtResource("3_place")
 offset_left = 12.0
 offset_top = 12.0
 offset_right = 240.0
-offset_bottom = 560.0
+offset_bottom = 600.0
 script = ExtResource("4_palette")
+
+[node name="InventoryBar" type="PanelContainer" parent="UI"]
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -220.0
+offset_top = -130.0
+offset_right = 220.0
+offset_bottom = -56.0
+grow_horizontal = 2
+grow_vertical = 0
+script = ExtResource("9_invbar")
+
+[node name="CursorOverlay" type="Control" parent="UI"]
+layout_mode = 3
+anchors_preset = 0
+mouse_filter = 2
+script = ExtResource("10_cursor")
 
 [node name="Toolbar" type="HBoxContainer" parent="UI"]
 anchors_preset = 1

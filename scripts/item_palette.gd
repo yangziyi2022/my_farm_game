@@ -4,14 +4,18 @@ extends PanelContainer
 signal item_selected(item_type: ItemData.ItemType)
 signal select_tool_activated
 signal hoe_tool_activated
+signal harvest_tool_activated
+signal rod_tool_activated
 
-enum Tool { SELECT, HOE }
+enum Tool { SELECT, HOE, HARVEST, ROD }
 
 const SELECT_TOOL := -1
 
 var _buttons: Dictionary = {}
 var _select_btn: Button
 var _hoe_btn: Button
+var _harvest_btn: Button
+var _rod_btn: Button
 var _active_type: int = SELECT_TOOL
 var _active_tool: Tool = Tool.SELECT
 
@@ -46,8 +50,16 @@ func _build_palette() -> void:
 	_hoe_btn.pressed.connect(_on_hoe_tool_pressed)
 	outer_vbox.add_child(_hoe_btn)
 
+	_harvest_btn = _make_tool_button("Harvest")
+	_harvest_btn.pressed.connect(_on_harvest_tool_pressed)
+	outer_vbox.add_child(_harvest_btn)
+
+	_rod_btn = _make_tool_button("Rod")
+	_rod_btn.pressed.connect(_on_rod_tool_pressed)
+	outer_vbox.add_child(_rod_btn)
+
 	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(220, 440)
+	scroll.custom_minimum_size = Vector2(220, 400)
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	outer_vbox.add_child(scroll)
 
@@ -97,12 +109,21 @@ func _on_hoe_tool_pressed() -> void:
 	hoe_tool_activated.emit()
 
 
+func _on_harvest_tool_pressed() -> void:
+	activate_harvest_tool()
+	harvest_tool_activated.emit()
+
+
+func _on_rod_tool_pressed() -> void:
+	activate_rod_tool()
+	rod_tool_activated.emit()
+
+
 func _on_item_pressed(item_type: ItemData.ItemType) -> void:
 	if _active_type == item_type and _active_tool == Tool.SELECT:
 		activate_select_tool()
 		select_tool_activated.emit()
 		return
-
 	select_item(item_type)
 	item_selected.emit(item_type)
 
@@ -119,6 +140,18 @@ func activate_hoe_tool() -> void:
 	_update_button_styles()
 
 
+func activate_harvest_tool() -> void:
+	_active_tool = Tool.HARVEST
+	_active_type = SELECT_TOOL
+	_update_button_styles()
+
+
+func activate_rod_tool() -> void:
+	_active_tool = Tool.ROD
+	_active_type = SELECT_TOOL
+	_update_button_styles()
+
+
 func select_item(item_type: ItemData.ItemType) -> void:
 	_active_tool = Tool.SELECT
 	_active_type = item_type
@@ -130,7 +163,10 @@ func _update_button_styles() -> void:
 		_select_btn.button_pressed = _active_tool == Tool.SELECT and _active_type == SELECT_TOOL
 	if _hoe_btn:
 		_hoe_btn.button_pressed = _active_tool == Tool.HOE
-
+	if _harvest_btn:
+		_harvest_btn.button_pressed = _active_tool == Tool.HARVEST
+	if _rod_btn:
+		_rod_btn.button_pressed = _active_tool == Tool.ROD
 	for type in _buttons:
 		var btn: Button = _buttons[type]
 		btn.button_pressed = _active_tool == Tool.SELECT and type == _active_type

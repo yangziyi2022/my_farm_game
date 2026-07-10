@@ -8,8 +8,11 @@ extends Node3D
 @onready var sun_light: DirectionalLight3D = $DirectionalLight3D
 @onready var fill_light: OmniLight3D = $FillLight
 @onready var undo_manager: UndoManager = $UndoManager
+@onready var inventory_manager: InventoryManager = $InventoryManager
 @onready var placement_controller: PlacementController = $PlacementController
 @onready var item_palette: ItemPalette = $UI/ItemPalette
+@onready var inventory_bar: InventoryBar = $UI/InventoryBar
+@onready var cursor_overlay: CursorOverlay = $UI/CursorOverlay
 @onready var status_label: Label = $UI/StatusBar/StatusLabel
 @onready var save_btn: Button = $UI/Toolbar/SaveBtn
 @onready var load_btn: Button = $UI/Toolbar/LoadBtn
@@ -20,13 +23,19 @@ func _ready() -> void:
 	weather_controller.setup(world_environment, sun_light, fill_light)
 	camera_controller.setup(camera)
 	grid_manager.undo_manager = undo_manager
-	placement_controller.setup(grid_manager, camera, undo_manager)
+	placement_controller.setup(grid_manager, camera, undo_manager, inventory_manager, cursor_overlay)
+	inventory_bar.setup(inventory_manager)
 
 	item_palette.item_selected.connect(placement_controller.set_selected_item)
 	item_palette.select_tool_activated.connect(_on_select_tool_activated)
 	item_palette.hoe_tool_activated.connect(_on_hoe_tool_activated)
+	item_palette.harvest_tool_activated.connect(_on_harvest_tool_activated)
+	item_palette.rod_tool_activated.connect(_on_rod_tool_activated)
 	placement_controller.select_mode_requested.connect(item_palette.activate_select_tool)
+	placement_controller.feed_mode_cancelled.connect(inventory_bar.clear_feed_selection)
 	placement_controller.status_message.connect(_on_status_message)
+	inventory_bar.feed_item_selected.connect(_on_feed_item_selected)
+	inventory_bar.feed_selection_cleared.connect(_on_feed_selection_cleared)
 
 	save_btn.pressed.connect(_on_save)
 	load_btn.pressed.connect(_on_load)
@@ -35,7 +44,7 @@ func _ready() -> void:
 	undo_manager.undo_applied.connect(_on_status_message)
 
 	_on_undo_stack_changed(undo_manager.can_undo())
-	_on_status_message("Place items on grass freely. Hoe dirt only for flower seeds.")
+	_on_status_message("Hoe dirt, plant wheat or flowers, harvest when grown. Rod on water. Feed wheat to animals.")
 
 
 func _on_select_tool_activated() -> void:
@@ -44,6 +53,23 @@ func _on_select_tool_activated() -> void:
 
 func _on_hoe_tool_activated() -> void:
 	placement_controller.enter_hoe_mode()
+
+
+func _on_harvest_tool_activated() -> void:
+	placement_controller.enter_harvest_mode()
+
+
+func _on_rod_tool_activated() -> void:
+	placement_controller.enter_fish_mode()
+
+
+func _on_feed_item_selected(item: InventoryData.Item) -> void:
+	placement_controller.enter_feed_mode(item)
+
+
+func _on_feed_selection_cleared() -> void:
+	if placement_controller.mode == PlacementController.Mode.FEED:
+		placement_controller.enter_select_mode()
 
 
 func _on_undo() -> void:
@@ -59,14 +85,14 @@ func _on_status_message(text: String) -> void:
 
 
 func _on_save() -> void:
-	if SaveManager.save_farm(grid_manager):
+	if SaveManager.save_farm(grid_manager, inventory_manager):
 		_on_status_message("Farm saved!")
 	else:
 		_on_status_message("Save failed!")
 
 
 func _on_load() -> void:
-	if SaveManager.load_farm(grid_manager):
+	if SaveManager.load_farm(grid_manager, inventory_manager):
 		_on_status_message("Farm loaded!")
 	else:
 		_on_status_message("No save file found.")

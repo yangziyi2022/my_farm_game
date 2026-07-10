@@ -3,14 +3,18 @@ extends Node
 
 signal status_message(text: String)
 signal select_mode_requested
+signal feed_mode_cancelled
 
-enum Mode { PLACE, SELECT, HOE }
+enum Mode { PLACE, SELECT, HOE, HARVEST, FISH, FEED }
 
 var grid_manager: GridManager
 var camera: Camera3D
 var undo_manager: UndoManager
+var inventory_manager: InventoryManager
+var cursor_overlay: CursorOverlay
 var selected_item: ItemData.ItemType = ItemData.ItemType.GRASS
 var mode: Mode = Mode.SELECT
+var feed_item: InventoryData.Item = InventoryData.Item.WHEAT
 
 var _dragging: bool = false
 var _drag_object: Node3D = null
@@ -20,10 +24,18 @@ var _mouse_down_pos: Vector2 = Vector2.ZERO
 const DRAG_THRESHOLD: float = 8.0
 
 
-func setup(p_grid_manager: GridManager, p_camera: Camera3D, p_undo_manager: UndoManager) -> void:
+func setup(
+	p_grid_manager: GridManager,
+	p_camera: Camera3D,
+	p_undo_manager: UndoManager,
+	p_inventory_manager: InventoryManager = null,
+	p_cursor_overlay: CursorOverlay = null,
+) -> void:
 	grid_manager = p_grid_manager
 	camera = p_camera
 	undo_manager = p_undo_manager
+	inventory_manager = p_inventory_manager
+	cursor_overlay = p_cursor_overlay
 
 
 func enter_select_mode() -> void:
@@ -32,8 +44,10 @@ func enter_select_mode() -> void:
 	_drag_object = null
 	grid_manager.select_object(null)
 	_remove_ghost()
+	_hide_cursor_overlay()
+	feed_mode_cancelled.emit()
 	select_mode_requested.emit()
-	status_message.emit("Select — click objects to move. Hoe dirt for flower seeds only.")
+	status_message.emit("Select — click objects to move. Hoe dirt for seeds and wheat.")
 
 
 func enter_hoe_mode() -> void:
@@ -42,7 +56,47 @@ func enter_hoe_mode() -> void:
 	_drag_object = null
 	grid_manager.select_object(null)
 	_remove_ghost()
+	_hide_cursor_overlay()
+	feed_mode_cancelled.emit()
 	status_message.emit("Hoe — click grass to turn it into dirt paths.")
+
+
+func enter_harvest_mode() -> void:
+	mode = Mode.HARVEST
+	_dragging = false
+	_drag_object = null
+	grid_manager.select_object(null)
+	_remove_ghost()
+	feed_mode_cancelled.emit()
+	_show_cursor_overlay("Harvest", Color(0.95, 0.75, 0.2))
+	status_message.emit("Harvest — click mature plants to collect them.")
+
+
+func enter_fish_mode() -> void:
+	mode = Mode.FISH
+	_dragging = false
+	_drag_object = null
+	grid_manager.select_object(null)
+	_remove_ghost()
+	feed_mode_cancelled.emit()
+	_show_cursor_overlay("Rod", Color(0.45, 0.35, 0.2))
+	status_message.emit("Rod — click water tiles to catch fish.")
+
+
+func enter_feed_mode(item: InventoryData.Item) -> void:
+	if not InventoryData.is_feedable(item):
+		return
+	if inventory_manager and not inventory_manager.has_item(item):
+		status_message.emit("No %s left to feed" % InventoryData.get_item_name(item))
+		return
+	mode = Mode.FEED
+	feed_item = item
+	_dragging = false
+	_drag_object = null
+	grid_manager.select_object(null)
+	_remove_ghost()
+	_show_cursor_overlay(InventoryData.get_item_name(item), InventoryData.get_color(item))
+	status_message.emit("Feed — click an animal with %s" % InventoryData.get_item_name(item))
 
 
 func set_selected_item(item_type: ItemData.ItemType) -> void:
@@ -51,8 +105,10 @@ func set_selected_item(item_type: ItemData.ItemType) -> void:
 	_dragging = false
 	_drag_object = null
 	grid_manager.select_object(null)
+	feed_mode_cancelled.emit()
 	_update_ghost()
-	if ItemData.is_flower_seed(item_type):
+	_hide_cursor_overlay()
+	if ItemData.is_growable_plant(item_type):
 		status_message.emit("Plant %s on dirt — it will grow over time" % ItemData.get_item_name(item_type))
 	else:
 		status_message.emit("Place — %s" % ItemData.get_item_name(item_type))
@@ -115,6 +171,12 @@ func _on_left_press(screen_pos: Vector2) -> void:
 				status_message.emit("Hoed grass at (%d, %d)" % [grid_pos.x, grid_pos.y])
 			else:
 				status_message.emit("Hoe only works on grass")
+		Mode.HARVEST:
+			_try_harvest(grid_pos)
+		Mode.FISH:
+			_try_fish(grid_pos)
+		Mode.FEED:
+			_try_feed(grid_pos, hit_obj)
 		Mode.PLACE:
 			if grid_manager.can_place_at(grid_pos, selected_item):
 				grid_manager.place_object(selected_item, grid_pos)
@@ -125,6 +187,7 @@ func _on_left_press(screen_pos: Vector2) -> void:
 				mode = Mode.SELECT
 				grid_manager.select_object(hit_obj)
 				_remove_ghost()
+				_hide_cursor_overlay()
 				_dragging = false
 				_drag_object = hit_obj
 				_drag_origin = hit_obj.get_meta("grid_pos")
@@ -139,6 +202,43 @@ func _on_left_press(screen_pos: Vector2) -> void:
 			else:
 				grid_manager.select_object(null)
 				status_message.emit("Deselected")
+
+
+func _try_harvest(grid_pos: Vector2i) -> void:
+	if not grid_manager.is_plant_mature(grid_pos):
+		status_message.emit("Nothing ready to harvest here")
+		return
+	var harvest_item = grid_manager.harvest_plant(grid_pos)
+	if harvest_item == null:
+		status_message.emit("Nothing ready to harvest here")
+		return
+	if inventory_manager:
+		inventory_manager.add_item(harvest_item)
+	status_message.emit("Harvested %s!" % InventoryData.get_item_name(harvest_item))
+
+
+func _try_fish(grid_pos: Vector2i) -> void:
+	if not grid_manager.try_fish(grid_pos):
+		status_message.emit("Cast the rod on water")
+		return
+	if inventory_manager:
+		inventory_manager.add_item(InventoryData.Item.FISH)
+	status_message.emit("Caught a fish!")
+
+
+func _try_feed(grid_pos: Vector2i, hit_obj: Node3D) -> void:
+	if hit_obj == null or not ItemData.is_animal(hit_obj.get_meta("item_type")):
+		status_message.emit("Click an animal to feed")
+		return
+	if inventory_manager and not inventory_manager.remove_item(feed_item):
+		status_message.emit("No %s left" % InventoryData.get_item_name(feed_item))
+		enter_select_mode()
+		return
+	AnimalFeedEffect.play(hit_obj)
+	status_message.emit("Fed %s to %s!" % [
+		InventoryData.get_item_name(feed_item),
+		ItemData.get_item_name(hit_obj.get_meta("item_type")),
+	])
 
 
 func _on_left_release(screen_pos: Vector2) -> void:
@@ -200,6 +300,16 @@ func _delete_selected() -> void:
 func _cancel_action() -> void:
 	enter_select_mode()
 	status_message.emit("Cancelled")
+
+
+func _show_cursor_overlay(text: String, color: Color) -> void:
+	if cursor_overlay:
+		cursor_overlay.show_item(text, color)
+
+
+func _hide_cursor_overlay() -> void:
+	if cursor_overlay:
+		cursor_overlay.hide_overlay()
 
 
 func _raycast(screen_pos: Vector2) -> Dictionary:

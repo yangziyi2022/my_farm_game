@@ -34,13 +34,20 @@ enum ItemType {
 	FLOWER_YELLOW,
 	SUNFLOWER,
 	TULIP,
+	WHEAT,
+	STONE_PATH,
+	GREENHOUSE,
+	POND,
+	FOUNTAIN,
+	WIND_WHEEL,
+	LOOKOUT_TOWER,
 }
 
 const CATEGORIES: Dictionary = {
 	Category.TERRAIN: "Terrain",
 	Category.STRUCTURE: "Buildings",
 	Category.ANIMAL: "Animals",
-	Category.PLANT: "Flowers",
+	Category.PLANT: "Flowers & Crops",
 	Category.DECOR: "Decor",
 }
 
@@ -290,6 +297,79 @@ const ITEMS: Dictionary = {
 		"offset_y": 0.25,
 		"rotatable": false,
 	},
+	ItemType.WHEAT: {
+		"id": "wheat",
+		"name": "Wheat Seed",
+		"category": Category.PLANT,
+		"color": Color(0.9, 0.78, 0.25),
+		"stem_color": Color(0.22, 0.58, 0.18),
+		"dirt_color": Color(0.55, 0.38, 0.22),
+		"size": Vector3(0.4, 0.55, 0.4),
+		"offset_y": 0.28,
+		"rotatable": false,
+	},
+	ItemType.STONE_PATH: {
+		"id": "stone_path",
+		"name": "Stone Path",
+		"category": Category.TERRAIN,
+		"color": Color(0.62, 0.6, 0.58),
+		"stone_color": Color(0.72, 0.7, 0.68),
+		"size": Vector3(1.0, 0.1, 1.0),
+		"offset_y": 0.05,
+		"rotatable": false,
+	},
+	ItemType.GREENHOUSE: {
+		"id": "greenhouse",
+		"name": "Greenhouse",
+		"category": Category.STRUCTURE,
+		"color": Color(0.55, 0.78, 0.45, 0.55),
+		"frame_color": Color(0.75, 0.72, 0.68),
+		"roof_color": Color(0.45, 0.65, 0.38, 0.6),
+		"size": Vector3(1.6, 1.1, 1.4),
+		"offset_y": 0.55,
+		"rotatable": true,
+	},
+	ItemType.POND: {
+		"id": "pond",
+		"name": "Pond",
+		"category": Category.DECOR,
+		"color": Color(0.2, 0.48, 0.82, 0.85),
+		"rim_color": Color(0.52, 0.5, 0.48),
+		"size": Vector3(1.1, 0.12, 1.1),
+		"offset_y": 0.06,
+		"rotatable": true,
+	},
+	ItemType.FOUNTAIN: {
+		"id": "fountain",
+		"name": "Fountain",
+		"category": Category.DECOR,
+		"color": Color(0.58, 0.58, 0.6),
+		"water_color": Color(0.35, 0.62, 0.9, 0.75),
+		"size": Vector3(0.9, 0.7, 0.9),
+		"offset_y": 0.35,
+		"rotatable": true,
+	},
+	ItemType.WIND_WHEEL: {
+		"id": "wind_wheel",
+		"name": "Wind Wheel",
+		"category": Category.DECOR,
+		"color": Color(0.62, 0.45, 0.28),
+		"blade_color": Color(0.88, 0.85, 0.78),
+		"size": Vector3(0.5, 1.6, 0.5),
+		"offset_y": 0.8,
+		"rotatable": true,
+	},
+	ItemType.LOOKOUT_TOWER: {
+		"id": "lookout_tower",
+		"name": "Lookout Tower",
+		"category": Category.STRUCTURE,
+		"color": Color(0.68, 0.55, 0.4),
+		"rail_color": Color(0.45, 0.32, 0.22),
+		"roof_color": Color(0.5, 0.28, 0.18),
+		"size": Vector3(1.0, 2.4, 1.0),
+		"offset_y": 1.2,
+		"rotatable": true,
+	},
 }
 
 
@@ -319,7 +399,15 @@ static func get_item_name(item_type: ItemType) -> String:
 
 
 static func is_terrain(item_type: ItemType) -> bool:
-	return item_type in [ItemType.GRASS, ItemType.DIRT, ItemType.WATER]
+	return item_type in [ItemType.GRASS, ItemType.DIRT, ItemType.WATER, ItemType.STONE_PATH]
+
+
+static func is_water_source(item_type: ItemType) -> bool:
+	return item_type in [ItemType.WATER, ItemType.POND]
+
+
+static func is_fishable(item_type: ItemType) -> bool:
+	return is_water_source(item_type)
 
 
 static func is_hoeable(item_type: ItemType) -> bool:
@@ -335,8 +423,20 @@ static func is_flower_seed(item_type: ItemType) -> bool:
 	]
 
 
+static func is_crop_seed(item_type: ItemType) -> bool:
+	return item_type == ItemType.WHEAT
+
+
+static func needs_dirt_to_plant(item_type: ItemType) -> bool:
+	return is_flower_seed(item_type) or is_crop_seed(item_type)
+
+
 static func is_growable_plant(item_type: ItemType) -> bool:
-	return is_flower_seed(item_type)
+	return is_flower_seed(item_type) or is_crop_seed(item_type)
+
+
+static func is_harvestable_plant(item_type: ItemType) -> bool:
+	return is_growable_plant(item_type)
 
 
 static func can_build_over(item_type: ItemType) -> bool:

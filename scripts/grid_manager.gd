@@ -16,12 +16,17 @@ var undo_manager: UndoManager
 var _objects: Dictionary = {}  # Vector2i -> Node3D
 var _selected: Node3D = null
 var _grid_visual: Node3D
+var _water_fish_manager: WaterFishManager
 
 @onready var objects_container: Node3D = $Objects
 
 
 func _ready() -> void:
 	_build_grid_visual()
+	_water_fish_manager = WaterFishManager.new()
+	_water_fish_manager.name = "WaterFishManager"
+	add_child(_water_fish_manager)
+	_water_fish_manager.setup(self)
 
 
 func _build_grid_visual() -> void:
@@ -161,8 +166,8 @@ func _apply_highlight_recursive(node: Node, enabled: bool) -> void:
 func can_place_at(grid_pos: Vector2i, item_type: ItemData.ItemType) -> bool:
 	if not is_in_bounds(grid_pos):
 		return false
-	# Only flower seeds require hoed dirt.
-	if ItemData.is_flower_seed(item_type):
+	# Flowers and crops require hoed dirt.
+	if ItemData.needs_dirt_to_plant(item_type):
 		return is_occupied(grid_pos) and get_item_type_at(grid_pos) == ItemData.ItemType.DIRT
 	if not is_occupied(grid_pos):
 		return true
@@ -181,7 +186,7 @@ func place_object(
 
 	if is_occupied(grid_pos):
 		var existing_type := get_item_type_at(grid_pos)
-		if ItemData.is_flower_seed(item_type):
+		if ItemData.needs_dirt_to_plant(item_type):
 			if existing_type == ItemData.ItemType.DIRT:
 				return replace_object(grid_pos, item_type, rotation, growth_stage, animate_placement)
 			return null
@@ -387,6 +392,46 @@ func clear_all() -> void:
 		remove_object_silent(grid_pos)
 	if undo_manager:
 		undo_manager.clear()
+
+
+func is_plant_mature(grid_pos: Vector2i) -> bool:
+	var obj := get_object_at(grid_pos)
+	if obj == null:
+		return false
+	var item_type: ItemData.ItemType = obj.get_meta("item_type")
+	if not ItemData.is_harvestable_plant(item_type):
+		return false
+	return obj.get_meta("growth_stage", 0) >= CropGrowth.STAGE_COUNT - 1
+
+
+func harvest_plant(grid_pos: Vector2i):
+	if not is_plant_mature(grid_pos):
+		return null
+	var obj: Node3D = _objects[grid_pos]
+	var plant_type: ItemData.ItemType = obj.get_meta("item_type")
+	var harvest_item := InventoryData.from_plant_type(plant_type)
+	replace_object_silent(grid_pos, ItemData.ItemType.DIRT, 0, 0)
+	return harvest_item
+
+
+func try_fish(grid_pos: Vector2i) -> bool:
+	if not is_in_bounds(grid_pos):
+		return false
+	return ItemData.is_fishable(get_item_type_at(grid_pos))
+
+
+func is_animal_at(grid_pos: Vector2i) -> bool:
+	var obj := get_object_at(grid_pos)
+	if obj == null:
+		return false
+	return ItemData.is_animal(obj.get_meta("item_type"))
+
+
+func get_animal_at(grid_pos: Vector2i) -> Node3D:
+	var obj := get_object_at(grid_pos)
+	if obj and ItemData.is_animal(obj.get_meta("item_type")):
+		return obj
+	return null
 
 
 func load_objects_data(data: Array) -> void:

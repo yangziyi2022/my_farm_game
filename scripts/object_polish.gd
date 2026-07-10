@@ -19,6 +19,36 @@ static func setup(obj: Node3D, item_type: ItemData.ItemType, animate_placement: 
 	if ItemData.is_growable_plant(item_type):
 		_attach_plant_growth(obj, item_type)
 
+	if item_type in [ItemData.ItemType.WINDMILL, ItemData.ItemType.WIND_WHEEL]:
+		_attach_spinning_blades(obj, 52.0 if item_type == ItemData.ItemType.WIND_WHEEL else 38.0)
+
+	if item_type == ItemData.ItemType.FOUNTAIN:
+		_attach_fountain_jet(obj)
+
+
+static func _attach_spinning_blades(obj: Node3D, speed: float) -> void:
+	var pivot := obj.get_node_or_null("BladePivot") as Node3D
+	if pivot == null:
+		return
+	if obj.get_node_or_null("SpinningBlades"):
+		return
+	var spin := SpinningBlades.new()
+	spin.name = "SpinningBlades"
+	spin.setup(pivot, speed)
+	obj.add_child(spin)
+
+
+static func _attach_fountain_jet(obj: Node3D) -> void:
+	var jet := obj.get_node_or_null("FountainJet") as Node3D
+	if jet == null:
+		return
+	var sway := AmbientSway.new()
+	sway.name = "FountainSway"
+	sway.sway_angle_deg = 1.2
+	sway.sway_speed = 2.4
+	sway.bob_amount = 0.02
+	jet.add_child(sway)
+
 
 static func _attach_plant_growth(obj: Node3D, item_type: ItemData.ItemType) -> void:
 	var growth := CropGrowth.new()
