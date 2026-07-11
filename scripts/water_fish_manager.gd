@@ -60,7 +60,13 @@ func _fish_count_for_cluster(tile_count: int) -> int:
 func _is_water_tile(grid_pos: Vector2i) -> bool:
 	if not _grid_manager.is_in_bounds(grid_pos):
 		return false
-	return ItemData.is_water_source(_grid_manager.get_item_type_at(grid_pos))
+	if ItemData.is_water_source(_grid_manager.get_terrain_type_at(grid_pos)):
+		return true
+	# Pond is content (decor), not terrain.
+	var content := _grid_manager.get_content_at(grid_pos)
+	if content and ItemData.is_water_source(content.get_meta("item_type")):
+		return true
+	return false
 
 
 func _find_water_clusters() -> Array:

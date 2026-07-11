@@ -102,6 +102,7 @@ const ITEMS: Dictionary = {
 		"id": "fence",
 		"name": "Fence",
 		"category": Category.DECOR,
+		"def_path": "res://data/placeable_items/fence.tres",
 		"color": Color(0.6, 0.45, 0.25),
 		"size": Vector3(0.9, 0.5, 0.15),
 		"offset_y": 0.25,
@@ -218,6 +219,7 @@ const ITEMS: Dictionary = {
 		"id": "chicken",
 		"name": "Chicken",
 		"category": Category.ANIMAL,
+		"def_path": "res://data/placeable_items/chicken.tres",
 		"color": Color(0.95, 0.88, 0.55),
 		"comb_color": Color(0.85, 0.15, 0.12),
 		"size": Vector3(0.35, 0.35, 0.45),
@@ -442,8 +444,18 @@ static func is_harvestable_plant(item_type: ItemType) -> bool:
 
 
 static func can_build_over(item_type: ItemType) -> bool:
-	# Any terrain tile can be replaced by buildings, decor, or animals.
+	# Terrain tiles can be replaced by other terrain, or stacked under props.
 	return is_terrain(item_type)
+
+
+static func stacks_on_terrain(item_type: ItemType) -> bool:
+	# Animals, buildings, fences, decor sit on top of dirt/grass without deleting it.
+	# Crops still consume dirt (planted into the tile).
+	if is_terrain(item_type):
+		return false
+	if needs_dirt_to_plant(item_type):
+		return false
+	return true
 
 
 static func is_animal(item_type: ItemType) -> bool:

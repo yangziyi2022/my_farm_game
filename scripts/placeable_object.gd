@@ -21,8 +21,13 @@ static func create(item_type: ItemData.ItemType, grid_pos: Vector2i, rotation: i
 func _attach_visual(item_type: ItemData.ItemType, growth_stage: int = 0) -> void:
 	var scene := ItemData.get_visual_scene(item_type)
 	if scene:
-		var visual: Node = scene.instantiate()
+		var visual: Node3D = scene.instantiate() as Node3D
 		visual.name = "Visual"
+		var def := ItemData.get_item_def(item_type)
+		if def:
+			var s: float = def.visual_scale
+			visual.scale = Vector3(s, s, s)
+			visual.position.y = def.visual_y_offset
 		add_child(visual)
 		return
 

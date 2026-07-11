@@ -1,0 +1,8 @@
+[gd_scene format=3 uid="uid://cdtqx5ia7xtpu"]
+
+[ext_resource type="PackedScene" uid="uid://dg4er1t208p5r" path="res://assets/models/decorations/fence.glb" id="1_fence"]
+
+[node name="FencePlaceable" type="Node3D"]
+
+[node name="Model" parent="." instance=ExtResource("1_fence")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)

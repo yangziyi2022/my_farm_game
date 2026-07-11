@@ -152,12 +152,17 @@ static func _create_visual_pivot(obj: Node3D, pivot_name: String) -> Node3D:
 	pivot.name = pivot_name
 	obj.add_child(pivot)
 
-	# Move render meshes under the pivot so grid position/rotation stay stable.
+	# Move render meshes / packed visuals under the pivot so grid root stays fixed.
 	var children := obj.get_children()
 	for child in children:
 		if child == pivot:
 			continue
+		if child.name in ["TileCollider", "CropGrowth", "AnimalController", "SpinningBlades"]:
+			continue
 		if child is MeshInstance3D:
+			child.reparent(pivot)
+		elif child is Node3D and child.name == "Visual":
+			# Scene-based assets (e.g. Chicken.glb wrapper) live under Visual.
 			child.reparent(pivot)
 
 	return pivot

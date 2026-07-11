@@ -13,6 +13,10 @@ const GRID_HEIGHT: int = 24
 
 var undo_manager: UndoManager
 
+## Two layers per cell:
+## - _terrain: grass / dirt / water / stone_path (ground stays when animals/fences sit on top)
+## - _objects: animals, buildings, plants, decor (the selectable "content")
+var _terrain: Dictionary = {}  # Vector2i -> Node3D
 var _objects: Dictionary = {}  # Vector2i -> Node3D
 var _selected: Node3D = null
 var _grid_visual: Node3D
@@ -112,18 +116,44 @@ func is_in_bounds(grid_pos: Vector2i) -> bool:
 
 
 func is_occupied(grid_pos: Vector2i) -> bool:
+	return _objects.has(grid_pos) or _terrain.has(grid_pos)
+
+
+func has_content(grid_pos: Vector2i) -> bool:
 	return _objects.has(grid_pos)
 
 
+func has_terrain(grid_pos: Vector2i) -> bool:
+	return _terrain.has(grid_pos)
+
+
+func get_terrain_type_at(grid_pos: Vector2i) -> ItemData.ItemType:
+	if _terrain.has(grid_pos):
+		return _terrain[grid_pos].get_meta("item_type")
+	return ItemData.ItemType.GRASS
+
+
 func get_item_type_at(grid_pos: Vector2i) -> ItemData.ItemType:
-	var obj := get_object_at(grid_pos)
-	if obj:
-		return obj.get_meta("item_type")
+	# Prefer content (animal/building/plant); fall back to terrain.
+	if _objects.has(grid_pos):
+		return _objects[grid_pos].get_meta("item_type")
+	if _terrain.has(grid_pos):
+		return _terrain[grid_pos].get_meta("item_type")
 	return ItemData.ItemType.GRASS
 
 
 func get_object_at(grid_pos: Vector2i) -> Node3D:
+	if _objects.has(grid_pos):
+		return _objects[grid_pos]
+	return _terrain.get(grid_pos)
+
+
+func get_content_at(grid_pos: Vector2i) -> Node3D:
 	return _objects.get(grid_pos)
+
+
+func get_terrain_at(grid_pos: Vector2i) -> Node3D:
+	return _terrain.get(grid_pos)
 
 
 func get_selected() -> Node3D:
@@ -166,9 +196,21 @@ func _apply_highlight_recursive(node: Node, enabled: bool) -> void:
 func can_place_at(grid_pos: Vector2i, item_type: ItemData.ItemType) -> bool:
 	if not is_in_bounds(grid_pos):
 		return false
-	# Flowers and crops require hoed dirt.
+
+	# Crops/flowers need exposed dirt (no animal/building already on the tile).
 	if ItemData.needs_dirt_to_plant(item_type):
-		return is_occupied(grid_pos) and get_item_type_at(grid_pos) == ItemData.ItemType.DIRT
+		return get_terrain_type_at(grid_pos) == ItemData.ItemType.DIRT and not has_content(grid_pos)
+
+	# Terrain replaces other terrain, but not content sitting on it.
+	if ItemData.is_terrain(item_type):
+		if has_content(grid_pos):
+			return false
+		return true
+
+	# Animals / buildings / fences / decor can sit on empty cells or on terrain.
+	if ItemData.stacks_on_terrain(item_type):
+		return not has_content(grid_pos)
+
 	if not is_occupied(grid_pos):
 		return true
 	return ItemData.can_build_over(get_item_type_at(grid_pos))
@@ -184,12 +226,29 @@ func place_object(
 	if not is_in_bounds(grid_pos):
 		return null
 
+	if ItemData.needs_dirt_to_plant(item_type):
+		if get_terrain_type_at(grid_pos) != ItemData.ItemType.DIRT or has_content(grid_pos):
+			return null
+		# Plant consumes the dirt tile (same as before); harvest restores dirt.
+		if has_terrain(grid_pos):
+			_remove_terrain_silent(grid_pos)
+		return _spawn_object(item_type, grid_pos, rotation, growth_stage, animate_placement, true)
+
+	if ItemData.is_terrain(item_type):
+		if has_content(grid_pos):
+			return null
+		if has_terrain(grid_pos):
+			return replace_object(grid_pos, item_type, rotation, growth_stage, animate_placement)
+		return _spawn_object(item_type, grid_pos, rotation, growth_stage, animate_placement, true)
+
+	# Stackable content: keep existing terrain (dirt/grass/water/path).
+	if ItemData.stacks_on_terrain(item_type):
+		if has_content(grid_pos):
+			return null
+		return _spawn_object(item_type, grid_pos, rotation, growth_stage, animate_placement, true)
+
 	if is_occupied(grid_pos):
 		var existing_type := get_item_type_at(grid_pos)
-		if ItemData.needs_dirt_to_plant(item_type):
-			if existing_type == ItemData.ItemType.DIRT:
-				return replace_object(grid_pos, item_type, rotation, growth_stage, animate_placement)
-			return null
 		if ItemData.can_build_over(existing_type):
 			return replace_object(grid_pos, item_type, rotation, growth_stage, animate_placement)
 		return null
@@ -200,10 +259,13 @@ func place_object(
 func hoe_grass(grid_pos: Vector2i) -> bool:
 	if not is_in_bounds(grid_pos):
 		return false
-	if not is_occupied(grid_pos):
+	# Don't hoe under an animal/building.
+	if has_content(grid_pos):
+		return false
+	if not has_terrain(grid_pos):
 		place_object(ItemData.ItemType.DIRT, grid_pos, 0, true, 0)
 		return true
-	var item_type := get_item_type_at(grid_pos)
+	var item_type := get_terrain_type_at(grid_pos)
 	if not ItemData.is_hoeable(item_type):
 		return false
 	replace_object(grid_pos, ItemData.ItemType.DIRT, 0, 0, true)
@@ -221,11 +283,18 @@ func replace_object(
 		return null
 
 	var before_type := get_item_type_at(grid_pos)
-	var before_obj: Node3D = _objects[grid_pos]
-	var before_rotation: int = before_obj.get_meta("rotation", 0)
-	var before_growth: int = before_obj.get_meta("growth_stage", 0)
+	var before_obj: Node3D = get_object_at(grid_pos)
+	var before_rotation: int = before_obj.get_meta("rotation", 0) if before_obj else 0
+	var before_growth: int = before_obj.get_meta("growth_stage", 0) if before_obj else 0
 
-	remove_object_silent(grid_pos)
+	# Terrain replace only touches the terrain layer.
+	if ItemData.is_terrain(item_type) and has_terrain(grid_pos) and not has_content(grid_pos):
+		_remove_terrain_silent(grid_pos)
+	elif has_content(grid_pos):
+		remove_object_silent(grid_pos)
+	elif has_terrain(grid_pos):
+		_remove_terrain_silent(grid_pos)
+
 	var obj := _spawn_object(item_type, grid_pos, rotation, growth_stage, animate_placement, false)
 
 	if undo_manager and not undo_manager.is_applying_undo():
@@ -242,6 +311,10 @@ func place_object_silent(
 	rotation: int = 0,
 	growth_stage: int = 0
 ) -> Node3D:
+	if ItemData.needs_dirt_to_plant(item_type) and has_terrain(grid_pos):
+		_remove_terrain_silent(grid_pos)
+	elif ItemData.is_terrain(item_type) and has_terrain(grid_pos) and not has_content(grid_pos):
+		_remove_terrain_silent(grid_pos)
 	return _spawn_object(item_type, grid_pos, rotation, growth_stage, false, false)
 
 
@@ -251,8 +324,10 @@ func replace_object_silent(
 	rotation: int = 0,
 	growth_stage: int = 0
 ) -> Node3D:
-	if is_occupied(grid_pos):
+	if has_content(grid_pos):
 		remove_object_silent(grid_pos)
+	elif has_terrain(grid_pos):
+		_remove_terrain_silent(grid_pos)
 	return _spawn_object(item_type, grid_pos, rotation, growth_stage, false, false)
 
 
@@ -268,8 +343,13 @@ func _spawn_object(
 	obj.position = grid_to_world(grid_pos)
 	obj.set_meta("growth_stage", growth_stage)
 	objects_container.add_child(obj)
-	_objects[grid_pos] = obj
-	_add_tile_collider(obj)
+
+	if ItemData.is_terrain(item_type):
+		_terrain[grid_pos] = obj
+	else:
+		_objects[grid_pos] = obj
+
+	_add_tile_collider(obj, item_type)
 	ObjectPolish.setup(obj, item_type, animate_placement)
 
 	if record_undo and undo_manager and not undo_manager.is_applying_undo():
@@ -279,31 +359,47 @@ func _spawn_object(
 	return obj
 
 
-func _add_tile_collider(obj: Node3D) -> void:
+func _add_tile_collider(obj: Node3D, item_type: ItemData.ItemType) -> void:
 	var body := StaticBody3D.new()
 	body.name = "TileCollider"
 	var col := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = Vector3(TILE_WIDTH * 0.92, 0.22, TILE_HEIGHT * 0.92)
+	# Content (animals/buildings) gets a taller collider so raycasts prefer them over terrain.
+	if ItemData.is_terrain(item_type):
+		box.size = Vector3(TILE_WIDTH * 0.92, 0.16, TILE_HEIGHT * 0.92)
+		col.position.y = 0.08
+	else:
+		box.size = Vector3(TILE_WIDTH * 0.92, 0.55, TILE_HEIGHT * 0.92)
+		col.position.y = 0.3
 	col.shape = box
-	col.position.y = 0.11
 	body.add_child(col)
 	obj.add_child(body)
 
 
 func remove_object(grid_pos: Vector2i) -> void:
-	if not _objects.has(grid_pos):
+	# Prefer removing content (animal/fence); terrain only if nothing sits on it.
+	if has_content(grid_pos):
+		var obj: Node3D = _objects[grid_pos]
+		if undo_manager and not undo_manager.is_applying_undo():
+			undo_manager.record_remove(
+				grid_pos,
+				obj.get_meta("item_type"),
+				obj.get_meta("rotation", 0),
+				obj.get_meta("growth_stage", 0)
+			)
+		remove_object_silent(grid_pos)
 		return
 
-	var obj: Node3D = _objects[grid_pos]
-	if undo_manager and not undo_manager.is_applying_undo():
-		undo_manager.record_remove(
-			grid_pos,
-			obj.get_meta("item_type"),
-			obj.get_meta("rotation", 0),
-			obj.get_meta("growth_stage", 0)
-		)
-	remove_object_silent(grid_pos)
+	if has_terrain(grid_pos):
+		var terrain: Node3D = _terrain[grid_pos]
+		if undo_manager and not undo_manager.is_applying_undo():
+			undo_manager.record_remove(
+				grid_pos,
+				terrain.get_meta("item_type"),
+				terrain.get_meta("rotation", 0),
+				0
+			)
+		_remove_terrain_silent(grid_pos)
 
 
 func remove_object_silent(grid_pos: Vector2i) -> void:
@@ -317,8 +413,20 @@ func remove_object_silent(grid_pos: Vector2i) -> void:
 	object_removed.emit(grid_pos)
 
 
+func _remove_terrain_silent(grid_pos: Vector2i) -> void:
+	if not _terrain.has(grid_pos):
+		return
+	var obj: Node3D = _terrain[grid_pos]
+	if _selected == obj:
+		_deselect()
+	_terrain.erase(grid_pos)
+	obj.queue_free()
+	object_removed.emit(grid_pos)
+
+
 func move_object(from: Vector2i, to: Vector2i) -> bool:
-	if not _objects.has(from) or not is_in_bounds(to) or is_occupied(to):
+	# Only content moves; terrain stays put under the old cell.
+	if not _objects.has(from) or not is_in_bounds(to) or has_content(to):
 		return false
 
 	var obj: Node3D = _objects[from]
@@ -335,7 +443,7 @@ func move_object(from: Vector2i, to: Vector2i) -> bool:
 
 
 func move_object_silent(from: Vector2i, to: Vector2i) -> bool:
-	if not _objects.has(from) or not is_in_bounds(to) or is_occupied(to):
+	if not _objects.has(from) or not is_in_bounds(to) or has_content(to):
 		return false
 	var obj: Node3D = _objects[from]
 	_objects.erase(from)
@@ -347,9 +455,9 @@ func move_object_silent(from: Vector2i, to: Vector2i) -> bool:
 
 
 func rotate_object(grid_pos: Vector2i, steps: int = 1) -> void:
-	if not _objects.has(grid_pos):
+	var obj := get_object_at(grid_pos)
+	if obj == null:
 		return
-	var obj: Node3D = _objects[grid_pos]
 	var item_type: ItemData.ItemType = obj.get_meta("item_type")
 	if not ItemData.is_rotatable(item_type):
 		return
@@ -363,15 +471,28 @@ func rotate_object(grid_pos: Vector2i, steps: int = 1) -> void:
 
 
 func set_rotation_silent(grid_pos: Vector2i, rotation: int) -> void:
-	if not _objects.has(grid_pos):
+	var obj := get_object_at(grid_pos)
+	if obj == null:
 		return
-	var obj: Node3D = _objects[grid_pos]
 	obj.set_meta("rotation", rotation)
 	obj.rotation.y = deg_to_rad(rotation * 90.0)
 
 
 func get_all_objects_data() -> Array:
 	var result: Array = []
+	# Save terrain-only cells first.
+	for grid_pos: Vector2i in _terrain:
+		if has_content(grid_pos):
+			continue
+		var terrain: Node3D = _terrain[grid_pos]
+		result.append({
+			"type": ItemData.get_item_id(terrain.get_meta("item_type")),
+			"grid_x": grid_pos.x,
+			"grid_y": grid_pos.y,
+			"rotation": terrain.get_meta("rotation", 0),
+			"layer": "terrain",
+		})
+	# Save content; include ground type when stacked on terrain.
 	for grid_pos: Vector2i in _objects:
 		var obj: Node3D = _objects[grid_pos]
 		var entry := {
@@ -379,9 +500,12 @@ func get_all_objects_data() -> Array:
 			"grid_x": grid_pos.x,
 			"grid_y": grid_pos.y,
 			"rotation": obj.get_meta("rotation", 0),
+			"layer": "content",
 		}
 		if ItemData.is_growable_plant(obj.get_meta("item_type")):
 			entry["growth_stage"] = obj.get_meta("growth_stage", 0)
+		if has_terrain(grid_pos):
+			entry["ground"] = ItemData.get_item_id(_terrain[grid_pos].get_meta("item_type"))
 		result.append(entry)
 	return result
 
@@ -390,12 +514,14 @@ func clear_all() -> void:
 	_deselect()
 	for grid_pos: Vector2i in _objects.duplicate():
 		remove_object_silent(grid_pos)
+	for grid_pos: Vector2i in _terrain.duplicate():
+		_remove_terrain_silent(grid_pos)
 	if undo_manager:
 		undo_manager.clear()
 
 
 func is_plant_mature(grid_pos: Vector2i) -> bool:
-	var obj := get_object_at(grid_pos)
+	var obj := get_content_at(grid_pos)
 	if obj == null:
 		return false
 	var item_type: ItemData.ItemType = obj.get_meta("item_type")
@@ -410,25 +536,29 @@ func harvest_plant(grid_pos: Vector2i):
 	var obj: Node3D = _objects[grid_pos]
 	var plant_type: ItemData.ItemType = obj.get_meta("item_type")
 	var harvest_item := InventoryData.from_plant_type(plant_type)
-	replace_object_silent(grid_pos, ItemData.ItemType.DIRT, 0, 0)
+	remove_object_silent(grid_pos)
+	_spawn_object(ItemData.ItemType.DIRT, grid_pos, 0, 0, false, false)
 	return harvest_item
 
 
 func try_fish(grid_pos: Vector2i) -> bool:
 	if not is_in_bounds(grid_pos):
 		return false
-	return ItemData.is_fishable(get_item_type_at(grid_pos))
+	# Pond (content) or water (terrain) both work.
+	if has_content(grid_pos) and ItemData.is_fishable(get_item_type_at(grid_pos)):
+		return true
+	return ItemData.is_fishable(get_terrain_type_at(grid_pos))
 
 
 func is_animal_at(grid_pos: Vector2i) -> bool:
-	var obj := get_object_at(grid_pos)
+	var obj := get_content_at(grid_pos)
 	if obj == null:
 		return false
 	return ItemData.is_animal(obj.get_meta("item_type"))
 
 
 func get_animal_at(grid_pos: Vector2i) -> Node3D:
-	var obj := get_object_at(grid_pos)
+	var obj := get_content_at(grid_pos)
 	if obj and ItemData.is_animal(obj.get_meta("item_type")):
 		return obj
 	return null
@@ -436,9 +566,24 @@ func get_animal_at(grid_pos: Vector2i) -> Node3D:
 
 func load_objects_data(data: Array) -> void:
 	clear_all()
+	# First pass: terrain / ground under content.
+	for entry in data:
+		var ground_id: String = entry.get("ground", "")
+		if ground_id.is_empty():
+			continue
+		var grid_pos := Vector2i(entry.get("grid_x", 0), entry.get("grid_y", 0))
+		var ground_type := ItemData.get_item_by_id(ground_id)
+		if ItemData.is_terrain(ground_type) and not has_terrain(grid_pos):
+			place_object_silent(ground_type, grid_pos, 0, 0)
+
 	for entry in data:
 		var item_type := ItemData.get_item_by_id(entry.get("type", "grass"))
 		var grid_pos := Vector2i(entry.get("grid_x", 0), entry.get("grid_y", 0))
 		var rotation: int = entry.get("rotation", 0)
 		var growth_stage: int = entry.get("growth_stage", 0)
+		# Skip ground-only duplicates already spawned from "ground" field.
+		if entry.get("layer", "") == "terrain" or ItemData.is_terrain(item_type):
+			if not has_terrain(grid_pos):
+				place_object_silent(item_type, grid_pos, rotation, growth_stage)
+			continue
 		place_object_silent(item_type, grid_pos, rotation, growth_stage)
