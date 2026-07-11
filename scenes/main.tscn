@@ -1,4 +1,4 @@
-[gd_scene load_steps=12 format=3 uid="uid://main_scene"]
+[gd_scene load_steps=13 format=3 uid="uid://main_scene"]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="Script" path="res://scripts/grid_manager.gd" id="2_grid"]
@@ -10,9 +10,11 @@
 [ext_resource type="Script" path="res://scripts/inventory_manager.gd" id="8_inventory"]
 [ext_resource type="Script" path="res://scripts/inventory_bar.gd" id="9_invbar"]
 [ext_resource type="Script" path="res://scripts/cursor_overlay.gd" id="10_cursor"]
+[ext_resource type="Script" path="res://scripts/day_night_cycle.gd" id="11_daynight"]
 
-[sub_resource type="BoxShape3D" id="BoxShape3D_ground"]
-size = Vector3(70, 0.1, 70)
+[sub_resource type="CylinderShape3D" id="CylinderShape3D_ground"]
+height = 0.2
+radius = 30.0
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_main")
@@ -23,6 +25,12 @@ script = ExtResource("1_main")
 transform = Transform3D(0.866, -0.354, 0.354, 0, 0.707, 0.707, -0.5, -0.612, 0.612, 10, 20, 10)
 light_energy = 1.2
 shadow_enabled = true
+
+[node name="MoonLight" type="DirectionalLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.707, 0.707, 0, -0.707, 0.707, -10, 20, 10)
+light_color = Color(0.62, 0.72, 1, 1)
+light_energy = 0.0
+shadow_enabled = false
 
 [node name="FillLight" type="OmniLight3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 10, 14)
@@ -46,13 +54,16 @@ script = ExtResource("2_grid")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.05, 25)
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="GridManager/GroundBody"]
-shape = SubResource("BoxShape3D_ground")
+shape = SubResource("CylinderShape3D_ground")
 
 [node name="CameraController" type="Node" parent="."]
 script = ExtResource("5_camera")
 
 [node name="WeatherController" type="Node" parent="."]
 script = ExtResource("6_weather")
+
+[node name="DayNightCycle" type="Node3D" parent="."]
+script = ExtResource("11_daynight")
 
 [node name="UndoManager" type="Node" parent="."]
 script = ExtResource("7_undo")

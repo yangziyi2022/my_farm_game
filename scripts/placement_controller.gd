@@ -28,6 +28,8 @@ var _ghost: Node3D = null
 var _footprint: FootprintOverlay = null
 var _selection_footprint: FootprintOverlay = null
 var _mouse_down_pos: Vector2 = Vector2.ZERO
+var _right_down_pos: Vector2 = Vector2.ZERO
+var _right_held: bool = false
 var _last_click_obj: Node3D = null
 var _last_click_msec: int = 0
 ## Multi-select / marquee
@@ -257,8 +259,15 @@ func _handle_mouse_button(event: InputEventMouseButton) -> void:
 			_on_left_press(event.position)
 		else:
 			_on_left_release(event.position)
-	elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
-		_on_right_click(event.position)
+	elif event.button_index == MOUSE_BUTTON_RIGHT:
+		# Short click rotates; drag is used by CameraController to orbit the island.
+		if event.pressed:
+			_right_held = true
+			_right_down_pos = event.position
+		else:
+			if _right_held and event.position.distance_to(_right_down_pos) <= DRAG_THRESHOLD:
+				_on_right_click(event.position)
+			_right_held = false
 
 
 func _on_left_press(screen_pos: Vector2) -> void:

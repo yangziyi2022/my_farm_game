@@ -8,8 +8,17 @@ signal selection_changed(object_node: Node3D)
 
 const TILE_WIDTH: float = 1.25
 const TILE_HEIGHT: float = 1.25
-const GRID_WIDTH: int = 40
-const GRID_HEIGHT: int = 40
+## Expanded so a circular playable disc can be filled with cells (not just a diamond).
+const GRID_WIDTH: int = 56
+const GRID_HEIGHT: int = 56
+## Shift so world center stays at the old farm center (0, 25).
+const GRID_SHIFT: int = 8
+## Circular playable area — fitted to floating_island top (island xz radius ≈ 26).
+const PLAY_RADIUS: float = 24.2
+const ISLAND_GLB_PATH: String = "res://assets/models/nature/floating_island.glb"
+## Raw mesh top Y of floating_island.glb (used to flush the deck with y=0).
+const ISLAND_TOP_LOCAL_Y: float = 0.244
+const ISLAND_SCALE: float = 52.0
 
 var undo_manager: UndoManager
 
@@ -40,46 +49,110 @@ func _build_grid_visual() -> void:
 
 	var line_material := StandardMaterial3D.new()
 	line_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	line_material.albedo_color = Color(0.3, 0.5, 0.3, 0.45)
+	line_material.albedo_color = Color(0.28, 0.38, 0.1, 0.45)
 	line_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 
+	# Only draw grid edges that touch at least one circular-in-bounds cell.
 	for x in range(GRID_WIDTH + 1):
-		var start := grid_to_world(Vector2i(x, 0))
-		var end := grid_to_world(Vector2i(x, GRID_HEIGHT))
-		_add_line(start, end, line_material)
+		for y in range(GRID_HEIGHT):
+			if _cell_exists(Vector2i(x, y)) or _cell_exists(Vector2i(x - 1, y)):
+				_add_line(
+					grid_to_world(Vector2i(x, y)),
+					grid_to_world(Vector2i(x, y + 1)),
+					line_material
+				)
 
 	for y in range(GRID_HEIGHT + 1):
-		var start := grid_to_world(Vector2i(0, y))
-		var end := grid_to_world(Vector2i(GRID_WIDTH, y))
-		_add_line(start, end, line_material)
+		for x in range(GRID_WIDTH):
+			if _cell_exists(Vector2i(x, y)) or _cell_exists(Vector2i(x, y - 1)):
+				_add_line(
+					grid_to_world(Vector2i(x, y)),
+					grid_to_world(Vector2i(x + 1, y)),
+					line_material
+				)
 
-	# Diamond ground matching the isometric playable area (no leftover corner triangles).
-	var ground := MeshInstance3D.new()
-	ground.name = "GroundDiamond"
-	ground.mesh = _make_ground_diamond_mesh()
-	var ground_mat := StandardMaterial3D.new()
-	ground_mat.albedo_color = Color(0.42, 0.62, 0.32)
-	ground.material_override = ground_mat
-	ground.position.y = -0.01
-	_grid_visual.add_child(ground)
+	_build_island()
 
 
-func _make_ground_diamond_mesh() -> ArrayMesh:
-	# Outer corners of the grid line frame.
-	var c0 := grid_to_world(Vector2i(0, 0))
-	var c1 := grid_to_world(Vector2i(GRID_WIDTH, 0))
-	var c2 := grid_to_world(Vector2i(GRID_WIDTH, GRID_HEIGHT))
-	var c3 := grid_to_world(Vector2i(0, GRID_HEIGHT))
+func _cell_exists(cell: Vector2i) -> bool:
+	return cell.x >= 0 and cell.y >= 0 \
+		and cell.x < GRID_WIDTH and cell.y < GRID_HEIGHT \
+		and is_in_bounds(cell)
+
+
+func _build_island() -> void:
+	## Art island base from floating_island.glb; playable deck stays at y=0.
+	var center := get_map_center()
+
+	var island := Node3D.new()
+	island.name = "Island"
+	island.position = Vector3(center.x, 0.0, center.z)
+	_grid_visual.add_child(island)
+
+	if ResourceLoader.exists(ISLAND_GLB_PATH):
+		var packed := load(ISLAND_GLB_PATH) as PackedScene
+		if packed:
+			var model: Node3D = packed.instantiate() as Node3D
+			model.name = "FloatingIslandModel"
+			model.scale = Vector3.ONE * ISLAND_SCALE
+			# Lift so the model's top deck sits on the playable plane (y=0).
+			model.position.y = -ISLAND_TOP_LOCAL_Y * ISLAND_SCALE
+			island.add_child(model)
+
+	# Soft circular playable disc — color sampled from floating_island grass texture.
+	var deck := MeshInstance3D.new()
+	deck.name = "PlayableDeck"
+	var deck_mesh := CylinderMesh.new()
+	deck_mesh.top_radius = PLAY_RADIUS
+	deck_mesh.bottom_radius = PLAY_RADIUS
+	deck_mesh.height = 0.04
+	deck_mesh.radial_segments = 64
+	deck.mesh = deck_mesh
+	deck.position = Vector3(center.x, -0.02, center.z)
+	var deck_mat := StandardMaterial3D.new()
+	# Olive/yellow-green from island basecolor (avg grass).
+	deck_mat.albedo_color = Color(0.31, 0.40, 0.09, 0.42)
+	deck_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	deck_mat.roughness = 0.95
+	deck.material_override = deck_mat
+	_grid_visual.add_child(deck)
+
+	# Thin ring marking the circular playable boundary.
+	var ring := MeshInstance3D.new()
+	ring.name = "PlayableRing"
+	ring.mesh = _make_circle_ring_mesh(PLAY_RADIUS, 0.12, 64)
+	ring.position = Vector3(center.x, 0.03, center.z)
+	var ring_mat := StandardMaterial3D.new()
+	ring_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	ring_mat.albedo_color = Color(0.95, 0.9, 0.55, 0.65)
+	ring_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	ring.material_override = ring_mat
+	_grid_visual.add_child(ring)
+
+
+func _make_circle_ring_mesh(radius: float, thickness: float, segments: int) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	st.add_vertex(c0)
-	st.add_vertex(c1)
-	st.add_vertex(c2)
-	st.add_vertex(c0)
-	st.add_vertex(c2)
-	st.add_vertex(c3)
+	var inner := maxf(radius - thickness, 0.05)
+	for i in range(segments):
+		var a0 := TAU * float(i) / float(segments)
+		var a1 := TAU * float(i + 1) / float(segments)
+		var o0 := Vector3(cos(a0) * radius, 0.0, sin(a0) * radius)
+		var o1 := Vector3(cos(a1) * radius, 0.0, sin(a1) * radius)
+		var i0 := Vector3(cos(a0) * inner, 0.0, sin(a0) * inner)
+		var i1 := Vector3(cos(a1) * inner, 0.0, sin(a1) * inner)
+		st.add_vertex(o0)
+		st.add_vertex(o1)
+		st.add_vertex(i1)
+		st.add_vertex(o0)
+		st.add_vertex(i1)
+		st.add_vertex(i0)
 	st.generate_normals()
 	return st.commit()
+
+
+func get_map_center() -> Vector3:
+	return grid_to_world(Vector2i(int(GRID_WIDTH / 2.0), int(GRID_HEIGHT / 2.0)))
 
 
 func _add_line(from: Vector3, to: Vector3, material: StandardMaterial3D) -> void:
@@ -97,8 +170,10 @@ func _add_line(from: Vector3, to: Vector3, material: StandardMaterial3D) -> void
 func grid_to_world(grid_pos: Vector2i) -> Vector3:
 	var half_w := TILE_WIDTH * 0.5
 	var half_h := TILE_HEIGHT * 0.5
-	var world_x := (grid_pos.x - grid_pos.y) * half_w
-	var world_z := (grid_pos.x + grid_pos.y) * half_h
+	var gx := float(grid_pos.x - GRID_SHIFT)
+	var gy := float(grid_pos.y - GRID_SHIFT)
+	var world_x := (gx - gy) * half_w
+	var world_z := (gx + gy) * half_h
 	return Vector3(world_x, 0.0, world_z)
 
 
@@ -107,7 +182,7 @@ func world_to_grid(world_pos: Vector3) -> Vector2i:
 	var half_h := TILE_HEIGHT * 0.5
 	var gx := (world_pos.x / half_w + world_pos.z / half_h) * 0.5
 	var gy := (world_pos.z / half_h - world_pos.x / half_w) * 0.5
-	return Vector2i(roundi(gx), roundi(gy))
+	return Vector2i(roundi(gx) + GRID_SHIFT, roundi(gy) + GRID_SHIFT)
 
 
 func world_to_grid_nearest(world_pos: Vector3) -> Vector2i:
@@ -128,8 +203,14 @@ func world_to_grid_nearest(world_pos: Vector3) -> Vector2i:
 
 
 func is_in_bounds(grid_pos: Vector2i) -> bool:
-	return grid_pos.x >= 0 and grid_pos.x < GRID_WIDTH \
-		and grid_pos.y >= 0 and grid_pos.y < GRID_HEIGHT
+	if grid_pos.x < 0 or grid_pos.x >= GRID_WIDTH \
+		or grid_pos.y < 0 or grid_pos.y >= GRID_HEIGHT:
+		return false
+	var world := grid_to_world(grid_pos)
+	var center := get_map_center()
+	var dx := world.x - center.x
+	var dz := world.z - center.z
+	return dx * dx + dz * dz <= PLAY_RADIUS * PLAY_RADIUS
 
 
 func is_occupied(grid_pos: Vector2i) -> bool:

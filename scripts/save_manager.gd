@@ -6,7 +6,7 @@ const SAVE_PATH := "user://farm_save.json"
 
 static func save_farm(grid_manager: GridManager, inventory_manager: InventoryManager = null) -> bool:
 	var data := {
-		"version": 3,
+		"version": 4,
 		"grid_width": GridManager.GRID_WIDTH,
 		"grid_height": GridManager.GRID_HEIGHT,
 		"objects": grid_manager.get_all_objects_data(),
@@ -45,7 +45,15 @@ static func load_farm(grid_manager: GridManager, inventory_manager: InventoryMan
 
 	var data: Dictionary = json.data
 	if data.has("objects") and data["objects"] is Array:
-		grid_manager.load_objects_data(data["objects"])
+		var objects: Array = data["objects"]
+		# v3 and older used a 40x40 grid without GRID_SHIFT.
+		var version := int(data.get("version", 1))
+		if version < 4:
+			for entry in objects:
+				if entry is Dictionary:
+					entry["grid_x"] = int(entry.get("grid_x", 0)) + GridManager.GRID_SHIFT
+					entry["grid_y"] = int(entry.get("grid_y", 0)) + GridManager.GRID_SHIFT
+		grid_manager.load_objects_data(objects)
 		if inventory_manager and data.has("inventory") and data["inventory"] is Dictionary:
 			inventory_manager.load_data(data["inventory"])
 		return true

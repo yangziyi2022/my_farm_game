@@ -20,7 +20,10 @@ func setup(p_environment: WorldEnvironment, p_sun: DirectionalLight3D, p_fill: O
 	world_environment = p_environment
 	sun_light = p_sun
 	fill_light = p_fill
-	apply_weather(WEATHER_SUNNY)
+	_current_weather = WEATHER_SUNNY
+	# Lighting/sky is driven by DayNightCycle; weather only modulates intensity.
+	_notify_day_night_mul(1.0)
+	weather_changed.emit(_current_weather)
 
 
 func get_current_weather() -> String:
@@ -29,21 +32,28 @@ func get_current_weather() -> String:
 
 func apply_weather(weather_id: String) -> void:
 	_current_weather = weather_id
+	# DayNightCycle owns continuous sky/sun lighting. Weather only adjusts intensity hooks.
 	match weather_id:
 		WEATHER_SUNNY:
-			_apply_sunny()
+			_notify_day_night_mul(1.0)
 		WEATHER_RAIN:
-			_apply_rain()
+			_notify_day_night_mul(0.75)
 		WEATHER_SNOW:
-			_apply_snow()
+			_notify_day_night_mul(0.85)
 		WEATHER_FOG:
-			_apply_fog()
+			_notify_day_night_mul(0.7)
 		WEATHER_NIGHT:
-			_apply_night()
+			_notify_day_night_mul(1.0)
 		_:
-			_apply_sunny()
+			_notify_day_night_mul(1.0)
 
 	weather_changed.emit(_current_weather)
+
+
+func _notify_day_night_mul(mul: float) -> void:
+	var day_night := get_parent().get_node_or_null("DayNightCycle")
+	if day_night and day_night.has_method("set_weather_energy_multiplier"):
+		day_night.set_weather_energy_multiplier(mul)
 
 
 func _apply_sunny() -> void:

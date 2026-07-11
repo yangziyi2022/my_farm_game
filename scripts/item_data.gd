@@ -57,7 +57,7 @@ const ITEMS: Dictionary = {
 		"id": "grass",
 		"name": "Grass",
 		"category": Category.TERRAIN,
-		"color": Color(0.35, 0.65, 0.25),
+		"color": Color(0.31, 0.40, 0.09),
 		"size": Vector3(1.0, 0.1, 1.0),
 		"offset_y": 0.05,
 		"rotatable": false,

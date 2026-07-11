@@ -4,8 +4,10 @@ extends Node3D
 @onready var camera: Camera3D = $Camera3D
 @onready var camera_controller: CameraController = $CameraController
 @onready var weather_controller: WeatherController = $WeatherController
+@onready var day_night_cycle: DayNightCycle = $DayNightCycle
 @onready var world_environment: WorldEnvironment = $WorldEnvironment
 @onready var sun_light: DirectionalLight3D = $DirectionalLight3D
+@onready var moon_light: DirectionalLight3D = $MoonLight
 @onready var fill_light: OmniLight3D = $FillLight
 @onready var undo_manager: UndoManager = $UndoManager
 @onready var inventory_manager: InventoryManager = $InventoryManager
@@ -21,7 +23,10 @@ extends Node3D
 
 func _ready() -> void:
 	weather_controller.setup(world_environment, sun_light, fill_light)
-	camera_controller.setup(camera)
+	var map_center := grid_manager.get_map_center()
+	day_night_cycle.setup(world_environment, sun_light, fill_light, map_center, moon_light)
+	day_night_cycle.phase_changed.connect(_on_day_night_phase_changed)
+	camera_controller.setup(camera, map_center)
 	grid_manager.undo_manager = undo_manager
 	placement_controller.setup(grid_manager, camera, undo_manager, inventory_manager, cursor_overlay)
 	inventory_bar.setup(inventory_manager)
@@ -44,7 +49,21 @@ func _ready() -> void:
 	undo_manager.undo_applied.connect(_on_status_message)
 
 	_on_undo_stack_changed(undo_manager.can_undo())
-	_on_status_message("Hoe dirt, plant wheat or flowers, harvest when grown. Rod on water. Feed wheat to animals.")
+	_on_status_message("Island view: right-drag orbit, middle-drag pan, scroll zoom. 10 min day / night.")
+
+
+func _on_day_night_phase_changed(phase: String) -> void:
+	var labels := {
+		"dawn": "Dawn",
+		"sunrise": "Sunrise",
+		"day": "Daytime",
+		"sunset": "Sunset",
+		"dusk": "Dusk",
+		"night": "Night",
+		"predawn": "Before dawn",
+	}
+	var label: String = str(labels.get(phase, phase.capitalize()))
+	_on_status_message("%s — 10 min day / 10 min night cycle" % label)
 
 
 func _on_select_tool_activated() -> void:
