@@ -1,6 +1,8 @@
 class_name PlacementController
 extends Node
 
+const ToolCursor3D = preload("res://scripts/tool_cursor_3d.gd")
+
 signal status_message(text: String)
 signal select_mode_requested
 signal feed_mode_cancelled
@@ -12,6 +14,7 @@ var camera: Camera3D
 var undo_manager: UndoManager
 var inventory_manager: InventoryManager
 var cursor_overlay: CursorOverlay
+var tool_cursor: ToolCursor3D
 var selected_item: ItemData.ItemType = ItemData.ItemType.GRASS
 var mode: Mode = Mode.SELECT
 var feed_item: InventoryData.Item = InventoryData.Item.WHEAT
@@ -26,6 +29,7 @@ var _drag_origin: Vector2i = Vector2i.ZERO
 var _drag_hover: Vector2i = Vector2i.ZERO
 var _ghost: Node3D = null
 var _footprint: FootprintOverlay = null
+var _hoe_footprint: FootprintOverlay = null
 var _selection_footprint: FootprintOverlay = null
 var _mouse_down_pos: Vector2 = Vector2.ZERO
 var _right_down_pos: Vector2 = Vector2.ZERO
@@ -52,12 +56,16 @@ func setup(
 	p_undo_manager: UndoManager,
 	p_inventory_manager: InventoryManager = null,
 	p_cursor_overlay: CursorOverlay = null,
+	p_tool_cursor: ToolCursor3D = null,
 ) -> void:
 	grid_manager = p_grid_manager
 	camera = p_camera
 	undo_manager = p_undo_manager
 	inventory_manager = p_inventory_manager
 	cursor_overlay = p_cursor_overlay
+	tool_cursor = p_tool_cursor
+	if tool_cursor:
+		tool_cursor.setup(camera)
 	grid_manager.selection_changed.connect(_on_selection_changed)
 	_ensure_marquee_ui()
 
@@ -99,6 +107,8 @@ func enter_select_mode() -> void:
 	_reset_selection_state()
 	_remove_ghost()
 	_hide_cursor_overlay()
+	_hide_tool_cursor()
+	_remove_hoe_footprint()
 	feed_mode_cancelled.emit()
 	select_mode_requested.emit()
 	status_message.emit("Select — drag empty ground to box-select, then drag selection to move.")
@@ -113,6 +123,8 @@ func enter_hoe_mode() -> void:
 	_reset_selection_state()
 	_remove_ghost()
 	_hide_cursor_overlay()
+	_show_hoe_cursor()
+	_ensure_hoe_footprint()
 	feed_mode_cancelled.emit()
 	status_message.emit("Hoe — click grass to turn it into dirt paths.")
 
@@ -125,6 +137,8 @@ func enter_harvest_mode() -> void:
 	_cancel_marquee()
 	_reset_selection_state()
 	_remove_ghost()
+	_hide_tool_cursor()
+	_remove_hoe_footprint()
 	feed_mode_cancelled.emit()
 	_show_cursor_overlay("Harvest", Color(0.95, 0.75, 0.2))
 	status_message.emit("Harvest — click mature plants to collect them.")
@@ -138,6 +152,8 @@ func enter_fish_mode() -> void:
 	_cancel_marquee()
 	_reset_selection_state()
 	_remove_ghost()
+	_hide_tool_cursor()
+	_remove_hoe_footprint()
 	feed_mode_cancelled.emit()
 	_show_cursor_overlay("Rod", Color(0.45, 0.35, 0.2))
 	status_message.emit("Rod — click water tiles to catch fish.")
@@ -157,6 +173,8 @@ func enter_feed_mode(item: InventoryData.Item) -> void:
 	_cancel_marquee()
 	_reset_selection_state()
 	_remove_ghost()
+	_hide_tool_cursor()
+	_remove_hoe_footprint()
 	_show_cursor_overlay(InventoryData.get_item_name(item), InventoryData.get_color(item))
 	status_message.emit("Feed — click an animal with %s" % InventoryData.get_item_name(item))
 
@@ -170,6 +188,8 @@ func set_selected_item(item_type: ItemData.ItemType) -> void:
 	_group_dragging = false
 	_cancel_marquee()
 	_reset_selection_state()
+	_hide_tool_cursor()
+	_remove_hoe_footprint()
 	feed_mode_cancelled.emit()
 	_update_ghost()
 	_hide_cursor_overlay()
@@ -186,6 +206,8 @@ func perform_undo() -> void:
 func _process(_delta: float) -> void:
 	if mode == Mode.PLACE and _ghost:
 		_update_ghost_position()
+	if mode == Mode.HOE:
+		_update_hoe_footprint()
 	if _dragging and _drag_object and is_instance_valid(_drag_object) and not _group_dragging:
 		_update_drag_follow()
 	if _group_dragging:
@@ -302,6 +324,8 @@ func _on_left_press(screen_pos: Vector2) -> void:
 	match mode:
 		Mode.HOE:
 			if grid_manager.hoe_grass(grid_pos):
+				if tool_cursor:
+					tool_cursor.play_hoe_dig()
 				status_message.emit("Hoed grass at (%d, %d)" % [grid_pos.x, grid_pos.y])
 			else:
 				status_message.emit("Hoe only works on grass")
@@ -403,6 +427,8 @@ func _select_placed_object(obj: Node3D) -> void:
 	_cancel_marquee()
 	_remove_ghost()
 	_hide_cursor_overlay()
+	_hide_tool_cursor()
+	_remove_hoe_footprint()
 	feed_mode_cancelled.emit()
 	select_mode_requested.emit()
 	_set_selected_group([obj])
@@ -769,6 +795,9 @@ func _try_harvest(grid_pos: Vector2i) -> void:
 	if not grid_manager.is_plant_mature(grid_pos):
 		status_message.emit("Nothing ready to harvest here")
 		return
+	var plant := grid_manager.get_content_at(grid_pos)
+	if plant:
+		HarvestEffect.play(plant)
 	var harvest_item = grid_manager.harvest_plant(grid_pos)
 	if harvest_item == null:
 		status_message.emit("Nothing ready to harvest here")
@@ -941,6 +970,8 @@ func _cancel_action() -> void:
 	_reset_selection_state()
 	_remove_ghost()
 	_hide_cursor_overlay()
+	_hide_tool_cursor()
+	_remove_hoe_footprint()
 	mode = Mode.SELECT
 	select_mode_requested.emit()
 	status_message.emit("Cancelled — selection cleared")
@@ -954,6 +985,44 @@ func _show_cursor_overlay(text: String, color: Color) -> void:
 func _hide_cursor_overlay() -> void:
 	if cursor_overlay:
 		cursor_overlay.hide_overlay()
+
+
+func _show_hoe_cursor() -> void:
+	if tool_cursor:
+		tool_cursor.show_hoe()
+
+
+func _hide_tool_cursor() -> void:
+	if tool_cursor:
+		tool_cursor.hide_tool()
+
+
+func _ensure_hoe_footprint() -> void:
+	if _hoe_footprint and is_instance_valid(_hoe_footprint):
+		_hoe_footprint.visible = true
+		return
+	_hoe_footprint = FootprintOverlay.create_for_item(ItemData.ItemType.DIRT, grid_manager)
+	_hoe_footprint.name = "HoeFootprint"
+	grid_manager.objects_container.add_child(_hoe_footprint)
+	_update_hoe_footprint()
+
+
+func _update_hoe_footprint() -> void:
+	if _hoe_footprint == null or not is_instance_valid(_hoe_footprint):
+		return
+	var cell := _raycast_ground_cell(get_viewport().get_mouse_position())
+	if not _is_valid_cell(cell):
+		_hoe_footprint.visible = false
+		return
+	_hoe_footprint.visible = true
+	_hoe_footprint.position = grid_manager.grid_to_world(cell)
+	_hoe_footprint.set_valid(grid_manager.can_hoe_at(cell))
+
+
+func _remove_hoe_footprint() -> void:
+	if _hoe_footprint and is_instance_valid(_hoe_footprint):
+		_hoe_footprint.queue_free()
+	_hoe_footprint = null
 
 
 func _raycast(screen_pos: Vector2) -> Dictionary:

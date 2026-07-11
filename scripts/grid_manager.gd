@@ -361,7 +361,8 @@ func _highlight_object(obj: Node3D, enabled: bool) -> void:
 
 
 func _apply_highlight_recursive(node: Node, enabled: bool) -> void:
-	if node is FootprintOverlay or str(node.name).begins_with("Footprint") or node.name == "SelectionFootprint":
+	if node is FootprintOverlay or str(node.name).begins_with("Footprint") \
+			or node.name in ["SelectionFootprint", "HoeFootprint", "HarvestFX"]:
 		return
 	if node is MeshInstance3D:
 		var mat: StandardMaterial3D = node.material_override
@@ -421,8 +422,7 @@ func place_object(
 	if ItemData.needs_dirt_to_plant(item_type):
 		if get_terrain_type_at(grid_pos) != ItemData.ItemType.DIRT or has_content(grid_pos):
 			return null
-		if has_terrain(grid_pos):
-			_remove_terrain_silent(grid_pos)
+		# Keep the full-size dirt tile; plant sits on top as content.
 		return _spawn_object(item_type, grid_pos, rotation, growth_stage, animate_placement, true)
 
 	# Painting grass restores the default floor (remove dirt/water/path tiles).
@@ -462,19 +462,23 @@ func place_object(
 
 
 func hoe_grass(grid_pos: Vector2i) -> bool:
-	if not is_in_bounds(grid_pos):
-		return false
-	# Don't hoe under an animal/building.
-	if has_content(grid_pos):
+	if not can_hoe_at(grid_pos):
 		return false
 	if not has_terrain(grid_pos):
 		place_object(ItemData.ItemType.DIRT, grid_pos, 0, true, 0)
 		return true
-	var item_type := get_terrain_type_at(grid_pos)
-	if not ItemData.is_hoeable(item_type):
-		return false
 	replace_object(grid_pos, ItemData.ItemType.DIRT, 0, 0, true)
 	return true
+
+
+func can_hoe_at(grid_pos: Vector2i) -> bool:
+	if not is_in_bounds(grid_pos):
+		return false
+	if has_content(grid_pos):
+		return false
+	if not has_terrain(grid_pos):
+		return true
+	return ItemData.is_hoeable(get_terrain_type_at(grid_pos))
 
 
 func replace_object(
@@ -516,9 +520,14 @@ func place_object_silent(
 	rotation: int = 0,
 	growth_stage: int = 0
 ) -> Node3D:
-	if ItemData.needs_dirt_to_plant(item_type) and has_terrain(grid_pos):
-		_remove_terrain_silent(grid_pos)
-	elif ItemData.is_terrain(item_type) and has_terrain(grid_pos) and not has_content(grid_pos):
+	if ItemData.needs_dirt_to_plant(item_type):
+		# Keep full-size dirt under crops (restore for legacy saves that stripped it).
+		if has_content(grid_pos):
+			remove_object_silent(grid_pos)
+		if not has_terrain(grid_pos):
+			_spawn_object(ItemData.ItemType.DIRT, grid_pos, 0, 0, false, false)
+		return _spawn_object(item_type, grid_pos, rotation, growth_stage, false, false)
+	if ItemData.is_terrain(item_type) and has_terrain(grid_pos) and not has_content(grid_pos):
 		_remove_terrain_silent(grid_pos)
 	return _spawn_object(item_type, grid_pos, rotation, growth_stage, false, false)
 
@@ -580,6 +589,17 @@ func _add_tile_collider(obj: Node3D, item_type: ItemData.ItemType) -> void:
 		var box := BoxShape3D.new()
 		box.size = Vector3(TILE_WIDTH * 0.98, 0.18, TILE_HEIGHT * 0.98)
 		col.position.y = 0.09
+		col.shape = box
+		body.add_child(col)
+		obj.add_child(body)
+		return
+
+	# Crops change mesh per growth stage — keep a stable full-cell pick volume.
+	if ItemData.is_growable_plant(item_type):
+		var col := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		box.size = Vector3(TILE_WIDTH * 0.9, 1.0, TILE_HEIGHT * 0.9)
+		col.position.y = 0.5
 		col.shape = box
 		body.add_child(col)
 		obj.add_child(body)
@@ -980,7 +1000,9 @@ func harvest_plant(grid_pos: Vector2i):
 	var plant_type: ItemData.ItemType = obj.get_meta("item_type")
 	var harvest_item := InventoryData.from_plant_type(plant_type)
 	remove_object_silent(grid_pos)
-	_spawn_object(ItemData.ItemType.DIRT, grid_pos, 0, 0, false, false)
+	# Dirt terrain was kept under the plant — restore only if somehow missing.
+	if not has_terrain(grid_pos):
+		_spawn_object(ItemData.ItemType.DIRT, grid_pos, 0, 0, false, false)
 	return harvest_item
 
 

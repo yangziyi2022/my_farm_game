@@ -1,5 +1,7 @@
 extends Node3D
 
+const ToolCursor3D = preload("res://scripts/tool_cursor_3d.gd")
+
 @onready var grid_manager: GridManager = $GridManager
 @onready var camera: Camera3D = $Camera3D
 @onready var camera_controller: CameraController = $CameraController
@@ -15,6 +17,7 @@ extends Node3D
 @onready var item_palette: ItemPalette = $UI/ItemPalette
 @onready var inventory_bar: InventoryBar = $UI/InventoryBar
 @onready var cursor_overlay: CursorOverlay = $UI/CursorOverlay
+@onready var tool_cursor: ToolCursor3D = $ToolCursor3D
 @onready var status_label: Label = $UI/StatusBar/StatusLabel
 @onready var save_btn: Button = $UI/Toolbar/SaveBtn
 @onready var load_btn: Button = $UI/Toolbar/LoadBtn
@@ -28,7 +31,7 @@ func _ready() -> void:
 	day_night_cycle.phase_changed.connect(_on_day_night_phase_changed)
 	camera_controller.setup(camera, map_center)
 	grid_manager.undo_manager = undo_manager
-	placement_controller.setup(grid_manager, camera, undo_manager, inventory_manager, cursor_overlay)
+	placement_controller.setup(grid_manager, camera, undo_manager, inventory_manager, cursor_overlay, tool_cursor)
 	inventory_bar.setup(inventory_manager)
 
 	item_palette.item_selected.connect(placement_controller.set_selected_item)

@@ -7,7 +7,8 @@ const ANIMAL_PIVOT_NAME := "AnimalPivot"
 
 # Attach ambient life and placement polish without touching core grid logic.
 static func setup(obj: Node3D, item_type: ItemData.ItemType, animate_placement: bool = true) -> void:
-	if animate_placement:
+	# Terrain tiles must stay full size — pop-in scale makes dirt look shrunk.
+	if animate_placement and not ItemData.is_terrain(item_type):
 		PlacementAnimation.play(obj)
 
 	if ItemData.should_sway(item_type):
@@ -24,6 +25,9 @@ static func setup(obj: Node3D, item_type: ItemData.ItemType, animate_placement: 
 
 	if item_type == ItemData.ItemType.FOUNTAIN:
 		_attach_fountain_jet(obj)
+
+	if item_type == ItemData.ItemType.LAMPPOST:
+		_attach_lamp_glow(obj)
 
 
 static func _attach_spinning_blades(obj: Node3D, speed: float) -> void:
@@ -58,6 +62,45 @@ static func _attach_fountain_jet(obj: Node3D) -> void:
 	jet.add_child(sway)
 
 
+static func _attach_lamp_glow(obj: Node3D) -> void:
+	## Light sits on the placeable root (not under visual_scale) so range stays correct.
+	if obj.get_node_or_null("LampLight"):
+		return
+
+	const LAMP_TOP_Y: float = 1.05
+	const GLOW_COLOR := Color(1.0, 0.92, 0.55)
+
+	var light := OmniLight3D.new()
+	light.name = "LampLight"
+	light.light_color = GLOW_COLOR
+	light.light_energy = 1.45
+	light.omni_range = 4.8
+	light.omni_attenuation = 1.15
+	light.shadow_enabled = false
+	light.position = Vector3(0.0, LAMP_TOP_Y, 0.0)
+	obj.add_child(light)
+
+	var glow := MeshInstance3D.new()
+	glow.name = "LampGlow"
+	var sphere := SphereMesh.new()
+	sphere.radius = 0.09
+	sphere.height = 0.18
+	glow.mesh = sphere
+	glow.position = Vector3(0.0, LAMP_TOP_Y, 0.0)
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(1.0, 0.95, 0.7, 0.9)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.emission_enabled = true
+	mat.emission = GLOW_COLOR
+	mat.emission_energy_multiplier = 2.8
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	glow.material_override = mat
+	obj.add_child(glow)
+
+	# Soft emission on the imported mesh near the lamp head.
+	_enable_top_mesh_emission(obj, LAMP_TOP_Y - 0.25, GLOW_COLOR)
+
+
 static func _attach_plant_growth(obj: Node3D, item_type: ItemData.ItemType) -> void:
 	var growth := CropGrowth.new()
 	growth.name = "CropGrowth"
@@ -66,11 +109,14 @@ static func _attach_plant_growth(obj: Node3D, item_type: ItemData.ItemType) -> v
 	growth.setup(obj, start_stage)
 	growth.stage_changed.connect(_on_plant_stage_changed.bind(obj, item_type))
 
-	if start_stage >= CropGrowth.STAGE_COUNT - 1:
+	if start_stage >= CropGrowth.STAGE_COUNT - 1 and item_type != ItemData.ItemType.WHEAT:
 		_attach_flower_sway(obj)
 
 
 static func _on_plant_stage_changed(obj: Node3D, item_type: ItemData.ItemType, stage: int) -> void:
+	# Wheat uses large GLB stages — keep them planted steady (no flower sway).
+	if item_type == ItemData.ItemType.WHEAT:
+		return
 	if stage >= CropGrowth.STAGE_COUNT - 1:
 		_attach_flower_sway(obj)
 
@@ -165,7 +211,7 @@ static func _create_visual_pivot(obj: Node3D, pivot_name: String) -> Node3D:
 	for child in children:
 		if child == pivot:
 			continue
-		if child.name in ["TileCollider", "CropGrowth", "AnimalController", "SpinningBlades"]:
+		if child.name in ["TileCollider", "CropGrowth", "AnimalController", "SpinningBlades", "LampLight", "LampGlow"]:
 			continue
 		if child is MeshInstance3D:
 			child.reparent(pivot)
@@ -174,3 +220,33 @@ static func _create_visual_pivot(obj: Node3D, pivot_name: String) -> Node3D:
 			child.reparent(pivot)
 
 	return pivot
+
+
+static func _enable_top_mesh_emission(obj: Node3D, min_local_y: float, color: Color) -> void:
+	var meshes: Array[MeshInstance3D] = []
+	_gather_meshes(obj, meshes)
+	for mi in meshes:
+		if mi.name == "LampGlow" or mi.mesh == null:
+			continue
+		var local_center: Vector3 = obj.to_local(mi.global_transform * mi.get_aabb().get_center())
+		if local_center.y < min_local_y:
+			continue
+		var surface_count: int = mi.mesh.get_surface_count()
+		for i in range(surface_count):
+			var src: Material = mi.get_active_material(i)
+			var mat: BaseMaterial3D
+			if src is BaseMaterial3D:
+				mat = (src as BaseMaterial3D).duplicate() as BaseMaterial3D
+			else:
+				mat = StandardMaterial3D.new()
+			mat.emission_enabled = true
+			mat.emission = color
+			mat.emission_energy_multiplier = maxf(mat.emission_energy_multiplier, 1.8)
+			mi.set_surface_override_material(i, mat)
+
+
+static func _gather_meshes(node: Node, out: Array[MeshInstance3D]) -> void:
+	if node is MeshInstance3D:
+		out.append(node as MeshInstance3D)
+	for child in node.get_children():
+		_gather_meshes(child, out)

@@ -1,0 +1,7 @@
+[gd_scene format=3 uid="uid://lamp_post_placeable"]
+
+[ext_resource type="PackedScene" path="res://assets/models/decorations/lamp post.glb" id="1_lamp"]
+
+[node name="LampPostPlaceable" type="Node3D"]
+
+[node name="Model" parent="." instance=ExtResource("1_lamp")]

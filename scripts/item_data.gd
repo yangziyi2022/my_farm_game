@@ -210,6 +210,7 @@ const ITEMS: Dictionary = {
 		"size": Vector3(0.2, 1.1, 0.2),
 		"offset_y": 0.55,
 		"rotatable": true,
+		"def_path": "res://data/placeable_items/lamp_post.tres",
 	},
 	ItemType.WELL: {
 		"id": "well",
@@ -466,7 +467,7 @@ static func can_build_over(item_type: ItemType) -> bool:
 
 static func stacks_on_terrain(item_type: ItemType) -> bool:
 	# Animals, buildings, fences, decor sit on top of dirt/grass without deleting it.
-	# Crops still consume dirt (planted into the tile).
+	# Crops also keep the dirt tile underneath (planted into / on top of dirt).
 	if is_terrain(item_type):
 		return false
 	if needs_dirt_to_plant(item_type):

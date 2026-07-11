@@ -302,10 +302,7 @@ static func _build_crop_bed(parent: Node3D, info: Dictionary) -> void:
 
 
 static func _build_growing_flower(parent: Node3D, info: Dictionary, is_sunflower: bool) -> void:
-	var dirt_mesh := BoxMesh.new()
-	dirt_mesh.size = Vector3(1.0, 0.1, 1.0)
-	_add_mesh(parent, dirt_mesh, info.get("dirt_color", Color(0.55, 0.38, 0.22)), Vector3(0.0, 0.05, 0.0))
-
+	# Dirt stays as terrain under the plant — only grow the crop visuals.
 	for stage in range(4):
 		var stage_node := _make_flower_stage(info, stage, is_sunflower)
 		parent.add_child(stage_node)
@@ -343,48 +340,131 @@ static func _make_flower_stage(info: Dictionary, stage: int, is_sunflower: bool)
 	return node
 
 
-static func _build_growing_wheat(parent: Node3D, info: Dictionary) -> void:
-	var dirt_mesh := BoxMesh.new()
-	dirt_mesh.size = Vector3(1.0, 0.1, 1.0)
-	_add_mesh(parent, dirt_mesh, info.get("dirt_color", Color(0.55, 0.38, 0.22)), Vector3(0.0, 0.05, 0.0))
+static func _build_growing_wheat(parent: Node3D, _info: Dictionary) -> void:
+	# Stage 0 — four seeds; 1–3 — growing_wheat_1/2/3 sized to the dirt tile.
+	parent.add_child(_make_wheat_seed_stage())
+	parent.add_child(_make_wheat_model_stage(
+		"Stage1",
+		"res://assets/models/crops/growing_wheat_1.glb",
+		0.82
+	))
+	parent.add_child(_make_wheat_model_stage(
+		"Stage2",
+		"res://assets/models/crops/growing_wheat_2.glb",
+		0.94
+	))
+	parent.add_child(_make_wheat_model_stage(
+		"Stage3",
+		"res://assets/models/crops/growing_wheat_3.glb",
+		1.02
+	))
 
-	for stage in range(4):
-		var stage_node := _make_wheat_stage(info, stage)
-		parent.add_child(stage_node)
 
-
-static func _make_wheat_stage(info: Dictionary, stage: int) -> Node3D:
+static func _make_wheat_seed_stage() -> Node3D:
 	var node := Node3D.new()
-	node.name = "Stage%d" % stage
-	match stage:
-		0:
-			var seed_mesh := SphereMesh.new()
-			seed_mesh.radius = 0.04
-			_add_mesh(node, seed_mesh, Color(0.45, 0.32, 0.18), Vector3(0.0, 0.1, 0.0))
-		1:
-			var sprout_mesh := BoxMesh.new()
-			sprout_mesh.size = Vector3(0.05, 0.14, 0.05)
-			_add_mesh(node, sprout_mesh, info.get("stem_color", Color(0.22, 0.58, 0.18)), Vector3(0.0, 0.14, 0.0))
-		2:
-			var stem_mesh := CylinderMesh.new()
-			stem_mesh.top_radius = 0.015
-			stem_mesh.bottom_radius = 0.02
-			stem_mesh.height = 0.3
-			_add_mesh(node, stem_mesh, info.get("stem_color", Color(0.22, 0.58, 0.18)), Vector3(0.0, 0.2, 0.0))
-			var leaf_mesh := BoxMesh.new()
-			leaf_mesh.size = Vector3(0.14, 0.05, 0.08)
-			_add_mesh(node, leaf_mesh, info["color"], Vector3(0.08, 0.28, 0.0), Vector3(0.0, 0.0, 20.0))
-		3:
-			var stem_mesh := CylinderMesh.new()
-			stem_mesh.top_radius = 0.02
-			stem_mesh.bottom_radius = 0.025
-			stem_mesh.height = 0.42
-			_add_mesh(node, stem_mesh, info.get("stem_color", Color(0.22, 0.58, 0.18)), Vector3(0.0, 0.24, 0.0))
-			for i in range(3):
-				var head_mesh := BoxMesh.new()
-				head_mesh.size = Vector3(0.08, 0.16, 0.06)
-				_add_mesh(node, head_mesh, info["color"], Vector3(-0.1 + i * 0.1, 0.5, 0.0))
+	node.name = "Stage0"
+	var seed_color := Color(0.52, 0.36, 0.18)
+	var span := GridManager.TILE_WIDTH * 0.28
+	var offsets := [
+		Vector3(-span, 0.12, -span),
+		Vector3(span, 0.12, -span),
+		Vector3(-span, 0.12, span),
+		Vector3(span, 0.12, span),
+	]
+	for offset in offsets:
+		var seed_mesh := SphereMesh.new()
+		seed_mesh.radius = 0.05
+		seed_mesh.height = 0.08
+		_add_mesh(node, seed_mesh, seed_color, offset)
 	return node
+
+
+static func _make_wheat_model_stage(
+	stage_name: String,
+	scene_path: String,
+	tile_fill: float
+) -> Node3D:
+	var node := Node3D.new()
+	node.name = stage_name
+	if not ResourceLoader.exists(scene_path):
+		push_warning("Wheat model missing: %s" % scene_path)
+		return node
+	var model: Node3D = (load(scene_path) as PackedScene).instantiate() as Node3D
+	model.name = "Model"
+	node.add_child(model)
+	_fit_crop_model_to_dirt_tile(model, tile_fill)
+	return node
+
+
+static func _fit_crop_model_to_dirt_tile(model: Node3D, tile_fill: float) -> void:
+	## Scale XZ to the dirt cell, then drop the mesh so its bottom sits on the dirt top.
+	var aabb := _collect_local_aabb(model)
+	if aabb.size.length_squared() < 0.000001:
+		return
+
+	var target_w: float = GridManager.TILE_WIDTH * tile_fill
+	var target_d: float = GridManager.TILE_HEIGHT * tile_fill
+	var sx: float = target_w / maxf(aabb.size.x, 0.001)
+	var sz: float = target_d / maxf(aabb.size.z, 0.001)
+	var s: float = minf(sx, sz)
+	model.scale = Vector3.ONE * s
+
+	# Terrain dirt top is ~0.10; nest slightly so it doesn't hover.
+	const DIRT_TOP_Y: float = 0.06
+	model.position = Vector3(
+		-aabb.get_center().x * s,
+		DIRT_TOP_Y - aabb.position.y * s,
+		-aabb.get_center().z * s
+	)
+
+
+static func _collect_local_aabb(root: Node3D) -> AABB:
+	var merged := AABB()
+	var has_any := false
+	for mi in _gather_mesh_instances(root):
+		var local_xf := _relative_transform(root, mi)
+		var mesh_aabb := mi.get_aabb()
+		for corner in _aabb_corners(mesh_aabb):
+			var p: Vector3 = local_xf * corner
+			if not has_any:
+				merged = AABB(p, Vector3.ZERO)
+				has_any = true
+			else:
+				merged = merged.expand(p)
+	return merged
+
+
+static func _gather_mesh_instances(node: Node) -> Array[MeshInstance3D]:
+	var out: Array[MeshInstance3D] = []
+	if node is MeshInstance3D and (node as MeshInstance3D).mesh != null:
+		out.append(node as MeshInstance3D)
+	for child in node.get_children():
+		out.append_array(_gather_mesh_instances(child))
+	return out
+
+
+static func _relative_transform(ancestor: Node3D, descendant: Node3D) -> Transform3D:
+	var xf := Transform3D.IDENTITY
+	var current: Node3D = descendant
+	while current and current != ancestor:
+		xf = current.transform * xf
+		current = current.get_parent() as Node3D
+	return xf
+
+
+static func _aabb_corners(aabb: AABB) -> Array[Vector3]:
+	var p := aabb.position
+	var s := aabb.size
+	return [
+		p,
+		p + Vector3(s.x, 0, 0),
+		p + Vector3(0, s.y, 0),
+		p + Vector3(0, 0, s.z),
+		p + Vector3(s.x, s.y, 0),
+		p + Vector3(s.x, 0, s.z),
+		p + Vector3(0, s.y, s.z),
+		p + s,
+	]
 
 
 static func _build_cow(parent: Node3D, info: Dictionary) -> void:
