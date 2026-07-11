@@ -12,7 +12,7 @@
 [ext_resource type="Script" path="res://scripts/cursor_overlay.gd" id="10_cursor"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_ground"]
-size = Vector3(30, 0.1, 30)
+size = Vector3(70, 0.1, 70)
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_main")
@@ -43,7 +43,7 @@ script = ExtResource("2_grid")
 [node name="Objects" type="Node3D" parent="GridManager"]
 
 [node name="GroundBody" type="StaticBody3D" parent="GridManager"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.05, 12)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.05, 25)
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="GridManager/GroundBody"]
 shape = SubResource("BoxShape3D_ground")

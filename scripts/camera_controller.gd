@@ -67,7 +67,7 @@ func _pan_by_screen_delta(screen_delta: Vector2) -> void:
 	forward.y = 0.0
 	forward = forward.normalized()
 
-	_offset += (right * screen_delta.x - forward * screen_delta.y) * PAN_MOUSE_SPEED
+	_offset += (-right * screen_delta.x + forward * screen_delta.y) * PAN_MOUSE_SPEED
 	_apply_transform()
 
 

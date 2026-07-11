@@ -15,6 +15,7 @@ var cursor_overlay: CursorOverlay
 var selected_item: ItemData.ItemType = ItemData.ItemType.GRASS
 var mode: Mode = Mode.SELECT
 var feed_item: InventoryData.Item = InventoryData.Item.WHEAT
+var _place_rotation: int = 0
 
 var _dragging: bool = false
 var _place_drag: bool = false
@@ -27,8 +28,18 @@ var _selection_footprint: FootprintOverlay = null
 var _mouse_down_pos: Vector2 = Vector2.ZERO
 var _last_click_obj: Node3D = null
 var _last_click_msec: int = 0
+## Multi-select / marquee
+var _selected_group: Array[Node3D] = []
+var _group_origins: Dictionary = {}  # Node3D -> Vector2i
+var _group_dragging: bool = false
+var _marquee_active: bool = false
+var _marquee_start: Vector2 = Vector2.ZERO
+var _marquee_layer: CanvasLayer = null
+var _marquee_fill: ColorRect = null
+var _marquee_border: Panel = null
 const DRAG_THRESHOLD: float = 4.0
 const DOUBLE_CLICK_MS: int = 400
+const MARQUEE_THRESHOLD: float = 8.0
 
 
 func setup(
@@ -44,27 +55,60 @@ func setup(
 	inventory_manager = p_inventory_manager
 	cursor_overlay = p_cursor_overlay
 	grid_manager.selection_changed.connect(_on_selection_changed)
+	_ensure_marquee_ui()
+
+
+func _ensure_marquee_ui() -> void:
+	if _marquee_fill:
+		return
+	_marquee_layer = CanvasLayer.new()
+	_marquee_layer.layer = 20
+	add_child(_marquee_layer)
+
+	_marquee_fill = ColorRect.new()
+	_marquee_fill.color = Color(0.35, 0.75, 1.0, 0.18)
+	_marquee_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_marquee_fill.visible = false
+	_marquee_layer.add_child(_marquee_fill)
+
+	_marquee_border = Panel.new()
+	_marquee_border.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_marquee_border.visible = false
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0, 0, 0, 0)
+	style.border_color = Color(0.35, 0.8, 1.0, 0.95)
+	style.set_border_width_all(2)
+	_marquee_border.add_theme_stylebox_override("panel", style)
+	_marquee_layer.add_child(_marquee_border)
 
 
 func enter_select_mode() -> void:
 	mode = Mode.SELECT
 	if _dragging and _drag_object:
 		_snap_drag_home()
+	if _group_dragging:
+		_snap_group_home()
 	_end_object_drag()
+	_end_group_drag()
+	_cancel_marquee()
 	_place_drag = false
 	_drag_object = null
+	_clear_selected_group()
 	grid_manager.select_object(null)
 	_remove_ghost()
 	_hide_cursor_overlay()
 	feed_mode_cancelled.emit()
 	select_mode_requested.emit()
-	status_message.emit("Select — hold and drag objects; release to place.")
+	status_message.emit("Select — drag empty ground to box-select, then drag selection to move.")
 
 
 func enter_hoe_mode() -> void:
 	mode = Mode.HOE
 	_dragging = false
 	_place_drag = false
+	_group_dragging = false
+	_cancel_marquee()
+	_clear_selected_group()
 	_drag_object = null
 	grid_manager.select_object(null)
 	_remove_ghost()
@@ -77,6 +121,9 @@ func enter_harvest_mode() -> void:
 	mode = Mode.HARVEST
 	_dragging = false
 	_place_drag = false
+	_group_dragging = false
+	_cancel_marquee()
+	_clear_selected_group()
 	_drag_object = null
 	grid_manager.select_object(null)
 	_remove_ghost()
@@ -89,6 +136,9 @@ func enter_fish_mode() -> void:
 	mode = Mode.FISH
 	_dragging = false
 	_place_drag = false
+	_group_dragging = false
+	_cancel_marquee()
+	_clear_selected_group()
 	_drag_object = null
 	grid_manager.select_object(null)
 	_remove_ghost()
@@ -117,6 +167,7 @@ func enter_feed_mode(item: InventoryData.Item) -> void:
 func set_selected_item(item_type: ItemData.ItemType) -> void:
 	selected_item = item_type
 	mode = Mode.PLACE
+	_place_rotation = 0
 	_dragging = false
 	_place_drag = false
 	_drag_object = null
@@ -124,7 +175,7 @@ func set_selected_item(item_type: ItemData.ItemType) -> void:
 	feed_mode_cancelled.emit()
 	_update_ghost()
 	_hide_cursor_overlay()
-	status_message.emit("Place %s — hold, drag, release to place" % ItemData.get_item_name(item_type))
+	status_message.emit("Place %s — hold/drag/release. R to rotate preview" % ItemData.get_item_name(item_type))
 
 
 func perform_undo() -> void:
@@ -137,8 +188,12 @@ func perform_undo() -> void:
 func _process(_delta: float) -> void:
 	if mode == Mode.PLACE and _ghost:
 		_update_ghost_position()
-	if _dragging and _drag_object and is_instance_valid(_drag_object):
+	if _dragging and _drag_object and is_instance_valid(_drag_object) and not _group_dragging:
 		_update_drag_follow()
+	if _group_dragging:
+		_update_group_drag_follow()
+	if _marquee_active:
+		_update_marquee_visual(get_viewport().get_mouse_position())
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -174,7 +229,7 @@ func _on_left_press(screen_pos: Vector2) -> void:
 	var hit := _raycast(screen_pos)
 	if hit.is_empty():
 		if mode == Mode.SELECT:
-			grid_manager.select_object(null)
+			_begin_marquee(screen_pos)
 		_place_drag = false
 		_register_click(null)
 		return
@@ -202,22 +257,29 @@ func _on_left_press(screen_pos: Vector2) -> void:
 			if hit_obj and _is_movable_content(hit_obj):
 				_select_placed_object(hit_obj)
 				return
-			# Hold-drag place: follow mouse, commit on release.
 			_place_drag = true
 			status_message.emit("Drag to position, release to place")
 		Mode.SELECT:
-			if hit_obj:
-				_select_placed_object(hit_obj)
+			if hit_obj and _is_movable_content(hit_obj):
+				if _selected_group.has(hit_obj) and _selected_group.size() > 1:
+					_prepare_group_drag(hit_obj)
+				else:
+					_select_placed_object(hit_obj)
 			else:
-				grid_manager.select_object(null)
-				status_message.emit("Deselected")
+				_begin_marquee(screen_pos)
+
+
+func _is_selectable(obj: Node3D) -> bool:
+	if obj == null or not obj.has_meta("item_type"):
+		return false
+	# Grass is the default empty floor (no persistent selectable node).
+	var item_type: ItemData.ItemType = obj.get_meta("item_type")
+	return item_type != ItemData.ItemType.GRASS
 
 
 func _is_movable_content(obj: Node3D) -> bool:
-	if obj == null or not obj.has_meta("item_type"):
-		return false
-	var item_type: ItemData.ItemType = obj.get_meta("item_type")
-	return not ItemData.is_terrain(item_type)
+	# Kept as alias so older call sites stay readable.
+	return _is_selectable(obj)
 
 
 func _register_click(obj: Node3D) -> bool:
@@ -231,25 +293,29 @@ func _register_click(obj: Node3D) -> bool:
 func _select_placed_object(obj: Node3D) -> void:
 	mode = Mode.SELECT
 	_place_drag = false
+	_cancel_marquee()
 	_remove_ghost()
 	_hide_cursor_overlay()
 	feed_mode_cancelled.emit()
 	select_mode_requested.emit()
-	var already_selected := grid_manager.get_selected() == obj
-	if not already_selected:
-		grid_manager.select_object(obj)
+	_set_selected_group([obj])
 	_dragging = false
+	_group_dragging = false
 	_drag_object = obj
 	_drag_origin = obj.get_meta("grid_pos")
 	_drag_hover = _drag_origin
-	# Keep world position stable on re-click (don't snap/rebuild unless needed).
 	_drag_object.position = grid_manager.grid_to_world(_drag_origin)
-	status_message.emit("Hold and drag to move — release to place. R to rotate")
+	status_message.emit("Selected 1 — hold-drag to move, or box-select more on empty ground")
 
 
 func _on_selection_changed(obj: Node3D) -> void:
+	# Footprints for multi-select are managed by _refresh_group_footprints.
+	if _selected_group.size() > 1:
+		return
 	_clear_selection_footprint()
 	if obj == null or not is_instance_valid(obj):
+		return
+	if not _selected_group.has(obj):
 		return
 	var item_type: ItemData.ItemType = obj.get_meta("item_type")
 	_selection_footprint = FootprintOverlay.create_for_item(item_type, grid_manager)
@@ -262,6 +328,254 @@ func _clear_selection_footprint() -> void:
 	if _selection_footprint and is_instance_valid(_selection_footprint):
 		_selection_footprint.queue_free()
 	_selection_footprint = null
+	for obj in _selected_group:
+		if not is_instance_valid(obj):
+			continue
+		var fp := obj.get_node_or_null("SelectionFootprint")
+		if fp:
+			fp.queue_free()
+
+
+func _set_selected_group(objs: Array) -> void:
+	_clear_selection_footprint()
+	for prev in _selected_group:
+		if is_instance_valid(prev):
+			grid_manager.set_object_highlighted(prev, false)
+	_selected_group.clear()
+	_group_origins.clear()
+	for obj in objs:
+		if obj == null or not is_instance_valid(obj):
+			continue
+		if not _is_selectable(obj):
+			continue
+		if _selected_group.has(obj):
+			continue
+		_selected_group.append(obj)
+		_group_origins[obj] = obj.get_meta("grid_pos")
+		grid_manager.set_object_highlighted(obj, true)
+	if _selected_group.is_empty():
+		grid_manager.select_object(null)
+	else:
+		grid_manager.select_object(_selected_group[0])
+		_refresh_group_footprints()
+
+
+func _clear_selected_group() -> void:
+	_set_selected_group([])
+
+
+func _refresh_group_footprints() -> void:
+	_clear_selection_footprint()
+	for obj in _selected_group:
+		if not is_instance_valid(obj):
+			continue
+		var item_type: ItemData.ItemType = obj.get_meta("item_type")
+		var fp := FootprintOverlay.create_for_item(item_type, grid_manager)
+		fp.name = "SelectionFootprint"
+		fp.set_valid(true)
+		obj.add_child(fp)
+	if _selected_group.size() == 1:
+		_selection_footprint = _selected_group[0].get_node_or_null("SelectionFootprint") as FootprintOverlay
+
+
+func _begin_marquee(screen_pos: Vector2) -> void:
+	_marquee_active = true
+	_marquee_start = screen_pos
+	_ensure_marquee_ui()
+	_update_marquee_visual(screen_pos)
+	status_message.emit("Box select — drag to cover items, release to select")
+
+
+func _cancel_marquee() -> void:
+	_marquee_active = false
+	if _marquee_fill:
+		_marquee_fill.visible = false
+	if _marquee_border:
+		_marquee_border.visible = false
+
+
+func _update_marquee_visual(screen_pos: Vector2) -> void:
+	if not _marquee_fill or not _marquee_border:
+		return
+	var a := _marquee_start
+	var b := screen_pos
+	var rect := Rect2(
+		Vector2(minf(a.x, b.x), minf(a.y, b.y)),
+		Vector2(absf(a.x - b.x), absf(a.y - b.y))
+	)
+	_marquee_fill.visible = true
+	_marquee_border.visible = true
+	_marquee_fill.position = rect.position
+	_marquee_fill.size = rect.size
+	_marquee_border.position = rect.position
+	_marquee_border.size = rect.size
+
+
+func _finish_marquee(screen_pos: Vector2) -> void:
+	if not _marquee_active:
+		return
+	var dragged := screen_pos.distance_to(_marquee_start) >= MARQUEE_THRESHOLD
+	_cancel_marquee()
+	if not dragged:
+		_clear_selected_group()
+		status_message.emit("Deselected")
+		return
+
+	var a := _marquee_start
+	var b := screen_pos
+	var rect := Rect2(
+		Vector2(minf(a.x, b.x), minf(a.y, b.y)),
+		Vector2(absf(a.x - b.x), absf(a.y - b.y))
+	)
+	var picked: Array[Node3D] = []
+	for obj in grid_manager.get_all_selectable_objects():
+		if not _is_selectable(obj):
+			continue
+		var screen_pt := camera.unproject_position(obj.global_position + Vector3(0, 0.2, 0))
+		if rect.has_point(screen_pt):
+			picked.append(obj)
+
+	_set_selected_group(picked)
+	if picked.is_empty():
+		status_message.emit("Nothing selected")
+	else:
+		status_message.emit("Selected %d — drag any selected item to move the group" % picked.size())
+
+
+func _prepare_group_drag(anchor_obj: Node3D) -> void:
+	_group_dragging = false
+	_dragging = false
+	_place_drag = false
+	for obj in _selected_group:
+		if is_instance_valid(obj):
+			_group_origins[obj] = obj.get_meta("grid_pos")
+	_drag_object = anchor_obj
+	_drag_origin = anchor_obj.get_meta("grid_pos")
+	_drag_hover = _drag_origin
+
+
+func _begin_group_drag() -> void:
+	_group_dragging = true
+	_dragging = true
+	_place_drag = false
+	mode = Mode.SELECT
+	for obj in _selected_group:
+		if not is_instance_valid(obj):
+			continue
+		_group_origins[obj] = obj.get_meta("grid_pos")
+		var body := obj.get_node_or_null("TileCollider") as CollisionObject3D
+		if body:
+			body.collision_layer = 0
+	_update_group_drag_follow()
+
+
+func _end_group_drag() -> void:
+	_group_dragging = false
+	for obj in _selected_group:
+		if not is_instance_valid(obj):
+			continue
+		var body := obj.get_node_or_null("TileCollider") as CollisionObject3D
+		if body:
+			body.collision_layer = 1
+
+
+func _update_group_drag_follow() -> void:
+	if _selected_group.is_empty():
+		return
+	var mouse_pos := get_viewport().get_mouse_position()
+	var target := _raycast_ground_cell(mouse_pos)
+	if not _is_valid_cell(target):
+		return
+	if target == _drag_hover:
+		return
+	_drag_hover = target
+	var delta := target - _drag_origin
+	var valid := _can_drop_group_at(delta)
+	for obj in _selected_group:
+		if not is_instance_valid(obj):
+			continue
+		var origin: Vector2i = _group_origins[obj]
+		obj.position = grid_manager.grid_to_world(origin + delta)
+		var fp := obj.get_node_or_null("SelectionFootprint") as FootprintOverlay
+		if fp:
+			fp.set_valid(valid)
+
+
+func _can_drop_group_at(delta: Vector2i) -> bool:
+	var moving_content: Dictionary = {}
+	var moving_terrain: Dictionary = {}
+	for obj in _selected_group:
+		if not is_instance_valid(obj):
+			return false
+		var from: Vector2i = _group_origins[obj]
+		if grid_manager.is_terrain_object(obj):
+			moving_terrain[obj] = from
+		else:
+			moving_content[obj] = from
+
+	var content_targets: Dictionary = {}
+	var terrain_targets: Dictionary = {}
+	for obj in _selected_group:
+		var from: Vector2i = _group_origins[obj]
+		var to: Vector2i = from + delta
+		if not grid_manager.is_in_bounds(to):
+			return false
+		if grid_manager.is_terrain_object(obj):
+			if terrain_targets.has(to):
+				return false
+			terrain_targets[to] = true
+			if grid_manager.has_terrain(to):
+				var occupant: Node3D = grid_manager.get_terrain_at(to)
+				if not moving_terrain.has(occupant):
+					return false
+		else:
+			if content_targets.has(to):
+				return false
+			content_targets[to] = true
+			if grid_manager.has_content(to):
+				var occupant: Node3D = grid_manager.get_content_at(to)
+				if not moving_content.has(occupant):
+					return false
+	return true
+
+
+func _snap_group_home() -> void:
+	for obj in _selected_group:
+		if not is_instance_valid(obj):
+			continue
+		var origin: Vector2i = _group_origins.get(obj, obj.get_meta("grid_pos"))
+		obj.position = grid_manager.grid_to_world(origin)
+		obj.set_meta("grid_pos", origin)
+		var fp := obj.get_node_or_null("SelectionFootprint") as FootprintOverlay
+		if fp:
+			fp.set_valid(true)
+	if not _selected_group.is_empty():
+		_drag_hover = _group_origins.get(_selected_group[0], _drag_origin)
+		_drag_origin = _drag_hover
+
+
+func _commit_group_drag(target: Vector2i) -> void:
+	var delta := target - _drag_origin
+	if delta == Vector2i.ZERO:
+		_snap_group_home()
+		return
+	if not _can_drop_group_at(delta):
+		_snap_group_home()
+		status_message.emit("Cannot move selection there")
+		return
+	var moves: Array = []
+	for obj in _selected_group:
+		var from: Vector2i = _group_origins[obj]
+		moves.append({"obj": obj, "from": from, "to": from + delta})
+	if grid_manager.move_content_group(moves):
+		for obj in _selected_group:
+			_group_origins[obj] = obj.get_meta("grid_pos")
+		_drag_origin = _group_origins[_selected_group[0]]
+		_drag_hover = _drag_origin
+		status_message.emit("Moved %d items" % _selected_group.size())
+	else:
+		_snap_group_home()
+		status_message.emit("Cannot move selection there")
 
 
 func _can_drop_drag_at(target: Vector2i) -> bool:
@@ -269,6 +583,9 @@ func _can_drop_drag_at(target: Vector2i) -> bool:
 		return false
 	if target == _drag_origin:
 		return true
+	if _drag_object and grid_manager.is_terrain_object(_drag_object):
+		# Terrain may move under content; cannot overlap another terrain tile.
+		return not grid_manager.has_terrain(target)
 	return not grid_manager.has_content(target)
 
 
@@ -373,6 +690,10 @@ func _try_feed(grid_pos: Vector2i, hit_obj: Node3D) -> void:
 
 
 func _on_left_release(screen_pos: Vector2) -> void:
+	if _marquee_active:
+		_finish_marquee(screen_pos)
+		return
+
 	# New item place-drag: commit on release.
 	if _place_drag:
 		_place_drag = false
@@ -381,12 +702,29 @@ func _on_left_release(screen_pos: Vector2) -> void:
 			status_message.emit("Cancelled place")
 			return
 		if grid_manager.can_place_at(place_pos, selected_item):
-			grid_manager.place_object(selected_item, place_pos)
-			status_message.emit("Placed %s at (%d, %d)" % [
-				ItemData.get_item_name(selected_item), place_pos.x, place_pos.y
-			])
+			var placed := grid_manager.place_object(selected_item, place_pos, _place_rotation)
+			if selected_item == ItemData.ItemType.GRASS:
+				status_message.emit("Cleared to grass floor at (%d, %d)" % [place_pos.x, place_pos.y])
+			else:
+				status_message.emit("Placed %s at (%d, %d)" % [
+					ItemData.get_item_name(selected_item), place_pos.x, place_pos.y
+				])
+			if placed == null and selected_item != ItemData.ItemType.GRASS:
+				pass
 		else:
 			status_message.emit("Cannot place here")
+		return
+
+	# Multi-select group move.
+	if _group_dragging and not _selected_group.is_empty():
+		var target := _raycast_ground_cell(screen_pos)
+		if not _is_valid_cell(target):
+			_snap_group_home()
+			status_message.emit("Move cancelled")
+		else:
+			_commit_group_drag(target)
+		_end_group_drag()
+		_dragging = false
 		return
 
 	# Move existing object: follow mouse while held, commit on release.
@@ -400,6 +738,8 @@ func _on_left_release(screen_pos: Vector2) -> void:
 		elif _can_drop_drag_at(target) and grid_manager.move_object(_drag_origin, target):
 			_drag_origin = target
 			_drag_hover = target
+			if _group_origins.has(_drag_object):
+				_group_origins[_drag_object] = target
 			status_message.emit("Moved to (%d, %d)" % [target.x, target.y])
 		else:
 			_snap_drag_home()
@@ -417,6 +757,15 @@ func _on_left_release(screen_pos: Vector2) -> void:
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
+		if _marquee_active:
+			_update_marquee_visual(event.position)
+			return
+		if _selected_group.size() > 1 and _drag_object and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+			if not _group_dragging and event.position.distance_to(_mouse_down_pos) > DRAG_THRESHOLD:
+				_begin_group_drag()
+			elif _group_dragging:
+				_update_group_drag_follow()
+			return
 		if _drag_object and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 			if not _dragging and event.position.distance_to(_mouse_down_pos) > DRAG_THRESHOLD:
 				_begin_object_drag(_drag_object)
@@ -425,6 +774,11 @@ func _input(event: InputEvent) -> void:
 
 
 func _on_right_click(screen_pos: Vector2) -> void:
+	# In place mode, right-click rotates the preview (stay in place mode).
+	if mode == Mode.PLACE:
+		_rotate_place_preview()
+		return
+
 	var hit := _raycast(screen_pos)
 	if hit.is_empty():
 		return
@@ -435,12 +789,23 @@ func _on_right_click(screen_pos: Vector2) -> void:
 	if hit_obj:
 		grid_manager.rotate_object(grid_pos, 1)
 		status_message.emit("Rotated %s" % ItemData.get_item_name(hit_obj.get_meta("item_type")))
-	elif mode == Mode.PLACE and grid_manager.is_occupied(grid_pos):
-		grid_manager.remove_object(grid_pos)
-		status_message.emit("Removed object at (%d, %d)" % [grid_pos.x, grid_pos.y])
+
+
+func _rotate_place_preview() -> void:
+	_place_rotation = (_place_rotation + 1) % 4
+	if _ghost:
+		_ghost.rotation.y = deg_to_rad(_place_rotation * 90.0)
+		_ghost.set_meta("rotation", _place_rotation)
+	status_message.emit("Facing %d° — still placing %s" % [
+		_place_rotation * 90, ItemData.get_item_name(selected_item)
+	])
 
 
 func _rotate_selected() -> void:
+	# While placing, R rotates the ghost and keeps the same item selected.
+	if mode == Mode.PLACE:
+		_rotate_place_preview()
+		return
 	var selected := grid_manager.get_selected()
 	if selected:
 		var grid_pos: Vector2i = selected.get_meta("grid_pos")
@@ -449,6 +814,14 @@ func _rotate_selected() -> void:
 
 
 func _delete_selected() -> void:
+	if not _selected_group.is_empty():
+		var to_delete: Array[Node3D] = _selected_group.duplicate()
+		_clear_selected_group()
+		for obj in to_delete:
+			if is_instance_valid(obj) and obj.has_meta("grid_pos"):
+				grid_manager.remove_object(obj.get_meta("grid_pos"))
+		status_message.emit("Deleted %d items" % to_delete.size())
+		return
 	var selected := grid_manager.get_selected()
 	if selected:
 		var grid_pos: Vector2i = selected.get_meta("grid_pos")
@@ -458,10 +831,16 @@ func _delete_selected() -> void:
 
 
 func _cancel_action() -> void:
+	if _marquee_active:
+		_cancel_marquee()
+	if _group_dragging:
+		_snap_group_home()
+		_end_group_drag()
 	if _dragging and _drag_object:
 		_snap_drag_home()
 		_end_object_drag()
 	_place_drag = false
+	_clear_selected_group()
 	_clear_selection_footprint()
 	enter_select_mode()
 	status_message.emit("Cancelled")
@@ -526,9 +905,9 @@ func _update_ghost() -> void:
 	_remove_ghost()
 	if mode != Mode.PLACE:
 		return
-	_ghost = PlaceableObject.create(selected_item, Vector2i.ZERO, 0)
+	_ghost = PlaceableObject.create(selected_item, Vector2i.ZERO, _place_rotation)
 	_ghost.name = "Ghost"
-	# Soften the model so the footprint tile is easier to read.
+	_ghost.rotation.y = deg_to_rad(_place_rotation * 90.0)
 	_set_ghost_transparency(_ghost, 0.4)
 	_footprint = FootprintOverlay.create_for_item(selected_item, grid_manager)
 	_ghost.add_child(_footprint)
@@ -571,19 +950,18 @@ func _update_ghost_position() -> void:
 	if not _ghost:
 		return
 	var mouse_pos := get_viewport().get_mouse_position()
-	var hit := _raycast(mouse_pos)
-	if hit.is_empty():
+	var grid_pos := _raycast_ground_cell(mouse_pos)
+	if not _is_valid_cell(grid_pos):
 		_ghost.visible = false
 		return
 
-	var grid_pos: Vector2i = hit["grid_pos"]
-	_ghost.visible = grid_manager.is_in_bounds(grid_pos)
+	_ghost.visible = true
 	_ghost.position = grid_manager.grid_to_world(grid_pos)
+	_ghost.rotation.y = deg_to_rad(_place_rotation * 90.0)
 
 	var valid := grid_manager.can_place_at(grid_pos, selected_item)
 	if _footprint:
 		_footprint.set_valid(valid)
-	# Tint procedural placeholders only; footprint has its own colors.
 	_set_ghost_tint(_ghost, Color(0.45, 1.0, 0.55, 0.4) if valid else Color(1.0, 0.45, 0.45, 0.4))
 
 

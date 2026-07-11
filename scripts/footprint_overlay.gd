@@ -1,13 +1,12 @@
 class_name FootprintOverlay
 extends Node3D
 
-## Semi-transparent grid footprint under placement ghosts.
-## Shows the gameplay tile(s) an item will occupy — independent of visual mesh size.
+## Semi-transparent isometric diamond footprint (matches grid cells, not axis-aligned squares).
 
 const FILL_VALID := Color(0.35, 0.9, 0.45, 0.32)
 const FILL_INVALID := Color(0.95, 0.3, 0.3, 0.35)
-const EDGE_VALID := Color(0.2, 0.75, 0.35, 0.85)
-const EDGE_INVALID := Color(0.95, 0.25, 0.25, 0.9)
+const EDGE_VALID := Color(0.2, 0.75, 0.35, 0.9)
+const EDGE_INVALID := Color(0.95, 0.25, 0.25, 0.95)
 
 var _fill_meshes: Array[MeshInstance3D] = []
 var _edge_meshes: Array[MeshInstance3D] = []
@@ -29,41 +28,66 @@ func _build(footprint: Vector2i, grid_manager: GridManager) -> void:
 		for y in range(h):
 			var cell_world := grid_manager.grid_to_world(Vector2i(x, y))
 			var local := cell_world - origin
-			_add_cell(local, grid_manager.TILE_WIDTH, grid_manager.TILE_HEIGHT)
+			_add_iso_cell(local, grid_manager.TILE_WIDTH, grid_manager.TILE_HEIGHT)
 
 
-func _add_cell(local_pos: Vector3, tile_w: float, tile_h: float) -> void:
+func _add_iso_cell(local_pos: Vector3, tile_w: float, tile_h: float) -> void:
+	var hw := tile_w * 0.5
+	var hh := tile_h * 0.5
+	# Isometric diamond corners in XZ (matches grid_to_world neighbor offsets).
+	var corners: Array[Vector3] = [
+		Vector3(hw, 0.0, 0.0),
+		Vector3(0.0, 0.0, hh),
+		Vector3(-hw, 0.0, 0.0),
+		Vector3(0.0, 0.0, -hh),
+	]
+
 	var fill := MeshInstance3D.new()
 	fill.name = "FootprintFill"
-	var fill_mesh := BoxMesh.new()
-	fill_mesh.size = Vector3(tile_w * 0.92, 0.035, tile_h * 0.92)
-	fill.mesh = fill_mesh
-	fill.position = local_pos + Vector3(0.0, 0.025, 0.0)
+	fill.mesh = _make_diamond_mesh(corners, 0.02)
+	fill.position = local_pos + Vector3(0.0, 0.03, 0.0)
 	fill.material_override = _make_mat(FILL_VALID)
 	add_child(fill)
 	_fill_meshes.append(fill)
 
-	# Bright border so the unit cell is obvious even when the model is huge/tiny.
-	var edge_t := 0.04
-	var half_w := tile_w * 0.46
-	var half_h := tile_h * 0.46
-	var y := 0.045
-	_add_edge(local_pos + Vector3(0.0, y, -half_h), Vector3(tile_w * 0.92, edge_t, edge_t))
-	_add_edge(local_pos + Vector3(0.0, y, half_h), Vector3(tile_w * 0.92, edge_t, edge_t))
-	_add_edge(local_pos + Vector3(-half_w, y, 0.0), Vector3(edge_t, edge_t, tile_h * 0.92))
-	_add_edge(local_pos + Vector3(half_w, y, 0.0), Vector3(edge_t, edge_t, tile_h * 0.92))
+	# Edge ring along the diamond.
+	for i in range(4):
+		var a: Vector3 = corners[i]
+		var b: Vector3 = corners[(i + 1) % 4]
+		var mid := (a + b) * 0.5
+		var length := a.distance_to(b)
+		var dir := (b - a).normalized()
+		var edge := MeshInstance3D.new()
+		edge.name = "FootprintEdge"
+		var box := BoxMesh.new()
+		box.size = Vector3(0.03, 0.03, length)
+		edge.mesh = box
+		edge.position = local_pos + mid + Vector3(0.0, 0.05, 0.0)
+		if dir.length_squared() > 0.0001:
+			edge.basis = Basis.looking_at(dir, Vector3.UP)
+		edge.material_override = _make_mat(EDGE_VALID)
+		add_child(edge)
+		_edge_meshes.append(edge)
 
 
-func _add_edge(pos: Vector3, size: Vector3) -> void:
-	var edge := MeshInstance3D.new()
-	edge.name = "FootprintEdge"
-	var mesh := BoxMesh.new()
-	mesh.size = size
-	edge.mesh = mesh
-	edge.position = pos
-	edge.material_override = _make_mat(EDGE_VALID)
-	add_child(edge)
-	_edge_meshes.append(edge)
+func _make_diamond_mesh(corners: Array[Vector3], thickness: float) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var y := thickness * 0.5
+	# Top face (two triangles).
+	_add_tri(st, corners[0] + Vector3(0, y, 0), corners[1] + Vector3(0, y, 0), corners[2] + Vector3(0, y, 0))
+	_add_tri(st, corners[0] + Vector3(0, y, 0), corners[2] + Vector3(0, y, 0), corners[3] + Vector3(0, y, 0))
+	# Bottom face.
+	_add_tri(st, corners[0] + Vector3(0, -y, 0), corners[2] + Vector3(0, -y, 0), corners[1] + Vector3(0, -y, 0))
+	_add_tri(st, corners[0] + Vector3(0, -y, 0), corners[3] + Vector3(0, -y, 0), corners[2] + Vector3(0, -y, 0))
+	st.generate_normals()
+	return st.commit()
+
+
+func _add_tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3) -> void:
+	st.add_vertex(a)
+	st.add_vertex(b)
+	st.add_vertex(c)
 
 
 func set_valid(valid: bool) -> void:

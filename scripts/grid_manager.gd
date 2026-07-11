@@ -6,10 +6,10 @@ signal object_removed(grid_pos: Vector2i)
 signal object_moved(from: Vector2i, to: Vector2i)
 signal selection_changed(object_node: Node3D)
 
-const TILE_WIDTH: float = 1.0
-const TILE_HEIGHT: float = 1.0
-const GRID_WIDTH: int = 24
-const GRID_HEIGHT: int = 24
+const TILE_WIDTH: float = 1.25
+const TILE_HEIGHT: float = 1.25
+const GRID_WIDTH: int = 40
+const GRID_HEIGHT: int = 40
 
 var undo_manager: UndoManager
 
@@ -40,7 +40,7 @@ func _build_grid_visual() -> void:
 
 	var line_material := StandardMaterial3D.new()
 	line_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	line_material.albedo_color = Color(0.3, 0.5, 0.3, 0.4)
+	line_material.albedo_color = Color(0.3, 0.5, 0.3, 0.45)
 	line_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 
 	for x in range(GRID_WIDTH + 1):
@@ -53,16 +53,33 @@ func _build_grid_visual() -> void:
 		var end := grid_to_world(Vector2i(GRID_WIDTH, y))
 		_add_line(start, end, line_material)
 
+	# Diamond ground matching the isometric playable area (no leftover corner triangles).
 	var ground := MeshInstance3D.new()
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(GRID_WIDTH * TILE_WIDTH + 2, GRID_HEIGHT * TILE_HEIGHT + 2)
-	ground.mesh = plane
+	ground.name = "GroundDiamond"
+	ground.mesh = _make_ground_diamond_mesh()
 	var ground_mat := StandardMaterial3D.new()
 	ground_mat.albedo_color = Color(0.42, 0.62, 0.32)
 	ground.material_override = ground_mat
-	ground.position = grid_to_world(Vector2i(GRID_WIDTH / 2, GRID_HEIGHT / 2))
 	ground.position.y = -0.01
 	_grid_visual.add_child(ground)
+
+
+func _make_ground_diamond_mesh() -> ArrayMesh:
+	# Outer corners of the grid line frame.
+	var c0 := grid_to_world(Vector2i(0, 0))
+	var c1 := grid_to_world(Vector2i(GRID_WIDTH, 0))
+	var c2 := grid_to_world(Vector2i(GRID_WIDTH, GRID_HEIGHT))
+	var c3 := grid_to_world(Vector2i(0, GRID_HEIGHT))
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.add_vertex(c0)
+	st.add_vertex(c1)
+	st.add_vertex(c2)
+	st.add_vertex(c0)
+	st.add_vertex(c2)
+	st.add_vertex(c3)
+	st.generate_normals()
+	return st.commit()
 
 
 func _add_line(from: Vector3, to: Vector3, material: StandardMaterial3D) -> void:
@@ -160,6 +177,35 @@ func get_selected() -> Node3D:
 	return _selected
 
 
+func get_all_content_objects() -> Array[Node3D]:
+	var result: Array[Node3D] = []
+	for obj in _objects.values():
+		if obj is Node3D:
+			result.append(obj)
+	return result
+
+
+func get_all_selectable_objects() -> Array[Node3D]:
+	## Content + terrain (dirt / water / stone path). Used by marquee select.
+	var result: Array[Node3D] = []
+	for obj in _objects.values():
+		if obj is Node3D:
+			result.append(obj)
+	for obj in _terrain.values():
+		if obj is Node3D:
+			result.append(obj)
+	return result
+
+
+func is_terrain_object(obj: Node3D) -> bool:
+	return obj != null and obj.has_meta("item_type") and ItemData.is_terrain(obj.get_meta("item_type"))
+
+
+func set_object_highlighted(obj: Node3D, enabled: bool) -> void:
+	if obj and is_instance_valid(obj):
+		_highlight_object(obj, enabled)
+
+
 func select_object(obj: Node3D) -> void:
 	if _selected == obj:
 		return
@@ -203,13 +249,17 @@ func can_place_at(grid_pos: Vector2i, item_type: ItemData.ItemType) -> bool:
 	if ItemData.needs_dirt_to_plant(item_type):
 		return get_terrain_type_at(grid_pos) == ItemData.ItemType.DIRT and not has_content(grid_pos)
 
-	# Terrain replaces other terrain, but not content sitting on it.
+	# Grass = default floor. Placing it clears terrain back to empty (no stacked grass tile).
+	if item_type == ItemData.ItemType.GRASS:
+		return not has_content(grid_pos) and has_terrain(grid_pos)
+
+	# Terrain replaces other terrain on the same layer (no overlap); not through content.
 	if ItemData.is_terrain(item_type):
 		if has_content(grid_pos):
 			return false
 		return true
 
-	# Animals / buildings / fences / decor can sit on empty cells or on terrain.
+	# Content layer: one object per cell (can stack visually on terrain below).
 	if ItemData.stacks_on_terrain(item_type):
 		return not has_content(grid_pos)
 
@@ -231,10 +281,24 @@ func place_object(
 	if ItemData.needs_dirt_to_plant(item_type):
 		if get_terrain_type_at(grid_pos) != ItemData.ItemType.DIRT or has_content(grid_pos):
 			return null
-		# Plant consumes the dirt tile (same as before); harvest restores dirt.
 		if has_terrain(grid_pos):
 			_remove_terrain_silent(grid_pos)
 		return _spawn_object(item_type, grid_pos, rotation, growth_stage, animate_placement, true)
+
+	# Painting grass restores the default floor (remove dirt/water/path tiles).
+	if item_type == ItemData.ItemType.GRASS:
+		if has_content(grid_pos):
+			return null
+		if has_terrain(grid_pos):
+			var before: Node3D = _terrain[grid_pos]
+			var before_type: ItemData.ItemType = before.get_meta("item_type")
+			var before_rot: int = before.get_meta("rotation", 0)
+			_remove_terrain_silent(grid_pos)
+			if undo_manager and not undo_manager.is_applying_undo():
+				undo_manager.record_remove(grid_pos, before_type, before_rot, 0)
+			object_placed.emit(grid_pos, null)
+			return null
+		return null
 
 	if ItemData.is_terrain(item_type):
 		if has_content(grid_pos):
@@ -243,7 +307,6 @@ func place_object(
 			return replace_object(grid_pos, item_type, rotation, growth_stage, animate_placement)
 		return _spawn_object(item_type, grid_pos, rotation, growth_stage, animate_placement, true)
 
-	# Stackable content: keep existing terrain (dirt/grass/water/path).
 	if ItemData.stacks_on_terrain(item_type):
 		if has_content(grid_pos):
 			return null
@@ -368,8 +431,8 @@ func _add_tile_collider(obj: Node3D, item_type: ItemData.ItemType) -> void:
 	var box := BoxShape3D.new()
 	# Content (animals/buildings) gets a taller collider so raycasts prefer them over terrain.
 	if ItemData.is_terrain(item_type):
-		box.size = Vector3(TILE_WIDTH * 0.92, 0.16, TILE_HEIGHT * 0.92)
-		col.position.y = 0.08
+		box.size = Vector3(TILE_WIDTH * 0.98, 0.18, TILE_HEIGHT * 0.98)
+		col.position.y = 0.09
 	else:
 		box.size = Vector3(TILE_WIDTH * 0.92, 0.55, TILE_HEIGHT * 0.92)
 		col.position.y = 0.3
@@ -427,20 +490,101 @@ func _remove_terrain_silent(grid_pos: Vector2i) -> void:
 
 
 func move_object(from: Vector2i, to: Vector2i) -> bool:
-	# Only content moves; terrain stays put under the old cell.
-	if not _objects.has(from) or not is_in_bounds(to) or has_content(to):
+	if not is_in_bounds(to):
 		return false
 
-	var obj: Node3D = _objects[from]
-	_objects.erase(from)
-	_objects[to] = obj
-	obj.set_meta("grid_pos", to)
-	obj.position = grid_to_world(to)
+	# Content layer move.
+	if _objects.has(from):
+		if has_content(to):
+			return false
+		var obj: Node3D = _objects[from]
+		_objects.erase(from)
+		_objects[to] = obj
+		obj.set_meta("grid_pos", to)
+		obj.position = grid_to_world(to)
+		if undo_manager and not undo_manager.is_applying_undo():
+			undo_manager.record_move(from, to)
+		object_moved.emit(from, to)
+		return true
 
-	if undo_manager and not undo_manager.is_applying_undo():
-		undo_manager.record_move(from, to)
+	# Terrain layer move (dirt / water / path). May sit under content at `to`.
+	if _terrain.has(from):
+		if has_terrain(to):
+			return false
+		var terrain: Node3D = _terrain[from]
+		_terrain.erase(from)
+		_terrain[to] = terrain
+		terrain.set_meta("grid_pos", to)
+		terrain.position = grid_to_world(to)
+		if undo_manager and not undo_manager.is_applying_undo():
+			undo_manager.record_move(from, to)
+		object_moved.emit(from, to)
+		return true
 
-	object_moved.emit(from, to)
+	return false
+
+
+func move_content_group(moves: Array) -> bool:
+	## Moves a mixed group of content and/or terrain. Each entry:
+	## { "obj": Node3D, "from": Vector2i, "to": Vector2i }
+	if moves.is_empty():
+		return false
+
+	var moving_content: Dictionary = {}
+	var moving_terrain: Dictionary = {}
+	for entry in moves:
+		var obj: Node3D = entry["obj"]
+		if is_terrain_object(obj):
+			moving_terrain[obj] = entry["from"]
+		else:
+			moving_content[obj] = entry["from"]
+
+	var content_targets: Dictionary = {}
+	var terrain_targets: Dictionary = {}
+	for entry in moves:
+		var to: Vector2i = entry["to"]
+		var obj: Node3D = entry["obj"]
+		if not is_in_bounds(to):
+			return false
+		if is_terrain_object(obj):
+			if terrain_targets.has(to):
+				return false
+			terrain_targets[to] = true
+			if has_terrain(to):
+				var occupant: Node3D = _terrain[to]
+				if not moving_terrain.has(occupant):
+					return false
+		else:
+			if content_targets.has(to):
+				return false
+			content_targets[to] = true
+			if has_content(to):
+				var occupant: Node3D = _objects[to]
+				if not moving_content.has(occupant):
+					return false
+
+	for entry in moves:
+		var from: Vector2i = entry["from"]
+		var obj: Node3D = entry["obj"]
+		if is_terrain_object(obj):
+			if _terrain.get(from) == obj:
+				_terrain.erase(from)
+		else:
+			if _objects.get(from) == obj:
+				_objects.erase(from)
+
+	for entry in moves:
+		var to: Vector2i = entry["to"]
+		var obj: Node3D = entry["obj"]
+		if is_terrain_object(obj):
+			_terrain[to] = obj
+		else:
+			_objects[to] = obj
+		obj.set_meta("grid_pos", to)
+		obj.position = grid_to_world(to)
+		if undo_manager and not undo_manager.is_applying_undo():
+			undo_manager.record_move(entry["from"], to)
+		object_moved.emit(entry["from"], to)
 	return true
 
 

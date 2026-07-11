@@ -99,6 +99,8 @@ static func _add_mesh(parent: Node3D, mesh: Mesh, color: Color, pos: Vector3, ro
 	mesh_inst.rotation_degrees = rot
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = color
+	if color.a < 0.99:
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mesh_inst.material_override = mat
 	parent.add_child(mesh_inst)
 	return mesh_inst
@@ -106,6 +108,9 @@ static func _add_mesh(parent: Node3D, mesh: Mesh, color: Color, pos: Vector3, ro
 
 static func _build_box(parent: Node3D, info: Dictionary) -> void:
 	var size: Vector3 = info["size"]
+	# Terrain fills the whole cell so adjacent dirt/water tiles join with no gap.
+	if info.get("category") == ItemData.Category.TERRAIN:
+		size = Vector3(GridManager.TILE_WIDTH, size.y, GridManager.TILE_HEIGHT)
 	var box := BoxMesh.new()
 	box.size = size
 	_add_mesh(parent, box, info["color"], Vector3(0.0, info.get("offset_y", size.y * 0.5), 0.0))
@@ -494,20 +499,24 @@ static func _build_sunflower(parent: Node3D, info: Dictionary) -> void:
 
 
 static func _build_stone_path(parent: Node3D, info: Dictionary) -> void:
+	var tw := GridManager.TILE_WIDTH
+	var th := GridManager.TILE_HEIGHT
 	var base_mesh := BoxMesh.new()
-	base_mesh.size = Vector3(1.0, 0.08, 1.0)
+	base_mesh.size = Vector3(tw, 0.08, th)
 	_add_mesh(parent, base_mesh, info["color"], Vector3(0.0, 0.04, 0.0))
 
 	var stone_color: Color = info.get("stone_color", Color(0.72, 0.7, 0.68))
+	var sx := tw / 1.0
+	var sz := th / 1.0
 	var offsets := [
-		Vector3(-0.28, 0.1, -0.22), Vector3(0.12, 0.1, -0.3),
-		Vector3(0.32, 0.1, 0.05), Vector3(-0.08, 0.1, 0.28),
-		Vector3(0.22, 0.1, 0.32), Vector3(-0.32, 0.1, 0.12),
+		Vector3(-0.28 * sx, 0.1, -0.22 * sz), Vector3(0.12 * sx, 0.1, -0.3 * sz),
+		Vector3(0.32 * sx, 0.1, 0.05 * sz), Vector3(-0.08 * sx, 0.1, 0.28 * sz),
+		Vector3(0.22 * sx, 0.1, 0.32 * sz), Vector3(-0.32 * sx, 0.1, 0.12 * sz),
 	]
 	for i in range(offsets.size()):
 		var offset: Vector3 = offsets[i]
 		var stone_mesh := BoxMesh.new()
-		var size_scale := 0.18 + float(i % 3) * 0.04
+		var size_scale := (0.18 + float(i % 3) * 0.04) * minf(sx, sz)
 		stone_mesh.size = Vector3(size_scale, 0.05, size_scale - 0.02)
 		_add_mesh(parent, stone_mesh, stone_color, offset)
 
