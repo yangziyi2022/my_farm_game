@@ -179,8 +179,10 @@ func get_selected() -> Node3D:
 
 func get_all_content_objects() -> Array[Node3D]:
 	var result: Array[Node3D] = []
+	var seen: Dictionary = {}
 	for obj in _objects.values():
-		if obj is Node3D:
+		if obj is Node3D and not seen.has(obj):
+			seen[obj] = true
 			result.append(obj)
 	return result
 
@@ -188,13 +190,62 @@ func get_all_content_objects() -> Array[Node3D]:
 func get_all_selectable_objects() -> Array[Node3D]:
 	## Content + terrain (dirt / water / stone path). Used by marquee select.
 	var result: Array[Node3D] = []
+	var seen: Dictionary = {}
 	for obj in _objects.values():
-		if obj is Node3D:
+		if obj is Node3D and not seen.has(obj):
+			seen[obj] = true
 			result.append(obj)
 	for obj in _terrain.values():
-		if obj is Node3D:
+		if obj is Node3D and not seen.has(obj):
+			seen[obj] = true
 			result.append(obj)
 	return result
+
+
+func get_footprint_cells(anchor: Vector2i, footprint: Vector2i) -> Array[Vector2i]:
+	var cells: Array[Vector2i] = []
+	var w: int = maxi(footprint.x, 1)
+	var h: int = maxi(footprint.y, 1)
+	for x in range(w):
+		for y in range(h):
+			cells.append(anchor + Vector2i(x, y))
+	return cells
+
+
+func get_object_footprint(obj: Node3D) -> Vector2i:
+	if obj and obj.has_meta("footprint"):
+		var fp: Vector2i = obj.get_meta("footprint")
+		return Vector2i(maxi(fp.x, 1), maxi(fp.y, 1))
+	if obj and obj.has_meta("item_type"):
+		return ItemData.get_footprint(obj.get_meta("item_type"))
+	return Vector2i(1, 1)
+
+
+func footprint_center_world(anchor: Vector2i, footprint: Vector2i) -> Vector3:
+	var cells := get_footprint_cells(anchor, footprint)
+	var sum := Vector3.ZERO
+	for cell in cells:
+		sum += grid_to_world(cell)
+	return sum / float(cells.size())
+
+
+func _cells_for_object(obj: Node3D) -> Array[Vector2i]:
+	var anchor: Vector2i = obj.get_meta("grid_pos")
+	return get_footprint_cells(anchor, get_object_footprint(obj))
+
+
+func _register_content_cells(obj: Node3D, anchor: Vector2i, footprint: Vector2i) -> void:
+	for cell in get_footprint_cells(anchor, footprint):
+		_objects[cell] = obj
+
+
+func _unregister_content_object(obj: Node3D) -> void:
+	var to_erase: Array[Vector2i] = []
+	for cell: Vector2i in _objects:
+		if _objects[cell] == obj:
+			to_erase.append(cell)
+	for cell in to_erase:
+		_objects.erase(cell)
 
 
 func is_terrain_object(obj: Node3D) -> bool:
@@ -259,10 +310,18 @@ func can_place_at(grid_pos: Vector2i, item_type: ItemData.ItemType) -> bool:
 			return false
 		return true
 
-	# Content layer: one object per cell (can stack visually on terrain below).
-	if ItemData.stacks_on_terrain(item_type):
-		return not has_content(grid_pos)
+	# Multi-cell content (e.g. 2x2 farmhouse): every cell in the footprint must be free.
+	var footprint := ItemData.get_footprint(item_type)
+	for cell in get_footprint_cells(grid_pos, footprint):
+		if not is_in_bounds(cell):
+			return false
+		if has_content(cell):
+			return false
 
+	if ItemData.stacks_on_terrain(item_type):
+		return true
+
+	# Non-stacking content on empty / build-over terrain only at the anchor.
 	if not is_occupied(grid_pos):
 		return true
 	return ItemData.can_build_over(get_item_type_at(grid_pos))
@@ -308,7 +367,7 @@ func place_object(
 		return _spawn_object(item_type, grid_pos, rotation, growth_stage, animate_placement, true)
 
 	if ItemData.stacks_on_terrain(item_type):
-		if has_content(grid_pos):
+		if not can_place_at(grid_pos, item_type):
 			return null
 		return _spawn_object(item_type, grid_pos, rotation, growth_stage, animate_placement, true)
 
@@ -405,14 +464,16 @@ func _spawn_object(
 	record_undo: bool
 ) -> Node3D:
 	var obj: Node3D = PlaceableObject.create(item_type, grid_pos, rotation, growth_stage)
-	obj.position = grid_to_world(grid_pos)
+	var footprint := ItemData.get_footprint(item_type)
 	obj.set_meta("growth_stage", growth_stage)
+	obj.set_meta("footprint", footprint)
+	obj.position = grid_to_world(grid_pos)
 	objects_container.add_child(obj)
 
 	if ItemData.is_terrain(item_type):
 		_terrain[grid_pos] = obj
 	else:
-		_objects[grid_pos] = obj
+		_register_content_cells(obj, grid_pos, footprint)
 
 	_add_tile_collider(obj, item_type)
 	ObjectPolish.setup(obj, item_type, animate_placement)
@@ -429,13 +490,18 @@ func _add_tile_collider(obj: Node3D, item_type: ItemData.ItemType) -> void:
 	body.name = "TileCollider"
 	var col := CollisionShape3D.new()
 	var box := BoxShape3D.new()
+	var footprint := ItemData.get_footprint(item_type)
 	# Content (animals/buildings) gets a taller collider so raycasts prefer them over terrain.
 	if ItemData.is_terrain(item_type):
 		box.size = Vector3(TILE_WIDTH * 0.98, 0.18, TILE_HEIGHT * 0.98)
 		col.position.y = 0.09
 	else:
-		box.size = Vector3(TILE_WIDTH * 0.92, 0.55, TILE_HEIGHT * 0.92)
-		col.position.y = 0.3
+		var fw: float = float(maxi(footprint.x, 1))
+		var fh: float = float(maxi(footprint.y, 1))
+		box.size = Vector3(TILE_WIDTH * fw * 0.9, 0.7, TILE_HEIGHT * fh * 0.9)
+		# Shift collider toward footprint center (root sits on the anchor cell).
+		var center := footprint_center_world(Vector2i.ZERO, footprint)
+		col.position = Vector3(center.x, 0.35, center.z)
 	col.shape = box
 	body.add_child(col)
 	obj.add_child(body)
@@ -501,7 +567,7 @@ func remove_object_silent(grid_pos: Vector2i) -> void:
 	var obj: Node3D = _objects[grid_pos]
 	if _selected == obj:
 		_deselect()
-	_objects.erase(grid_pos)
+	_unregister_content_object(obj)
 	obj.queue_free()
 	object_removed.emit(grid_pos)
 
@@ -517,18 +583,35 @@ func _remove_terrain_silent(grid_pos: Vector2i) -> void:
 	object_removed.emit(grid_pos)
 
 
+func can_move_content_to(obj: Node3D, new_anchor: Vector2i) -> bool:
+	if obj == null or not is_instance_valid(obj):
+		return false
+	var footprint := get_object_footprint(obj)
+	for cell in get_footprint_cells(new_anchor, footprint):
+		if not is_in_bounds(cell):
+			return false
+		if has_content(cell) and _objects[cell] != obj:
+			return false
+	return true
+
+
 func move_object(from: Vector2i, to: Vector2i) -> bool:
 	if not is_in_bounds(to):
 		return false
 
-	# Content layer move.
+	# Content layer move (supports multi-cell footprints).
 	if _objects.has(from):
-		if has_content(to):
-			return false
 		var obj: Node3D = _objects[from]
-		_objects.erase(from)
-		_objects[to] = obj
+		var anchor: Vector2i = obj.get_meta("grid_pos")
+		# Normalize: callers may pass any occupied cell; move from the true anchor.
+		if from != anchor:
+			from = anchor
+		if not can_move_content_to(obj, to):
+			return false
+		var footprint := get_object_footprint(obj)
+		_unregister_content_object(obj)
 		obj.set_meta("grid_pos", to)
+		_register_content_cells(obj, to, footprint)
 		obj.position = grid_to_world(to)
 		if undo_manager and not undo_manager.is_applying_undo():
 			undo_manager.record_move(from, to)
@@ -572,9 +655,9 @@ func move_content_group(moves: Array) -> bool:
 	for entry in moves:
 		var to: Vector2i = entry["to"]
 		var obj: Node3D = entry["obj"]
-		if not is_in_bounds(to):
-			return false
 		if is_terrain_object(obj):
+			if not is_in_bounds(to):
+				return false
 			if terrain_targets.has(to):
 				return false
 			terrain_targets[to] = true
@@ -583,13 +666,17 @@ func move_content_group(moves: Array) -> bool:
 				if not moving_terrain.has(occupant):
 					return false
 		else:
-			if content_targets.has(to):
-				return false
-			content_targets[to] = true
-			if has_content(to):
-				var occupant: Node3D = _objects[to]
-				if not moving_content.has(occupant):
+			var footprint := get_object_footprint(obj)
+			for cell in get_footprint_cells(to, footprint):
+				if not is_in_bounds(cell):
 					return false
+				if content_targets.has(cell):
+					return false
+				content_targets[cell] = obj
+				if has_content(cell):
+					var occupant: Node3D = _objects[cell]
+					if not moving_content.has(occupant):
+						return false
 
 	for entry in moves:
 		var from: Vector2i = entry["from"]
@@ -598,18 +685,21 @@ func move_content_group(moves: Array) -> bool:
 			if _terrain.get(from) == obj:
 				_terrain.erase(from)
 		else:
-			if _objects.get(from) == obj:
-				_objects.erase(from)
+			_unregister_content_object(obj)
 
 	for entry in moves:
 		var to: Vector2i = entry["to"]
 		var obj: Node3D = entry["obj"]
 		if is_terrain_object(obj):
 			_terrain[to] = obj
+			obj.set_meta("grid_pos", to)
+			obj.position = grid_to_world(to)
 		else:
-			_objects[to] = obj
-		obj.set_meta("grid_pos", to)
-		obj.position = grid_to_world(to)
+			var footprint := get_object_footprint(obj)
+			obj.set_meta("grid_pos", to)
+			obj.set_meta("footprint", footprint)
+			_register_content_cells(obj, to, footprint)
+			obj.position = grid_to_world(to)
 		if undo_manager and not undo_manager.is_applying_undo():
 			undo_manager.record_move(entry["from"], to)
 		object_moved.emit(entry["from"], to)
@@ -617,12 +707,16 @@ func move_content_group(moves: Array) -> bool:
 
 
 func move_object_silent(from: Vector2i, to: Vector2i) -> bool:
-	if not _objects.has(from) or not is_in_bounds(to) or has_content(to):
+	if not _objects.has(from):
 		return false
 	var obj: Node3D = _objects[from]
-	_objects.erase(from)
-	_objects[to] = obj
+	from = obj.get_meta("grid_pos")
+	if not can_move_content_to(obj, to):
+		return false
+	var footprint := get_object_footprint(obj)
+	_unregister_content_object(obj)
 	obj.set_meta("grid_pos", to)
+	_register_content_cells(obj, to, footprint)
 	obj.position = grid_to_world(to)
 	object_moved.emit(from, to)
 	return true
@@ -666,28 +760,38 @@ func get_all_objects_data() -> Array:
 			"rotation": terrain.get_meta("rotation", 0),
 			"layer": "terrain",
 		})
-	# Save content; include ground type when stacked on terrain.
+	# Save content once per object (anchor cell only for multi-cell footprints).
+	var saved_content: Dictionary = {}
 	for grid_pos: Vector2i in _objects:
 		var obj: Node3D = _objects[grid_pos]
+		if saved_content.has(obj):
+			continue
+		var anchor: Vector2i = obj.get_meta("grid_pos")
+		saved_content[obj] = true
 		var entry := {
 			"type": ItemData.get_item_id(obj.get_meta("item_type")),
-			"grid_x": grid_pos.x,
-			"grid_y": grid_pos.y,
+			"grid_x": anchor.x,
+			"grid_y": anchor.y,
 			"rotation": obj.get_meta("rotation", 0),
 			"layer": "content",
 		}
 		if ItemData.is_growable_plant(obj.get_meta("item_type")):
 			entry["growth_stage"] = obj.get_meta("growth_stage", 0)
-		if has_terrain(grid_pos):
-			entry["ground"] = ItemData.get_item_id(_terrain[grid_pos].get_meta("item_type"))
+		if has_terrain(anchor):
+			entry["ground"] = ItemData.get_item_id(_terrain[anchor].get_meta("item_type"))
 		result.append(entry)
 	return result
 
 
 func clear_all() -> void:
 	_deselect()
-	for grid_pos: Vector2i in _objects.duplicate():
-		remove_object_silent(grid_pos)
+	var content_objs: Array[Node3D] = get_all_content_objects()
+	for obj in content_objs:
+		if is_instance_valid(obj):
+			var anchor: Vector2i = obj.get_meta("grid_pos")
+			_unregister_content_object(obj)
+			obj.queue_free()
+			object_removed.emit(anchor)
 	for grid_pos: Vector2i in _terrain.duplicate():
 		_remove_terrain_silent(grid_pos)
 	if undo_manager:

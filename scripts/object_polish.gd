@@ -27,14 +27,22 @@ static func setup(obj: Node3D, item_type: ItemData.ItemType, animate_placement: 
 
 
 static func _attach_spinning_blades(obj: Node3D, speed: float) -> void:
+	# Procedural builds put BladePivot on the root; glb wrappers nest it under Visual.
 	var pivot := obj.get_node_or_null("BladePivot") as Node3D
+	if pivot == null:
+		pivot = obj.find_child("BladePivot", true, false) as Node3D
 	if pivot == null:
 		return
 	if obj.get_node_or_null("SpinningBlades"):
 		return
+	var axis := Vector3.UP
+	if pivot.has_meta("spin_axis"):
+		var meta_axis: Variant = pivot.get_meta("spin_axis")
+		if meta_axis is Vector3:
+			axis = meta_axis
 	var spin := SpinningBlades.new()
 	spin.name = "SpinningBlades"
-	spin.setup(pivot, speed)
+	spin.setup(pivot, speed, axis)
 	obj.add_child(spin)
 
 

@@ -569,9 +569,9 @@ func _can_drop_group_at(delta: Vector2i) -> bool:
 	for obj in _selected_group:
 		var from: Vector2i = _group_origins[obj]
 		var to: Vector2i = from + delta
-		if not grid_manager.is_in_bounds(to):
-			return false
 		if grid_manager.is_terrain_object(obj):
+			if not grid_manager.is_in_bounds(to):
+				return false
 			if terrain_targets.has(to):
 				return false
 			terrain_targets[to] = true
@@ -580,13 +580,17 @@ func _can_drop_group_at(delta: Vector2i) -> bool:
 				if not moving_terrain.has(occupant):
 					return false
 		else:
-			if content_targets.has(to):
-				return false
-			content_targets[to] = true
-			if grid_manager.has_content(to):
-				var occupant: Node3D = grid_manager.get_content_at(to)
-				if not moving_content.has(occupant):
+			var footprint := grid_manager.get_object_footprint(obj)
+			for cell in grid_manager.get_footprint_cells(to, footprint):
+				if not grid_manager.is_in_bounds(cell):
 					return false
+				if content_targets.has(cell):
+					return false
+				content_targets[cell] = obj
+				if grid_manager.has_content(cell):
+					var occupant: Node3D = grid_manager.get_content_at(cell)
+					if not moving_content.has(occupant):
+						return false
 	return true
 
 
@@ -637,6 +641,8 @@ func _can_drop_drag_at(target: Vector2i) -> bool:
 	if _drag_object and grid_manager.is_terrain_object(_drag_object):
 		# Terrain may move under content; cannot overlap another terrain tile.
 		return not grid_manager.has_terrain(target)
+	if _drag_object:
+		return grid_manager.can_move_content_to(_drag_object, target)
 	return not grid_manager.has_content(target)
 
 

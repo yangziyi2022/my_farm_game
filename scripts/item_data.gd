@@ -41,6 +41,7 @@ enum ItemType {
 	FOUNTAIN,
 	WIND_WHEEL,
 	LOOKOUT_TOWER,
+	HOUSE_GREEN,
 }
 
 const CATEGORIES: Dictionary = {
@@ -142,6 +143,19 @@ const ITEMS: Dictionary = {
 		# Art pipeline: edit data/placeable_items/house.tres in the Inspector.
 		"def_path": "res://data/placeable_items/house.tres",
 	},
+	ItemType.HOUSE_GREEN: {
+		"id": "house_green",
+		"name": "Green Farmhouse",
+		"category": Category.STRUCTURE,
+		"color": Color(0.55, 0.72, 0.48),
+		"roof_color": Color(0.35, 0.45, 0.28),
+		"door_color": Color(0.42, 0.28, 0.16),
+		"window_color": Color(0.55, 0.75, 0.9),
+		"size": Vector3(1.8, 1.4, 1.8),
+		"offset_y": 0.7,
+		"rotatable": true,
+		"def_path": "res://data/placeable_items/house_green.tres",
+	},
 	ItemType.BARN: {
 		"id": "barn",
 		"name": "Barn",
@@ -152,6 +166,7 @@ const ITEMS: Dictionary = {
 		"size": Vector3(2.0, 1.6, 1.6),
 		"offset_y": 0.8,
 		"rotatable": true,
+		"def_path": "res://data/placeable_items/barn.tres",
 	},
 	ItemType.WINDMILL: {
 		"id": "windmill",
@@ -163,6 +178,7 @@ const ITEMS: Dictionary = {
 		"size": Vector3(1.4, 2.2, 1.4),
 		"offset_y": 1.1,
 		"rotatable": true,
+		"def_path": "res://data/placeable_items/windmill.tres",
 	},
 	ItemType.GRANARY: {
 		"id": "granary",

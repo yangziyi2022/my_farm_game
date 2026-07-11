@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="PlaceableItemDef" load_steps=4 format=3 uid="uid://placeable_item_barn"]
+
+[ext_resource type="Script" path="res://scripts/placeable_item_def.gd" id="1_def"]
+[ext_resource type="PackedScene" uid="uid://barn_placeable" path="res://scenes/placeables/barn.tscn" id="2_barn"]
+[ext_resource type="Texture2D" path="res://assets/icons/cottage.svg" id="3_icon"]
+
+[resource]
+script = ExtResource("1_def")
+id = "barn"
+display_name = "Barn"
+visual_scene_path = "res://scenes/placeables/barn.tscn"
+visual_scene = ExtResource("2_barn")
+icon = ExtResource("3_icon")
+category = 1
+rotatable = true
+visual_scale = 3.0
+visual_y_offset = 0.0
+footprint_size = Vector2i(2, 2)

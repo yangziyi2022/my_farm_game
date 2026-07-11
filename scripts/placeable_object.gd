@@ -28,6 +28,15 @@ func _attach_visual(item_type: ItemData.ItemType, growth_stage: int = 0) -> void
 			var s: float = def.visual_scale
 			visual.scale = Vector3(s, s, s)
 			visual.position.y = def.visual_y_offset
+			# Center multi-cell visuals on the footprint while root stays on the anchor cell.
+			var footprint := ItemData.get_footprint(item_type)
+			if footprint.x > 1 or footprint.y > 1:
+				var half_w := GridManager.TILE_WIDTH * 0.5
+				var half_h := GridManager.TILE_HEIGHT * 0.5
+				var avg_x := float(footprint.x - 1) * 0.5
+				var avg_y := float(footprint.y - 1) * 0.5
+				visual.position.x += (avg_x - avg_y) * half_w
+				visual.position.z += (avg_x + avg_y) * half_h
 		add_child(visual)
 		return
 
@@ -42,7 +51,7 @@ func _build_procedural(item_type: ItemData.ItemType, _growth_stage: int = 0) -> 
 			_build_tree(self, info)
 		ItemData.ItemType.SHED:
 			_build_shed(self, info)
-		ItemData.ItemType.HOUSE:
+		ItemData.ItemType.HOUSE, ItemData.ItemType.HOUSE_GREEN:
 			_build_house(self, info)
 		ItemData.ItemType.BARN:
 			_build_barn(self, info)

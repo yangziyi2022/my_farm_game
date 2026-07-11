@@ -1,0 +1,8 @@
+[gd_scene format=3 uid="uid://barn_placeable"]
+
+[ext_resource type="PackedScene" path="res://assets/models/buildings/barn.glb" id="1_barn"]
+
+[node name="BarnPlaceable" type="Node3D"]
+
+[node name="Model" parent="." instance=ExtResource("1_barn")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.273, 0)
