@@ -81,11 +81,16 @@ func _build_palette() -> void:
 		content.add_child(grid)
 
 		for item_type in ItemData.get_items_by_category(category):
-			var info: Dictionary = ItemData.ITEMS[item_type]
 			var btn := Button.new()
-			btn.text = info["name"]
-			btn.custom_minimum_size = Vector2(100, 32)
+			btn.text = ItemData.get_display_name(item_type)
+			btn.custom_minimum_size = Vector2(100, 40)
 			btn.toggle_mode = true
+			var icon := ItemData.get_icon(item_type)
+			if icon:
+				btn.icon = icon
+				btn.expand_icon = true
+				btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+				btn.vertical_icon_alignment = VERTICAL_ALIGNMENT_CENTER
 			btn.pressed.connect(_on_item_pressed.bind(item_type))
 			grid.add_child(btn)
 			_buttons[item_type] = btn

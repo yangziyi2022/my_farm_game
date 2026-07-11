@@ -1,73 +1,90 @@
 class_name PlaceableObject
 extends Node3D
 
+## Generic placeable root used by GridManager.
+## Visuals come from PlaceableItemDef.visual_scene when assigned;
+## otherwise procedural placeholder meshes are built as a fallback.
 
-static func create(item_type: ItemData.ItemType, grid_pos: Vector2i, rotation: int = 0, growth_stage: int = 0) -> Node3D:
-	var obj := Node3D.new()
+
+static func create(item_type: ItemData.ItemType, grid_pos: Vector2i, rotation: int = 0, growth_stage: int = 0) -> PlaceableObject:
+	var obj := PlaceableObject.new()
 	obj.name = "Object_%s_%d_%d" % [ItemData.get_item_id(item_type), grid_pos.x, grid_pos.y]
 	obj.set_meta("item_type", item_type)
 	obj.set_meta("grid_pos", grid_pos)
 	obj.set_meta("rotation", rotation)
 	obj.set_meta("growth_stage", growth_stage)
-
-	var info: Dictionary = ItemData.ITEMS[item_type]
 	obj.rotation.y = deg_to_rad(rotation * 90.0)
+	obj._attach_visual(item_type, growth_stage)
+	return obj
 
+
+func _attach_visual(item_type: ItemData.ItemType, growth_stage: int = 0) -> void:
+	var scene := ItemData.get_visual_scene(item_type)
+	if scene:
+		var visual: Node = scene.instantiate()
+		visual.name = "Visual"
+		add_child(visual)
+		return
+
+	# Fallback: keep existing procedural builders so gameplay never breaks.
+	_build_procedural(item_type, growth_stage)
+
+
+func _build_procedural(item_type: ItemData.ItemType, _growth_stage: int = 0) -> void:
+	var info: Dictionary = ItemData.ITEMS[item_type]
 	match item_type:
 		ItemData.ItemType.TREE:
-			_build_tree(obj, info)
+			_build_tree(self, info)
 		ItemData.ItemType.SHED:
-			_build_shed(obj, info)
+			_build_shed(self, info)
 		ItemData.ItemType.HOUSE:
-			_build_house(obj, info)
+			_build_house(self, info)
 		ItemData.ItemType.BARN:
-			_build_barn(obj, info)
+			_build_barn(self, info)
 		ItemData.ItemType.WINDMILL:
-			_build_windmill(obj, info)
+			_build_windmill(self, info)
 		ItemData.ItemType.GRANARY:
-			_build_granary(obj, info)
+			_build_granary(self, info)
 		ItemData.ItemType.BRIDGE:
-			_build_bridge(obj, info)
+			_build_bridge(self, info)
 		ItemData.ItemType.LAMPPOST:
-			_build_lamppost(obj, info)
+			_build_lamppost(self, info)
 		ItemData.ItemType.WELL:
-			_build_well(obj, info)
+			_build_well(self, info)
 		ItemData.ItemType.CROP_BED:
-			_build_crop_bed(obj, info)
+			_build_crop_bed(self, info)
 		ItemData.ItemType.COW:
-			_build_cow(obj, info)
+			_build_cow(self, info)
 		ItemData.ItemType.CHICKEN:
-			_build_chicken(obj, info)
+			_build_chicken(self, info)
 		ItemData.ItemType.SHEEP:
-			_build_sheep(obj, info)
+			_build_sheep(self, info)
 		ItemData.ItemType.PIG:
-			_build_pig(obj, info)
+			_build_pig(self, info)
 		ItemData.ItemType.DUCK:
-			_build_duck(obj, info)
+			_build_duck(self, info)
 		ItemData.ItemType.FLOWER_RED, ItemData.ItemType.FLOWER_YELLOW, ItemData.ItemType.TULIP:
-			_build_growing_flower(obj, info, false)
+			_build_growing_flower(self, info, false)
 		ItemData.ItemType.SUNFLOWER:
-			_build_growing_flower(obj, info, true)
+			_build_growing_flower(self, info, true)
 		ItemData.ItemType.WHEAT:
-			_build_growing_wheat(obj, info)
+			_build_growing_wheat(self, info)
 		ItemData.ItemType.STONE_PATH:
-			_build_stone_path(obj, info)
+			_build_stone_path(self, info)
 		ItemData.ItemType.GREENHOUSE:
-			_build_greenhouse(obj, info)
+			_build_greenhouse(self, info)
 		ItemData.ItemType.POND:
-			_build_pond(obj, info)
+			_build_pond(self, info)
 		ItemData.ItemType.FOUNTAIN:
-			_build_fountain(obj, info)
+			_build_fountain(self, info)
 		ItemData.ItemType.WIND_WHEEL:
-			_build_wind_wheel(obj, info)
+			_build_wind_wheel(self, info)
 		ItemData.ItemType.LOOKOUT_TOWER:
-			_build_lookout_tower(obj, info)
+			_build_lookout_tower(self, info)
 		ItemData.ItemType.FENCE:
-			_build_box(obj, info)
+			_build_box(self, info)
 		_:
-			_build_box(obj, info)
-
-	return obj
+			_build_box(self, info)
 
 
 static func _add_mesh(parent: Node3D, mesh: Mesh, color: Color, pos: Vector3, rot: Vector3 = Vector3.ZERO) -> MeshInstance3D:

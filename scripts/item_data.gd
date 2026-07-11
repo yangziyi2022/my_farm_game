@@ -138,6 +138,8 @@ const ITEMS: Dictionary = {
 		"size": Vector3(1.8, 1.4, 1.8),
 		"offset_y": 0.7,
 		"rotatable": true,
+		# Art pipeline: edit data/placeable_items/house.tres in the Inspector.
+		"def_path": "res://data/placeable_items/house.tres",
 	},
 	ItemType.BARN: {
 		"id": "barn",
@@ -458,3 +460,39 @@ static func should_sway(item_type: ItemType) -> bool:
 
 static func is_rotatable(item_type: ItemType) -> bool:
 	return ITEMS[item_type].get("rotatable", false)
+
+
+static func get_item_def(item_type: ItemType) -> PlaceableItemDef:
+	var path: String = ITEMS[item_type].get("def_path", "")
+	if path.is_empty() or not ResourceLoader.exists(path):
+		return null
+	return load(path) as PlaceableItemDef
+
+
+static func get_visual_scene(item_type: ItemType) -> PackedScene:
+	var def := get_item_def(item_type)
+	if def:
+		var scene := def.resolve_visual_scene()
+		if scene:
+			return scene
+	var inline_path: String = ITEMS[item_type].get("visual_scene", "")
+	if inline_path.is_empty() or not ResourceLoader.exists(inline_path):
+		return null
+	return load(inline_path) as PackedScene
+
+
+static func get_icon(item_type: ItemType) -> Texture2D:
+	var def := get_item_def(item_type)
+	if def and def.icon:
+		return def.icon
+	var inline_path: String = ITEMS[item_type].get("icon", "")
+	if inline_path.is_empty() or not ResourceLoader.exists(inline_path):
+		return null
+	return load(inline_path) as Texture2D
+
+
+static func get_display_name(item_type: ItemType) -> String:
+	var def := get_item_def(item_type)
+	if def and not def.display_name.is_empty():
+		return def.display_name
+	return get_item_name(item_type)

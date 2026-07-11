@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="PlaceableItemDef" load_steps=4 format=3 uid="uid://placeable_item_house"]
+
+[ext_resource type="Script" path="res://scripts/placeable_item_def.gd" id="1_def"]
+[ext_resource type="PackedScene" uid="uid://cottage_placeable" path="res://scenes/placeables/cottage.tscn" id="2_cottage"]
+[ext_resource type="Texture2D" path="res://assets/icons/cottage.svg" id="3_icon"]
+
+[resource]
+script = ExtResource("1_def")
+id = "house"
+display_name = "Farmhouse"
+visual_scene_path = "res://scenes/placeables/cottage.tscn"
+visual_scene = ExtResource("2_cottage")
+icon = ExtResource("3_icon")
+category = 1
+rotatable = true
