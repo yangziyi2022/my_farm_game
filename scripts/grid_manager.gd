@@ -467,6 +467,34 @@ func remove_object(grid_pos: Vector2i) -> void:
 		_remove_terrain_silent(grid_pos)
 
 
+func remove_node(obj: Node3D) -> bool:
+	## Remove this exact node (content or terrain), used by multi-select delete.
+	if obj == null or not is_instance_valid(obj) or not obj.has_meta("grid_pos"):
+		return false
+	var grid_pos: Vector2i = obj.get_meta("grid_pos")
+	if _objects.get(grid_pos) == obj:
+		if undo_manager and not undo_manager.is_applying_undo():
+			undo_manager.record_remove(
+				grid_pos,
+				obj.get_meta("item_type"),
+				obj.get_meta("rotation", 0),
+				obj.get_meta("growth_stage", 0)
+			)
+		remove_object_silent(grid_pos)
+		return true
+	if _terrain.get(grid_pos) == obj:
+		if undo_manager and not undo_manager.is_applying_undo():
+			undo_manager.record_remove(
+				grid_pos,
+				obj.get_meta("item_type"),
+				obj.get_meta("rotation", 0),
+				0
+			)
+		_remove_terrain_silent(grid_pos)
+		return true
+	return false
+
+
 func remove_object_silent(grid_pos: Vector2i) -> void:
 	if not _objects.has(grid_pos):
 		return

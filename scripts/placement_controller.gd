@@ -19,6 +19,8 @@ var _place_rotation: int = 0
 
 var _dragging: bool = false
 var _place_drag: bool = false
+var _place_commit_pos: Vector2i = Vector2i(-9999, -9999)
+var _ghost_grid_pos: Vector2i = Vector2i(-9999, -9999)
 var _drag_object: Node3D = null
 var _drag_origin: Vector2i = Vector2i.ZERO
 var _drag_hover: Vector2i = Vector2i.ZERO
@@ -197,7 +199,7 @@ func _process(_delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed:
+	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_Z and event.ctrl_pressed:
 			perform_undo()
 			get_viewport().set_input_as_handled()
@@ -205,13 +207,47 @@ func _unhandled_input(event: InputEvent) -> void:
 		match event.keycode:
 			KEY_R:
 				_rotate_selected()
+				get_viewport().set_input_as_handled()
 			KEY_DELETE, KEY_BACKSPACE:
 				_delete_selected()
+				get_viewport().set_input_as_handled()
 			KEY_ESCAPE:
 				_cancel_action()
+				get_viewport().set_input_as_handled()
 
 	if event is InputEventMouseButton:
 		_handle_mouse_button(event)
+
+
+func _input(event: InputEvent) -> void:
+	# Catch Delete even if a UI control has focus after box-select.
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_DELETE or event.keycode == KEY_BACKSPACE:
+			if mode == Mode.SELECT and not _selected_group.is_empty():
+				_delete_selected()
+				get_viewport().set_input_as_handled()
+				return
+	if event is InputEventMouseMotion:
+		if _marquee_active:
+			_update_marquee_visual(event.position)
+			return
+		if _place_drag and mode == Mode.PLACE:
+			# Only retarget after a real drag; tiny click jitter keeps the ghost cell.
+			if event.position.distance_to(_mouse_down_pos) > DRAG_THRESHOLD:
+				_place_commit_pos = _ghost_grid_pos
+			return
+		if _selected_group.size() > 1 and _drag_object and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+			if not _group_dragging and event.position.distance_to(_mouse_down_pos) > DRAG_THRESHOLD:
+				_begin_group_drag()
+			elif _group_dragging:
+				_update_group_drag_follow()
+			return
+		if _drag_object and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+			if not _dragging and event.position.distance_to(_mouse_down_pos) > DRAG_THRESHOLD:
+				_begin_object_drag(_drag_object)
+			elif _dragging:
+				_update_drag_follow()
+
 
 
 func _handle_mouse_button(event: InputEventMouseButton) -> void:
@@ -227,6 +263,17 @@ func _handle_mouse_button(event: InputEventMouseButton) -> void:
 
 func _on_left_press(screen_pos: Vector2) -> void:
 	var hit := _raycast(screen_pos)
+
+	# Place mode: always commit to the ghost cell — never steal into select on nearby hits.
+	if mode == Mode.PLACE:
+		var hit_obj: Node3D = hit.get("object") if not hit.is_empty() else null
+		var double_clicked := _register_click(hit_obj)
+		if double_clicked and hit_obj and _is_selectable(hit_obj):
+			_select_placed_object(hit_obj)
+			return
+		_begin_place_drag()
+		return
+
 	if hit.is_empty():
 		if mode == Mode.SELECT:
 			_begin_marquee(screen_pos)
@@ -236,7 +283,7 @@ func _on_left_press(screen_pos: Vector2) -> void:
 
 	var grid_pos: Vector2i = hit["grid_pos"]
 	var hit_obj: Node3D = hit.get("object")
-	var double_clicked := _register_click(hit_obj)
+	_register_click(hit_obj)
 
 	match mode:
 		Mode.HOE:
@@ -250,23 +297,27 @@ func _on_left_press(screen_pos: Vector2) -> void:
 			_try_fish(grid_pos)
 		Mode.FEED:
 			_try_feed(grid_pos, hit_obj)
-		Mode.PLACE:
-			if double_clicked and hit_obj and _is_movable_content(hit_obj):
-				_select_placed_object(hit_obj)
-				return
-			if hit_obj and _is_movable_content(hit_obj):
-				_select_placed_object(hit_obj)
-				return
-			_place_drag = true
-			status_message.emit("Drag to position, release to place")
 		Mode.SELECT:
-			if hit_obj and _is_movable_content(hit_obj):
+			if hit_obj and _is_selectable(hit_obj):
 				if _selected_group.has(hit_obj) and _selected_group.size() > 1:
 					_prepare_group_drag(hit_obj)
 				else:
 					_select_placed_object(hit_obj)
 			else:
 				_begin_marquee(screen_pos)
+
+
+func _begin_place_drag() -> void:
+	# Lock to wherever the semi-transparent ghost currently sits.
+	_update_ghost_position()
+	_place_commit_pos = _ghost_grid_pos
+	if not _is_valid_cell(_place_commit_pos):
+		_place_drag = false
+		status_message.emit("Cannot place here")
+		return
+	_place_drag = true
+	status_message.emit("Release to place at ghost cell")
+
 
 
 func _is_selectable(obj: Node3D) -> bool:
@@ -694,10 +745,13 @@ func _on_left_release(screen_pos: Vector2) -> void:
 		_finish_marquee(screen_pos)
 		return
 
-	# New item place-drag: commit on release.
+	# New item place-drag: commit on release at the locked / dragged ghost cell.
 	if _place_drag:
 		_place_drag = false
-		var place_pos := _raycast_ground_cell(screen_pos)
+		# Prefer the cell we locked (or updated after a real drag), not a fresh raycast.
+		var place_pos := _place_commit_pos
+		if not _is_valid_cell(place_pos):
+			place_pos = _ghost_grid_pos
 		if not _is_valid_cell(place_pos):
 			status_message.emit("Cancelled place")
 			return
@@ -755,24 +809,6 @@ func _on_left_release(screen_pos: Vector2) -> void:
 	_end_object_drag()
 
 
-func _input(event: InputEvent) -> void:
-	if event is InputEventMouseMotion:
-		if _marquee_active:
-			_update_marquee_visual(event.position)
-			return
-		if _selected_group.size() > 1 and _drag_object and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
-			if not _group_dragging and event.position.distance_to(_mouse_down_pos) > DRAG_THRESHOLD:
-				_begin_group_drag()
-			elif _group_dragging:
-				_update_group_drag_follow()
-			return
-		if _drag_object and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
-			if not _dragging and event.position.distance_to(_mouse_down_pos) > DRAG_THRESHOLD:
-				_begin_object_drag(_drag_object)
-			elif _dragging:
-				_update_drag_follow()
-
-
 func _on_right_click(screen_pos: Vector2) -> void:
 	# In place mode, right-click rotates the preview (stay in place mode).
 	if mode == Mode.PLACE:
@@ -817,15 +853,15 @@ func _delete_selected() -> void:
 	if not _selected_group.is_empty():
 		var to_delete: Array[Node3D] = _selected_group.duplicate()
 		_clear_selected_group()
+		var deleted := 0
 		for obj in to_delete:
-			if is_instance_valid(obj) and obj.has_meta("grid_pos"):
-				grid_manager.remove_object(obj.get_meta("grid_pos"))
-		status_message.emit("Deleted %d items" % to_delete.size())
+			if is_instance_valid(obj) and grid_manager.remove_node(obj):
+				deleted += 1
+		status_message.emit("Deleted %d items" % deleted)
 		return
 	var selected := grid_manager.get_selected()
 	if selected:
-		var grid_pos: Vector2i = selected.get_meta("grid_pos")
-		grid_manager.remove_object(grid_pos)
+		grid_manager.remove_node(selected)
 		status_message.emit("Deleted object")
 		enter_select_mode()
 
@@ -951,6 +987,13 @@ func _update_ghost_position() -> void:
 		return
 	var mouse_pos := get_viewport().get_mouse_position()
 	var grid_pos := _raycast_ground_cell(mouse_pos)
+	# While placing: keep the press-cell until the mouse really moves (avoids click jitter).
+	if _place_drag:
+		if mouse_pos.distance_to(_mouse_down_pos) <= DRAG_THRESHOLD:
+			grid_pos = _place_commit_pos
+		else:
+			_place_commit_pos = grid_pos
+	_ghost_grid_pos = grid_pos
 	if not _is_valid_cell(grid_pos):
 		_ghost.visible = false
 		return
