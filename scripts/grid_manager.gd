@@ -183,6 +183,8 @@ func _highlight_object(obj: Node3D, enabled: bool) -> void:
 
 
 func _apply_highlight_recursive(node: Node, enabled: bool) -> void:
+	if node is FootprintOverlay or str(node.name).begins_with("Footprint") or node.name == "SelectionFootprint":
+		return
 	if node is MeshInstance3D:
 		var mat: StandardMaterial3D = node.material_override
 		if mat:

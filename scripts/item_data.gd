@@ -508,3 +508,11 @@ static func get_display_name(item_type: ItemType) -> String:
 	if def and not def.display_name.is_empty():
 		return def.display_name
 	return get_item_name(item_type)
+
+
+static func get_footprint(item_type: ItemType) -> Vector2i:
+	var def := get_item_def(item_type)
+	if def:
+		var size: Vector2i = def.footprint_size
+		return Vector2i(maxi(size.x, 1), maxi(size.y, 1))
+	return Vector2i(1, 1)
