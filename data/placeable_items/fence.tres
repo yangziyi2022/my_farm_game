@@ -5,9 +5,7 @@
 
 [resource]
 script = ExtResource("1_2h24n")
-id = "fence"
 display_name = "Fence"
-visual_scene_path = "uid://cdtqx5ia7xtpu"
 visual_scene = ExtResource("2_fence")
 category = 4
 visual_scale = 0.4

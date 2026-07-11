@@ -96,9 +96,7 @@ func enter_select_mode() -> void:
 	_end_group_drag()
 	_cancel_marquee()
 	_place_drag = false
-	_drag_object = null
-	_clear_selected_group()
-	grid_manager.select_object(null)
+	_reset_selection_state()
 	_remove_ghost()
 	_hide_cursor_overlay()
 	feed_mode_cancelled.emit()
@@ -112,9 +110,7 @@ func enter_hoe_mode() -> void:
 	_place_drag = false
 	_group_dragging = false
 	_cancel_marquee()
-	_clear_selected_group()
-	_drag_object = null
-	grid_manager.select_object(null)
+	_reset_selection_state()
 	_remove_ghost()
 	_hide_cursor_overlay()
 	feed_mode_cancelled.emit()
@@ -127,9 +123,7 @@ func enter_harvest_mode() -> void:
 	_place_drag = false
 	_group_dragging = false
 	_cancel_marquee()
-	_clear_selected_group()
-	_drag_object = null
-	grid_manager.select_object(null)
+	_reset_selection_state()
 	_remove_ghost()
 	feed_mode_cancelled.emit()
 	_show_cursor_overlay("Harvest", Color(0.95, 0.75, 0.2))
@@ -142,9 +136,7 @@ func enter_fish_mode() -> void:
 	_place_drag = false
 	_group_dragging = false
 	_cancel_marquee()
-	_clear_selected_group()
-	_drag_object = null
-	grid_manager.select_object(null)
+	_reset_selection_state()
 	_remove_ghost()
 	feed_mode_cancelled.emit()
 	_show_cursor_overlay("Rod", Color(0.45, 0.35, 0.2))
@@ -161,8 +153,9 @@ func enter_feed_mode(item: InventoryData.Item) -> void:
 	feed_item = item
 	_dragging = false
 	_place_drag = false
-	_drag_object = null
-	grid_manager.select_object(null)
+	_group_dragging = false
+	_cancel_marquee()
+	_reset_selection_state()
 	_remove_ghost()
 	_show_cursor_overlay(InventoryData.get_item_name(item), InventoryData.get_color(item))
 	status_message.emit("Feed — click an animal with %s" % InventoryData.get_item_name(item))
@@ -174,8 +167,9 @@ func set_selected_item(item_type: ItemData.ItemType) -> void:
 	_place_rotation = 0
 	_dragging = false
 	_place_drag = false
-	_drag_object = null
-	grid_manager.select_object(null)
+	_group_dragging = false
+	_cancel_marquee()
+	_reset_selection_state()
 	feed_mode_cancelled.emit()
 	_update_ghost()
 	_hide_cursor_overlay()
@@ -275,17 +269,28 @@ func _on_left_press(screen_pos: Vector2) -> void:
 
 	# Place mode: always commit to the ghost cell — never steal into select on nearby hits.
 	if mode == Mode.PLACE:
-		var hit_obj: Node3D = hit.get("object") if not hit.is_empty() else null
-		var double_clicked := _register_click(hit_obj)
-		if double_clicked and hit_obj and _is_selectable(hit_obj):
-			_select_placed_object(hit_obj)
+		var picked := _pick_selectable_at_screen(screen_pos)
+		var double_clicked := _register_click(picked)
+		if double_clicked and picked:
+			_select_placed_object(picked)
 			return
 		_begin_place_drag()
 		return
 
-	if hit.is_empty():
-		if mode == Mode.SELECT:
+	# Select uses ground-cell picking — don't bail just because physics ray missed.
+	if mode == Mode.SELECT:
+		var picked := _pick_selectable_at_screen(screen_pos)
+		_register_click(picked)
+		if picked:
+			if _selected_group.has(picked) and _selected_group.size() > 1:
+				_prepare_group_drag(picked)
+			else:
+				_select_placed_object(picked)
+		else:
 			_begin_marquee(screen_pos)
+		return
+
+	if hit.is_empty():
 		_place_drag = false
 		_register_click(null)
 		return
@@ -306,14 +311,56 @@ func _on_left_press(screen_pos: Vector2) -> void:
 			_try_fish(grid_pos)
 		Mode.FEED:
 			_try_feed(grid_pos, hit_obj)
-		Mode.SELECT:
-			if hit_obj and _is_selectable(hit_obj):
-				if _selected_group.has(hit_obj) and _selected_group.size() > 1:
-					_prepare_group_drag(hit_obj)
-				else:
-					_select_placed_object(hit_obj)
-			else:
-				_begin_marquee(screen_pos)
+
+
+func _reset_selection_state() -> void:
+	## Full clear used by Esc / mode switches so leftover highlights can't "stick".
+	_restore_all_pickable()
+	_clear_selected_group()
+	_clear_selection_footprint()
+	_drag_object = null
+	_dragging = false
+	_group_dragging = false
+	_group_origins.clear()
+	_last_click_obj = null
+	_last_click_msec = 0
+	grid_manager.select_object(null)
+
+
+func _restore_all_pickable() -> void:
+	for obj in grid_manager.get_all_selectable_objects():
+		if not is_instance_valid(obj):
+			continue
+		var body := grid_manager.find_tile_collider(obj)
+		if body:
+			body.collision_layer = 1
+
+
+func _pick_selectable_at_screen(screen_pos: Vector2) -> Node3D:
+	## Prefer whatever visible mesh the ray actually hits.
+	var hit := _raycast_pick_object(screen_pos)
+	if hit and _is_selectable(hit):
+		return hit
+	# Empty ground / thin misses: fall back to the cell under the cursor (terrain).
+	var ground_cell := _raycast_ground_cell(screen_pos)
+	if _is_valid_cell(ground_cell):
+		var at_cell := grid_manager.get_object_at(ground_cell)
+		if at_cell and _is_selectable(at_cell):
+			return at_cell
+	return null
+
+
+func _raycast_pick_object(screen_pos: Vector2) -> Node3D:
+	var from := camera.project_ray_origin(screen_pos)
+	var to := from + camera.project_ray_normal(screen_pos) * 200.0
+	var space := camera.get_world_3d().direct_space_state
+	var query := PhysicsRayQueryParameters3D.create(from, to)
+	query.collide_with_areas = false
+	query.collide_with_bodies = true
+	var result := space.intersect_ray(query)
+	if result.is_empty():
+		return null
+	return _resolve_object_from_collider(result.collider as Node)
 
 
 func _begin_place_drag() -> void:
@@ -523,7 +570,7 @@ func _begin_group_drag() -> void:
 		if not is_instance_valid(obj):
 			continue
 		_group_origins[obj] = obj.get_meta("grid_pos")
-		var body := obj.get_node_or_null("TileCollider") as CollisionObject3D
+		var body := grid_manager.find_tile_collider(obj)
 		if body:
 			body.collision_layer = 0
 	_update_group_drag_follow()
@@ -534,7 +581,7 @@ func _end_group_drag() -> void:
 	for obj in _selected_group:
 		if not is_instance_valid(obj):
 			continue
-		var body := obj.get_node_or_null("TileCollider") as CollisionObject3D
+		var body := grid_manager.find_tile_collider(obj)
 		if body:
 			body.collision_layer = 1
 
@@ -674,7 +721,7 @@ func _is_valid_cell(cell: Vector2i) -> bool:
 func _set_drag_pickable(enabled: bool) -> void:
 	if _drag_object == null or not is_instance_valid(_drag_object):
 		return
-	var body := _drag_object.get_node_or_null("TileCollider") as CollisionObject3D
+	var body := grid_manager.find_tile_collider(_drag_object)
 	if body:
 		body.collision_layer = 1 if enabled else 0
 
@@ -891,10 +938,12 @@ func _cancel_action() -> void:
 		_snap_drag_home()
 		_end_object_drag()
 	_place_drag = false
-	_clear_selected_group()
-	_clear_selection_footprint()
-	enter_select_mode()
-	status_message.emit("Cancelled")
+	_reset_selection_state()
+	_remove_ghost()
+	_hide_cursor_overlay()
+	mode = Mode.SELECT
+	select_mode_requested.emit()
+	status_message.emit("Cancelled — selection cleared")
 
 
 func _show_cursor_overlay(text: String, color: Color) -> void:

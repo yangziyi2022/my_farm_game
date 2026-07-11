@@ -556,8 +556,9 @@ func _spawn_object(
 	else:
 		_register_content_cells(obj, grid_pos, footprint)
 
-	_add_tile_collider(obj, item_type)
+	# Polish first (AnimalPivot / reparent Visual) so mesh colliders match what you see.
 	ObjectPolish.setup(obj, item_type, animate_placement)
+	_add_tile_collider(obj, item_type)
 
 	if record_undo and undo_manager and not undo_manager.is_applying_undo():
 		undo_manager.record_place(grid_pos, item_type, rotation, growth_stage)
@@ -567,25 +568,108 @@ func _spawn_object(
 
 
 func _add_tile_collider(obj: Node3D, item_type: ItemData.ItemType) -> void:
+	_disable_nested_pick_bodies(obj)
+
 	var body := StaticBody3D.new()
 	body.name = "TileCollider"
-	var col := CollisionShape3D.new()
-	var box := BoxShape3D.new()
-	var footprint := ItemData.get_footprint(item_type)
-	# Content (animals/buildings) gets a taller collider so raycasts prefer them over terrain.
+	body.collision_layer = 1
+	body.collision_mask = 0
+
 	if ItemData.is_terrain(item_type):
+		var col := CollisionShape3D.new()
+		var box := BoxShape3D.new()
 		box.size = Vector3(TILE_WIDTH * 0.98, 0.18, TILE_HEIGHT * 0.98)
 		col.position.y = 0.09
-	else:
+		col.shape = box
+		body.add_child(col)
+		obj.add_child(body)
+		return
+
+	# Content: collision follows visible meshes so clicking the model selects it.
+	var host: Node3D = obj
+	var animal_pivot := obj.get_node_or_null("AnimalPivot") as Node3D
+	var sway_pivot := obj.get_node_or_null("SwayPivot") as Node3D
+	if animal_pivot:
+		host = animal_pivot
+	elif sway_pivot:
+		host = sway_pivot
+
+	var added := 0
+	for mesh_inst in _collect_mesh_instances(host):
+		var col := _collision_shape_from_mesh(host, mesh_inst)
+		if col == null:
+			continue
+		body.add_child(col)
+		added += 1
+
+	if added == 0:
+		var footprint := ItemData.get_footprint(item_type)
+		var col := CollisionShape3D.new()
+		var box := BoxShape3D.new()
 		var fw: float = float(maxi(footprint.x, 1))
 		var fh: float = float(maxi(footprint.y, 1))
-		box.size = Vector3(TILE_WIDTH * fw * 0.9, 0.7, TILE_HEIGHT * fh * 0.9)
-		# Shift collider toward footprint center (root sits on the anchor cell).
+		box.size = Vector3(TILE_WIDTH * fw * 0.82, 0.55, TILE_HEIGHT * fh * 0.82)
 		var center := footprint_center_world(Vector2i.ZERO, footprint)
-		col.position = Vector3(center.x, 0.35, center.z)
-	col.shape = box
-	body.add_child(col)
-	obj.add_child(body)
+		col.position = Vector3(center.x, 0.28, center.z)
+		col.shape = box
+		body.add_child(col)
+
+	host.add_child(body)
+
+
+func _disable_nested_pick_bodies(root: Node) -> void:
+	## Scene wrappers may ship tiny/wrong StaticBodies; only TileCollider should be pickable.
+	for child in root.get_children():
+		_disable_nested_pick_bodies(child)
+		if child is CollisionObject3D and child.name != "TileCollider":
+			(child as CollisionObject3D).collision_layer = 0
+
+
+func _collect_mesh_instances(root: Node) -> Array[MeshInstance3D]:
+	var out: Array[MeshInstance3D] = []
+	_collect_mesh_instances_recursive(root, out)
+	return out
+
+
+func _collect_mesh_instances_recursive(node: Node, out: Array[MeshInstance3D]) -> void:
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		if mi.mesh != null and mi.visible:
+			out.append(mi)
+	for child in node.get_children():
+		_collect_mesh_instances_recursive(child, out)
+
+
+func _collision_shape_from_mesh(host: Node3D, mesh_inst: MeshInstance3D) -> CollisionShape3D:
+	if mesh_inst.mesh == null:
+		return null
+	# Convex approximates the visible silhouette well enough for click selection.
+	var shape: Shape3D = mesh_inst.mesh.create_convex_shape(true, true)
+	if shape == null:
+		var aabb := mesh_inst.get_aabb()
+		if aabb.size.length_squared() < 0.000001:
+			return null
+		var box := BoxShape3D.new()
+		box.size = aabb.size
+		var col_aabb := CollisionShape3D.new()
+		col_aabb.shape = box
+		col_aabb.transform = host.global_transform.affine_inverse() * mesh_inst.global_transform \
+			* Transform3D(Basis.IDENTITY, aabb.get_center())
+		return col_aabb
+
+	var col := CollisionShape3D.new()
+	col.shape = shape
+	col.transform = host.global_transform.affine_inverse() * mesh_inst.global_transform
+	return col
+
+
+func find_tile_collider(obj: Node3D) -> CollisionObject3D:
+	if obj == null:
+		return null
+	var direct := obj.get_node_or_null("TileCollider") as CollisionObject3D
+	if direct:
+		return direct
+	return obj.find_child("TileCollider", true, false) as CollisionObject3D
 
 
 func remove_object(grid_pos: Vector2i) -> void:
