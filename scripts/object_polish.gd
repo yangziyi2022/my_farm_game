@@ -109,13 +109,14 @@ static func _attach_plant_growth(obj: Node3D, item_type: ItemData.ItemType) -> v
 	growth.setup(obj, start_stage)
 	growth.stage_changed.connect(_on_plant_stage_changed.bind(obj, item_type))
 
-	if start_stage >= CropGrowth.STAGE_COUNT - 1 and item_type != ItemData.ItemType.WHEAT:
+	if start_stage >= CropGrowth.STAGE_COUNT - 1 \
+			and item_type not in [ItemData.ItemType.WHEAT, ItemData.ItemType.CARROT]:
 		_attach_flower_sway(obj)
 
 
 static func _on_plant_stage_changed(obj: Node3D, item_type: ItemData.ItemType, stage: int) -> void:
-	# Wheat uses large GLB stages — keep them planted steady (no flower sway).
-	if item_type == ItemData.ItemType.WHEAT:
+	# Crops that should stay planted firmly (no soft flower sway).
+	if item_type in [ItemData.ItemType.WHEAT, ItemData.ItemType.CARROT]:
 		return
 	if stage >= CropGrowth.STAGE_COUNT - 1:
 		_attach_flower_sway(obj)
@@ -182,6 +183,11 @@ static func _configure_animal(controller: AnimalController, item_type: ItemData.
 			controller.walk_speed = 0.38
 			controller.wander_radius = 0.32
 			controller.walk_chance = 0.65
+		ItemData.ItemType.RABBIT:
+			controller.walk_speed = 0.48
+			controller.wander_radius = 0.34
+			controller.idle_time_min = 1.2
+			controller.idle_time_max = 3.5
 		ItemData.ItemType.PIG:
 			controller.walk_speed = 0.3
 			controller.wander_radius = 0.26

@@ -2,6 +2,7 @@ class_name PlacementController
 extends Node
 
 const ToolCursor3D = preload("res://scripts/tool_cursor_3d.gd")
+const SelectionActionBarScript = preload("res://scripts/selection_action_bar.gd")
 
 signal status_message(text: String)
 signal select_mode_requested
@@ -15,6 +16,8 @@ var undo_manager: UndoManager
 var inventory_manager: InventoryManager
 var cursor_overlay: CursorOverlay
 var tool_cursor: ToolCursor3D
+var _action_bar: Control = null
+var _menu_move_active: bool = false
 var selected_item: ItemData.ItemType = ItemData.ItemType.GRASS
 var mode: Mode = Mode.SELECT
 var feed_item: InventoryData.Item = InventoryData.Item.WHEAT
@@ -68,6 +71,7 @@ func setup(
 		tool_cursor.setup(camera)
 	grid_manager.selection_changed.connect(_on_selection_changed)
 	_ensure_marquee_ui()
+	_ensure_action_bar()
 
 
 func _ensure_marquee_ui() -> void:
@@ -208,9 +212,11 @@ func _process(_delta: float) -> void:
 		_update_ghost_position()
 	if mode == Mode.HOE:
 		_update_hoe_footprint()
-	if _dragging and _drag_object and is_instance_valid(_drag_object) and not _group_dragging:
+	if _menu_move_active:
+		_update_menu_move_follow()
+	if _dragging and _drag_object and is_instance_valid(_drag_object) and not _group_dragging and not _menu_move_active:
 		_update_drag_follow()
-	if _group_dragging:
+	if _group_dragging and not _menu_move_active:
 		_update_group_drag_follow()
 	if _marquee_active:
 		_update_marquee_visual(get_viewport().get_mouse_position())
@@ -287,6 +293,11 @@ func _handle_mouse_button(event: InputEventMouseButton) -> void:
 
 
 func _on_left_press(screen_pos: Vector2) -> void:
+	# Menu-move: first click commits the drop.
+	if _menu_move_active:
+		_commit_menu_move(screen_pos)
+		return
+
 	var hit := _raycast(screen_pos)
 
 	# Place mode: always commit to the ghost cell — never steal into select on nearby hits.
@@ -339,6 +350,8 @@ func _on_left_press(screen_pos: Vector2) -> void:
 
 func _reset_selection_state() -> void:
 	## Full clear used by Esc / mode switches so leftover highlights can't "stick".
+	_cancel_menu_move()
+	_hide_selection_actions()
 	_restore_all_pickable()
 	_clear_selected_group()
 	_clear_selection_footprint()
@@ -471,6 +484,7 @@ func _clear_selection_footprint() -> void:
 
 func _set_selected_group(objs: Array) -> void:
 	_clear_selection_footprint()
+	_cancel_menu_move()
 	for prev in _selected_group:
 		if is_instance_valid(prev):
 			grid_manager.set_object_highlighted(prev, false)
@@ -486,11 +500,14 @@ func _set_selected_group(objs: Array) -> void:
 		_selected_group.append(obj)
 		_group_origins[obj] = obj.get_meta("grid_pos")
 		grid_manager.set_object_highlighted(obj, true)
+		SelectionFlash.play(obj)
 	if _selected_group.is_empty():
 		grid_manager.select_object(null)
+		_hide_selection_actions()
 	else:
 		grid_manager.select_object(_selected_group[0])
 		_refresh_group_footprints()
+		_show_selection_actions()
 
 
 func _clear_selected_group() -> void:
@@ -588,6 +605,7 @@ func _prepare_group_drag(anchor_obj: Node3D) -> void:
 
 
 func _begin_group_drag() -> void:
+	_hide_selection_actions()
 	_group_dragging = true
 	_dragging = true
 	_place_drag = false
@@ -776,6 +794,7 @@ func _snap_drag_home() -> void:
 
 
 func _begin_object_drag(obj: Node3D) -> void:
+	_hide_selection_actions()
 	_dragging = true
 	_place_drag = false
 	mode = Mode.SELECT
@@ -870,6 +889,7 @@ func _on_left_release(screen_pos: Vector2) -> void:
 			_commit_group_drag(target)
 		_end_group_drag()
 		_dragging = false
+		_show_selection_actions()
 		return
 
 	# Move existing object: follow mouse while held, commit on release.
@@ -895,6 +915,7 @@ func _on_left_release(screen_pos: Vector2) -> void:
 			_drag_hover = _drag_origin
 		else:
 			_drag_object = null
+		_show_selection_actions()
 		return
 
 	_end_object_drag()
@@ -933,14 +954,33 @@ func _rotate_selected() -> void:
 	if mode == Mode.PLACE:
 		_rotate_place_preview()
 		return
+	if not _selected_group.is_empty():
+		var rotated := 0
+		for obj in _selected_group:
+			if not is_instance_valid(obj) or not obj.has_meta("grid_pos"):
+				continue
+			var item_type: ItemData.ItemType = obj.get_meta("item_type")
+			if not ItemData.is_rotatable(item_type):
+				continue
+			grid_manager.rotate_object(obj.get_meta("grid_pos"), 1)
+			rotated += 1
+		if rotated > 0:
+			status_message.emit("Rotated %d item(s)" % rotated)
+			_show_selection_actions()
+		else:
+			status_message.emit("This item can't rotate")
+		return
 	var selected := grid_manager.get_selected()
 	if selected:
 		var grid_pos: Vector2i = selected.get_meta("grid_pos")
 		grid_manager.rotate_object(grid_pos, 1)
 		status_message.emit("Rotated object")
+		_show_selection_actions()
 
 
 func _delete_selected() -> void:
+	_hide_selection_actions()
+	_cancel_menu_move()
 	if not _selected_group.is_empty():
 		var to_delete: Array[Node3D] = _selected_group.duplicate()
 		_clear_selected_group()
@@ -960,6 +1000,8 @@ func _delete_selected() -> void:
 func _cancel_action() -> void:
 	if _marquee_active:
 		_cancel_marquee()
+	if _menu_move_active:
+		_cancel_menu_move()
 	if _group_dragging:
 		_snap_group_home()
 		_end_group_drag()
@@ -1023,6 +1065,128 @@ func _remove_hoe_footprint() -> void:
 	if _hoe_footprint and is_instance_valid(_hoe_footprint):
 		_hoe_footprint.queue_free()
 	_hoe_footprint = null
+
+
+func _ensure_action_bar() -> void:
+	if _action_bar and is_instance_valid(_action_bar):
+		return
+	var layer := CanvasLayer.new()
+	layer.name = "SelectionActionLayer"
+	layer.layer = 25
+	add_child(layer)
+	_action_bar = SelectionActionBarScript.new()
+	_action_bar.name = "SelectionActionBar"
+	layer.add_child(_action_bar)
+	_action_bar.setup(camera)
+	_action_bar.move_pressed.connect(_on_selection_move_pressed)
+	_action_bar.rotate_pressed.connect(_rotate_selected)
+	_action_bar.delete_pressed.connect(_delete_selected)
+
+
+func _selection_action_anchor() -> Vector3:
+	if _selected_group.is_empty():
+		return Vector3.ZERO
+	var sum := Vector3.ZERO
+	var count := 0
+	var lift := 1.05
+	for obj in _selected_group:
+		if not is_instance_valid(obj):
+			continue
+		sum += obj.global_position
+		count += 1
+		var item_type: ItemData.ItemType = obj.get_meta("item_type")
+		if ItemData.is_terrain(item_type):
+			lift = maxf(lift, 0.55)
+		else:
+			lift = maxf(lift, 1.25)
+	if count == 0:
+		return Vector3.ZERO
+	return sum / float(count) + Vector3(0.0, lift, 0.0)
+
+
+func _show_selection_actions() -> void:
+	if _action_bar == null:
+		_ensure_action_bar()
+	if _action_bar == null or _selected_group.is_empty():
+		return
+	if _menu_move_active or _dragging or _group_dragging or _marquee_active:
+		return
+	if mode != Mode.SELECT:
+		_hide_selection_actions()
+		return
+	_action_bar.show_at_world(_selection_action_anchor())
+
+
+func _hide_selection_actions() -> void:
+	if _action_bar and is_instance_valid(_action_bar):
+		_action_bar.hide_bar()
+
+
+func _on_selection_move_pressed() -> void:
+	if _selected_group.is_empty():
+		return
+	_hide_selection_actions()
+	_menu_move_active = true
+	if _selected_group.size() > 1:
+		_prepare_group_drag(_selected_group[0])
+		_begin_group_drag()
+	else:
+		_begin_object_drag(_selected_group[0])
+	status_message.emit("Move — click a cell to place")
+
+
+func _update_menu_move_follow() -> void:
+	if _group_dragging:
+		_update_group_drag_follow()
+	elif _dragging and _drag_object and is_instance_valid(_drag_object):
+		_update_drag_follow()
+
+
+func _commit_menu_move(screen_pos: Vector2) -> void:
+	if _group_dragging and not _selected_group.is_empty():
+		var target := _raycast_ground_cell(screen_pos)
+		if not _is_valid_cell(target):
+			_snap_group_home()
+			status_message.emit("Move cancelled")
+		else:
+			_commit_group_drag(target)
+		_end_group_drag()
+		_dragging = false
+	elif _dragging and _drag_object and is_instance_valid(_drag_object):
+		var target := _raycast_ground_cell(screen_pos)
+		if not _is_valid_cell(target):
+			_snap_drag_home()
+			status_message.emit("Move cancelled")
+		elif target == _drag_origin:
+			_snap_drag_home()
+		elif _can_drop_drag_at(target) and grid_manager.move_object(_drag_origin, target):
+			_drag_origin = target
+			_drag_hover = target
+			if _group_origins.has(_drag_object):
+				_group_origins[_drag_object] = target
+			status_message.emit("Moved to (%d, %d)" % [target.x, target.y])
+		else:
+			_snap_drag_home()
+			status_message.emit("Cannot move there")
+		_end_object_drag()
+		if is_instance_valid(_drag_object):
+			_drag_origin = _drag_object.get_meta("grid_pos")
+			_drag_hover = _drag_origin
+	_menu_move_active = false
+	_show_selection_actions()
+
+
+func _cancel_menu_move() -> void:
+	if not _menu_move_active:
+		return
+	if _group_dragging:
+		_snap_group_home()
+		_end_group_drag()
+		_dragging = false
+	elif _dragging and _drag_object:
+		_snap_drag_home()
+		_end_object_drag()
+	_menu_move_active = false
 
 
 func _raycast(screen_pos: Vector2) -> Dictionary:

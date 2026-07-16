@@ -42,13 +42,15 @@ enum ItemType {
 	WIND_WHEEL,
 	LOOKOUT_TOWER,
 	HOUSE_GREEN,
+	CARROT,
+	RABBIT,
 }
 
 const CATEGORIES: Dictionary = {
 	Category.TERRAIN: "Terrain",
 	Category.STRUCTURE: "Buildings",
 	Category.ANIMAL: "Animals",
-	Category.PLANT: "Flowers & Crops",
+	Category.PLANT: "Crops",
 	Category.DECOR: "Decor",
 }
 
@@ -91,13 +93,13 @@ const ITEMS: Dictionary = {
 	},
 	ItemType.TREE: {
 		"id": "tree",
-		"name": "Tree",
-		"category": Category.DECOR,
+		"name": "Tree Seed",
+		"category": Category.PLANT,
 		"color": Color(0.2, 0.5, 0.15),
 		"trunk_color": Color(0.45, 0.3, 0.15),
 		"size": Vector3(0.6, 1.2, 0.6),
 		"offset_y": 0.6,
-		"rotatable": true,
+		"rotatable": false,
 	},
 	ItemType.FENCE: {
 		"id": "fence",
@@ -118,6 +120,7 @@ const ITEMS: Dictionary = {
 		"size": Vector3(0.9, 0.15, 0.9),
 		"offset_y": 0.075,
 		"rotatable": true,
+		"show_in_palette": false,
 	},
 	ItemType.SHED: {
 		"id": "shed",
@@ -273,6 +276,17 @@ const ITEMS: Dictionary = {
 		"offset_y": 0.2,
 		"rotatable": true,
 	},
+	ItemType.RABBIT: {
+		"id": "rabbit",
+		"name": "Rabbit",
+		"category": Category.ANIMAL,
+		"color": Color(0.95, 0.9, 0.88),
+		"ear_color": Color(0.98, 0.78, 0.82),
+		"eye_color": Color(0.2, 0.15, 0.15),
+		"size": Vector3(0.4, 0.35, 0.5),
+		"offset_y": 0.2,
+		"rotatable": true,
+	},
 	ItemType.FLOWER_RED: {
 		"id": "flower_red",
 		"name": "Red Flower Seed",
@@ -283,6 +297,7 @@ const ITEMS: Dictionary = {
 		"size": Vector3(0.3, 0.45, 0.3),
 		"offset_y": 0.22,
 		"rotatable": false,
+		"show_in_palette": false,
 	},
 	ItemType.FLOWER_YELLOW: {
 		"id": "flower_yellow",
@@ -294,6 +309,7 @@ const ITEMS: Dictionary = {
 		"size": Vector3(0.3, 0.45, 0.3),
 		"offset_y": 0.22,
 		"rotatable": false,
+		"show_in_palette": false,
 	},
 	ItemType.SUNFLOWER: {
 		"id": "sunflower",
@@ -317,6 +333,7 @@ const ITEMS: Dictionary = {
 		"size": Vector3(0.25, 0.5, 0.25),
 		"offset_y": 0.25,
 		"rotatable": false,
+		"show_in_palette": false,
 	},
 	ItemType.WHEAT: {
 		"id": "wheat",
@@ -327,6 +344,17 @@ const ITEMS: Dictionary = {
 		"dirt_color": Color(0.55, 0.38, 0.22),
 		"size": Vector3(0.4, 0.55, 0.4),
 		"offset_y": 0.28,
+		"rotatable": false,
+	},
+	ItemType.CARROT: {
+		"id": "carrot",
+		"name": "Carrot Seed",
+		"category": Category.PLANT,
+		"color": Color(0.95, 0.55, 0.15),
+		"leaf_color": Color(0.25, 0.65, 0.22),
+		"dirt_color": Color(0.55, 0.38, 0.22),
+		"size": Vector3(0.35, 0.45, 0.35),
+		"offset_y": 0.2,
 		"rotatable": false,
 	},
 	ItemType.STONE_PATH: {
@@ -397,8 +425,11 @@ const ITEMS: Dictionary = {
 static func get_items_by_category(category: Category) -> Array:
 	var result: Array = []
 	for item_type in ITEMS:
-		if ITEMS[item_type].get("category") == category:
-			result.append(item_type)
+		if ITEMS[item_type].get("category") != category:
+			continue
+		if ITEMS[item_type].get("show_in_palette", true) == false:
+			continue
+		result.append(item_type)
 	return result
 
 
@@ -436,24 +467,29 @@ static func is_hoeable(item_type: ItemType) -> bool:
 
 
 static func is_flower_seed(item_type: ItemType) -> bool:
+	# Legacy flower seeds kept for old saves; not shown in the palette.
 	return item_type in [
 		ItemType.FLOWER_RED,
 		ItemType.FLOWER_YELLOW,
-		ItemType.SUNFLOWER,
 		ItemType.TULIP,
 	]
 
 
 static func is_crop_seed(item_type: ItemType) -> bool:
-	return item_type == ItemType.WHEAT
+	return item_type in [
+		ItemType.WHEAT,
+		ItemType.CARROT,
+		ItemType.SUNFLOWER,
+		ItemType.TREE,
+	]
 
 
 static func needs_dirt_to_plant(item_type: ItemType) -> bool:
-	return is_flower_seed(item_type) or is_crop_seed(item_type)
+	return is_crop_seed(item_type) or is_flower_seed(item_type)
 
 
 static func is_growable_plant(item_type: ItemType) -> bool:
-	return is_flower_seed(item_type) or is_crop_seed(item_type)
+	return needs_dirt_to_plant(item_type)
 
 
 static func is_harvestable_plant(item_type: ItemType) -> bool:
@@ -480,11 +516,7 @@ static func is_animal(item_type: ItemType) -> bool:
 
 
 static func should_sway(item_type: ItemType) -> bool:
-	return item_type in [
-		ItemType.GRASS,
-		ItemType.TREE,
-		ItemType.CROP_BED,
-	]
+	return item_type == ItemType.GRASS
 
 
 static func is_rotatable(item_type: ItemType) -> bool:

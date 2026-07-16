@@ -48,7 +48,7 @@ func _build_procedural(item_type: ItemData.ItemType, _growth_stage: int = 0) -> 
 	var info: Dictionary = ItemData.ITEMS[item_type]
 	match item_type:
 		ItemData.ItemType.TREE:
-			_build_tree(self, info)
+			_build_growing_tree(self, info)
 		ItemData.ItemType.SHED:
 			_build_shed(self, info)
 		ItemData.ItemType.HOUSE, ItemData.ItemType.HOUSE_GREEN:
@@ -77,12 +77,16 @@ func _build_procedural(item_type: ItemData.ItemType, _growth_stage: int = 0) -> 
 			_build_pig(self, info)
 		ItemData.ItemType.DUCK:
 			_build_duck(self, info)
+		ItemData.ItemType.RABBIT:
+			_build_rabbit(self, info)
 		ItemData.ItemType.FLOWER_RED, ItemData.ItemType.FLOWER_YELLOW, ItemData.ItemType.TULIP:
 			_build_growing_flower(self, info, false)
 		ItemData.ItemType.SUNFLOWER:
-			_build_growing_flower(self, info, true)
+			_build_growing_sunflower(self, info)
 		ItemData.ItemType.WHEAT:
 			_build_growing_wheat(self, info)
+		ItemData.ItemType.CARROT:
+			_build_growing_carrot(self, info)
 		ItemData.ItemType.STONE_PATH:
 			_build_stone_path(self, info)
 		ItemData.ItemType.GREENHOUSE:
@@ -136,6 +140,142 @@ static func _build_tree(parent: Node3D, info: Dictionary) -> void:
 	foliage_mesh.radius = 0.4
 	foliage_mesh.height = 0.7
 	_add_mesh(parent, foliage_mesh, info["color"], Vector3(0.0, 0.75, 0.0))
+
+
+static func _build_growing_tree(parent: Node3D, info: Dictionary) -> void:
+	# Stage 0 — seed; 1 sapling; 2 young tree; 3 mature tree.
+	var s0 := Node3D.new()
+	s0.name = "Stage0"
+	var seed := SphereMesh.new()
+	seed.radius = 0.05
+	_add_mesh(s0, seed, Color(0.4, 0.28, 0.15), Vector3(0.0, 0.1, 0.0))
+	parent.add_child(s0)
+
+	var s1 := Node3D.new()
+	s1.name = "Stage1"
+	var sprout := CylinderMesh.new()
+	sprout.top_radius = 0.03
+	sprout.bottom_radius = 0.04
+	sprout.height = 0.22
+	_add_mesh(s1, sprout, info.get("trunk_color", Color(0.45, 0.3, 0.15)), Vector3(0.0, 0.14, 0.0))
+	var leaf := SphereMesh.new()
+	leaf.radius = 0.12
+	leaf.height = 0.18
+	_add_mesh(s1, leaf, info["color"], Vector3(0.0, 0.3, 0.0))
+	parent.add_child(s1)
+
+	var s2 := Node3D.new()
+	s2.name = "Stage2"
+	var trunk2 := CylinderMesh.new()
+	trunk2.top_radius = 0.07
+	trunk2.bottom_radius = 0.09
+	trunk2.height = 0.4
+	_add_mesh(s2, trunk2, info.get("trunk_color", Color(0.45, 0.3, 0.15)), Vector3(0.0, 0.22, 0.0))
+	var canopy2 := SphereMesh.new()
+	canopy2.radius = 0.28
+	canopy2.height = 0.45
+	_add_mesh(s2, canopy2, info["color"], Vector3(0.0, 0.55, 0.0))
+	parent.add_child(s2)
+
+	var s3 := Node3D.new()
+	s3.name = "Stage3"
+	_build_tree(s3, info)
+	parent.add_child(s3)
+
+
+static func _build_growing_carrot(parent: Node3D, info: Dictionary) -> void:
+	var leaf_color: Color = info.get("leaf_color", Color(0.25, 0.65, 0.22))
+	var carrot_color: Color = info["color"]
+
+	var s0 := Node3D.new()
+	s0.name = "Stage0"
+	for offset in [
+		Vector3(-0.2, 0.1, -0.2), Vector3(0.2, 0.1, -0.2),
+		Vector3(-0.2, 0.1, 0.2), Vector3(0.2, 0.1, 0.2),
+	]:
+		var seed := SphereMesh.new()
+		seed.radius = 0.04
+		_add_mesh(s0, seed, Color(0.45, 0.32, 0.18), offset)
+	parent.add_child(s0)
+
+	var s1 := Node3D.new()
+	s1.name = "Stage1"
+	for i in range(4):
+		var angle := deg_to_rad(i * 90.0 + 20.0)
+		var pos := Vector3(cos(angle) * 0.22, 0.12, sin(angle) * 0.22)
+		var sprout := BoxMesh.new()
+		sprout.size = Vector3(0.04, 0.12, 0.04)
+		_add_mesh(s1, sprout, leaf_color, pos)
+	parent.add_child(s1)
+
+	var s2 := Node3D.new()
+	s2.name = "Stage2"
+	for i in range(4):
+		var angle := deg_to_rad(i * 90.0 + 20.0)
+		var base := Vector3(cos(angle) * 0.22, 0.0, sin(angle) * 0.22)
+		var top := CylinderMesh.new()
+		top.top_radius = 0.0
+		top.bottom_radius = 0.05
+		top.height = 0.18
+		_add_mesh(s2, top, carrot_color, base + Vector3(0.0, 0.12, 0.0))
+		var greens := BoxMesh.new()
+		greens.size = Vector3(0.05, 0.16, 0.05)
+		_add_mesh(s2, greens, leaf_color, base + Vector3(0.0, 0.28, 0.0))
+	parent.add_child(s2)
+
+	var s3 := Node3D.new()
+	s3.name = "Stage3"
+	for i in range(4):
+		var angle := deg_to_rad(i * 90.0 + 20.0)
+		var base := Vector3(cos(angle) * 0.24, 0.0, sin(angle) * 0.24)
+		var body := CylinderMesh.new()
+		body.top_radius = 0.02
+		body.bottom_radius = 0.07
+		body.height = 0.28
+		_add_mesh(s3, body, carrot_color, base + Vector3(0.0, 0.14, 0.0))
+		var greens := BoxMesh.new()
+		greens.size = Vector3(0.08, 0.22, 0.08)
+		_add_mesh(s3, greens, leaf_color, base + Vector3(0.0, 0.36, 0.0))
+	parent.add_child(s3)
+
+
+static func _build_growing_sunflower(parent: Node3D, info: Dictionary) -> void:
+	# Same 4-stage flow as wheat: seeds → sprout → budding → mature bloom.
+	var s0 := Node3D.new()
+	s0.name = "Stage0"
+	for offset in [
+		Vector3(-0.2, 0.1, -0.2), Vector3(0.2, 0.1, -0.2),
+		Vector3(-0.2, 0.1, 0.2), Vector3(0.2, 0.1, 0.2),
+	]:
+		var seed := SphereMesh.new()
+		seed.radius = 0.04
+		_add_mesh(s0, seed, Color(0.45, 0.32, 0.18), offset)
+	parent.add_child(s0)
+
+	var s1 := Node3D.new()
+	s1.name = "Stage1"
+	var sprout := BoxMesh.new()
+	sprout.size = Vector3(0.05, 0.16, 0.05)
+	_add_mesh(s1, sprout, info.get("stem_color", Color(0.22, 0.58, 0.18)), Vector3(0.0, 0.14, 0.0))
+	parent.add_child(s1)
+
+	var s2 := Node3D.new()
+	s2.name = "Stage2"
+	var stem2 := CylinderMesh.new()
+	stem2.top_radius = 0.02
+	stem2.bottom_radius = 0.025
+	stem2.height = 0.35
+	_add_mesh(s2, stem2, info.get("stem_color", Color(0.22, 0.58, 0.18)), Vector3(0.0, 0.22, 0.0))
+	var bud := SphereMesh.new()
+	bud.radius = 0.08
+	bud.height = 0.1
+	_add_mesh(s2, bud, info.get("center_color", Color(0.45, 0.32, 0.12)), Vector3(0.0, 0.42, 0.0))
+	parent.add_child(s2)
+
+	var s3 := Node3D.new()
+	s3.name = "Stage3"
+	_build_sunflower(s3, info)
+	parent.add_child(s3)
 
 
 static func _build_shed(parent: Node3D, info: Dictionary) -> void:
@@ -550,6 +690,43 @@ static func _build_duck(parent: Node3D, info: Dictionary) -> void:
 	var beak_mesh := BoxMesh.new()
 	beak_mesh.size = Vector3(0.1, 0.05, 0.08)
 	_add_mesh(parent, beak_mesh, info.get("beak_color", Color(0.9, 0.55, 0.15)), Vector3(0.0, 0.27, 0.26))
+
+
+static func _build_rabbit(parent: Node3D, info: Dictionary) -> void:
+	var fur: Color = info["color"]
+	var ear_color: Color = info.get("ear_color", Color(0.98, 0.78, 0.82))
+	var eye_color: Color = info.get("eye_color", Color(0.2, 0.15, 0.15))
+
+	var body := SphereMesh.new()
+	body.radius = 0.16
+	body.height = 0.26
+	_add_mesh(parent, body, fur, Vector3(0.0, 0.18, 0.0))
+
+	var head := SphereMesh.new()
+	head.radius = 0.11
+	head.height = 0.16
+	_add_mesh(parent, head, fur, Vector3(0.0, 0.32, 0.12))
+
+	for side in [-1.0, 1.0]:
+		var ear := BoxMesh.new()
+		ear.size = Vector3(0.05, 0.2, 0.04)
+		_add_mesh(parent, ear, ear_color, Vector3(side * 0.06, 0.48, 0.1))
+
+	for side in [-1.0, 1.0]:
+		var eye := SphereMesh.new()
+		eye.radius = 0.02
+		eye.height = 0.03
+		_add_mesh(parent, eye, eye_color, Vector3(side * 0.045, 0.34, 0.2))
+
+	var nose := SphereMesh.new()
+	nose.radius = 0.025
+	nose.height = 0.03
+	_add_mesh(parent, nose, Color(0.9, 0.55, 0.6), Vector3(0.0, 0.3, 0.22))
+
+	var tail := SphereMesh.new()
+	tail.radius = 0.05
+	tail.height = 0.08
+	_add_mesh(parent, tail, fur.lightened(0.1), Vector3(0.0, 0.2, -0.14))
 
 
 static func _build_flower(parent: Node3D, info: Dictionary) -> void:
