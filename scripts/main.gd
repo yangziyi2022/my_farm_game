@@ -54,10 +54,11 @@ func _ready() -> void:
 	var time_controls := TimeOfDayControls.new()
 	time_controls.name = "TimeOfDayControls"
 	$UI.add_child(time_controls)
-	time_controls.setup(day_night_cycle)
+	time_controls.setup(day_night_cycle, grid_manager)
+	time_controls.expand_done.connect(_on_status_message)
 
 	_on_undo_stack_changed(undo_manager.can_undo())
-	_on_status_message("Island view: right-drag orbit, middle-drag pan, scroll zoom. 5 min day / night.")
+	_on_status_message("Island view: right-drag orbit, middle-drag pan, scroll zoom. Expand (right) grows the floor.")
 
 
 func _on_day_night_phase_changed(phase: String) -> void:

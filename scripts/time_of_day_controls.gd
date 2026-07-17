@@ -1,15 +1,21 @@
 class_name TimeOfDayControls
 extends VBoxContainer
 
-## Right-side sun / moon buttons to jump the day-night cycle.
+## Right-side sun / moon / expand island buttons.
+
+signal expand_done(message: String)
+
+var _expand_btn: Button
+var _grid_manager: GridManager
 
 
-func setup(day_night: DayNightCycle) -> void:
+func setup(day_night: DayNightCycle, grid_manager: GridManager = null) -> void:
+	_grid_manager = grid_manager
 	set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	offset_left = -72.0
 	offset_top = 64.0
 	offset_right = -12.0
-	offset_bottom = 180.0
+	offset_bottom = 250.0
 	grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	add_theme_constant_override("separation", 10)
 
@@ -26,6 +32,35 @@ func setup(day_night: DayNightCycle) -> void:
 			day_night.jump_to_moonrise()
 	)
 	add_child(moon_btn)
+
+	if grid_manager:
+		_expand_btn = _make_icon_button(_icon_expand(), "Expand island — grow playable floor (Undo shrinks)")
+		_expand_btn.pressed.connect(_on_expand_pressed)
+		add_child(_expand_btn)
+		grid_manager.play_radius_changed.connect(_on_play_radius_changed)
+		_refresh_expand_enabled()
+
+
+func _on_expand_pressed() -> void:
+	if _grid_manager == null:
+		return
+	var old_r := _grid_manager.get_play_radius()
+	if _grid_manager.expand_island():
+		var new_r := _grid_manager.get_play_radius()
+		expand_done.emit(
+			"Island expanded %.1f → %.1f (+%.1f). Undo to shrink." % [old_r, new_r, new_r - old_r]
+		)
+	else:
+		expand_done.emit("Island is already at max size.")
+
+
+func _on_play_radius_changed(_new_radius: float) -> void:
+	_refresh_expand_enabled()
+
+
+func _refresh_expand_enabled() -> void:
+	if _expand_btn and _grid_manager:
+		_expand_btn.disabled = not _grid_manager.can_expand()
 
 
 func _make_icon_button(icon: Texture2D, tip: String) -> Button:
@@ -47,6 +82,10 @@ func _make_icon_button(icon: Texture2D, tip: String) -> Button:
 	var pressed := style.duplicate() as StyleBoxFlat
 	pressed.bg_color = Color(0.12, 0.1, 0.16, 0.95)
 	btn.add_theme_stylebox_override("pressed", pressed)
+	var disabled := style.duplicate() as StyleBoxFlat
+	disabled.bg_color = Color(0.12, 0.11, 0.14, 0.55)
+	disabled.border_color = Color(0.45, 0.42, 0.38, 0.5)
+	btn.add_theme_stylebox_override("disabled", disabled)
 	return btn
 
 
@@ -99,3 +138,49 @@ func _icon_moon() -> Texture2D:
 			if dx * dx + dy * dy <= 210:
 				img.set_pixel(x, y, Color(0, 0, 0, 0))
 	return ImageTexture.create_from_image(img)
+
+
+func _icon_expand() -> Texture2D:
+	## Island disc with four outward arrows.
+	var img := Image.create(64, 64, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var land := Color(0.42, 0.62, 0.28)
+	var rim := Color(0.95, 0.88, 0.45)
+	var arrow := Color(0.95, 0.92, 0.8)
+	for y in range(64):
+		for x in range(64):
+			var dx := x - 32
+			var dy := y - 32
+			var d2 := dx * dx + dy * dy
+			if d2 <= 121:
+				img.set_pixel(x, y, land)
+			elif d2 <= 169:
+				img.set_pixel(x, y, rim)
+	# N / S / W / E arrows
+	_draw_thick_line(img, Vector2i(32, 16), Vector2i(32, 4), arrow)
+	_draw_thick_line(img, Vector2i(28, 8), Vector2i(32, 4), arrow)
+	_draw_thick_line(img, Vector2i(36, 8), Vector2i(32, 4), arrow)
+	_draw_thick_line(img, Vector2i(32, 48), Vector2i(32, 60), arrow)
+	_draw_thick_line(img, Vector2i(28, 56), Vector2i(32, 60), arrow)
+	_draw_thick_line(img, Vector2i(36, 56), Vector2i(32, 60), arrow)
+	_draw_thick_line(img, Vector2i(16, 32), Vector2i(4, 32), arrow)
+	_draw_thick_line(img, Vector2i(8, 28), Vector2i(4, 32), arrow)
+	_draw_thick_line(img, Vector2i(8, 36), Vector2i(4, 32), arrow)
+	_draw_thick_line(img, Vector2i(48, 32), Vector2i(60, 32), arrow)
+	_draw_thick_line(img, Vector2i(56, 28), Vector2i(60, 32), arrow)
+	_draw_thick_line(img, Vector2i(56, 36), Vector2i(60, 32), arrow)
+	return ImageTexture.create_from_image(img)
+
+
+func _draw_thick_line(img: Image, a: Vector2i, b: Vector2i, c: Color) -> void:
+	var steps := maxi(absi(b.x - a.x), absi(b.y - a.y)) + 1
+	for i in range(steps):
+		var t := float(i) / float(maxi(steps - 1, 1))
+		var x := int(round(lerpf(float(a.x), float(b.x), t)))
+		var y := int(round(lerpf(float(a.y), float(b.y), t)))
+		for ox in range(-1, 2):
+			for oy in range(-1, 2):
+				var px := x + ox
+				var py := y + oy
+				if px >= 0 and px < 64 and py >= 0 and py < 64:
+					img.set_pixel(px, py, c)

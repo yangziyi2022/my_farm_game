@@ -12,6 +12,7 @@ enum ActionType {
 	REPLACE,
 	MOVE,
 	ROTATE,
+	EXPAND,
 }
 
 var _stack: Array[Dictionary] = []
@@ -89,6 +90,14 @@ func record_rotate(grid_pos: Vector2i, old_rotation: int, new_rotation: int) -> 
 	})
 
 
+func record_expand(old_radius: float, new_radius: float) -> void:
+	_push({
+		"type": ActionType.EXPAND,
+		"old_radius": old_radius,
+		"new_radius": new_radius,
+	})
+
+
 func undo(grid_manager: GridManager) -> bool:
 	if _stack.is_empty():
 		return false
@@ -117,6 +126,8 @@ func undo(grid_manager: GridManager) -> bool:
 			grid_manager.move_object_silent(action["to"], action["from"])
 		ActionType.ROTATE:
 			grid_manager.set_rotation_silent(action["grid_pos"], action["old_rotation"])
+		ActionType.EXPAND:
+			grid_manager.set_play_radius_silent(float(action["old_radius"]))
 
 	_applying_undo = false
 	stack_changed.emit(can_undo())
@@ -145,4 +156,9 @@ func _describe_action(action: Dictionary) -> String:
 			return "Undid move"
 		ActionType.ROTATE:
 			return "Undid rotate"
+		ActionType.EXPAND:
+			return "Undid expand (%.1f → %.1f)" % [
+				float(action["new_radius"]),
+				float(action["old_radius"]),
+			]
 	return "Undid action"

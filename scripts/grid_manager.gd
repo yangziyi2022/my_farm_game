@@ -5,6 +5,7 @@ signal object_placed(grid_pos: Vector2i, object_node: Node3D)
 signal object_removed(grid_pos: Vector2i)
 signal object_moved(from: Vector2i, to: Vector2i)
 signal selection_changed(object_node: Node3D)
+signal play_radius_changed(new_radius: float)
 
 const TILE_WIDTH: float = 1.25
 const TILE_HEIGHT: float = 1.25
@@ -14,11 +15,15 @@ const GRID_HEIGHT: int = 56
 ## Shift so world center stays near the island center.
 const GRID_SHIFT: int = 8
 ## Circular playable area — fitted to floating_island top (island xz radius ≈ 26).
-const PLAY_RADIUS: float = 24.2
+const DEFAULT_PLAY_RADIUS: float = 24.2
+## Each Expand press grows the disc by this many world units (~2.4 tiles).
+const EXPAND_STEP: float = 3.0
+## Stays inside the 56×56 grid square around map center.
+const MAX_PLAY_RADIUS: float = 33.0
 const ISLAND_GLB_PATH: String = "res://assets/models/nature/floating_island.glb"
 ## Raw mesh top Y of floating_island.glb (used to flush the deck with y=0).
 const ISLAND_TOP_LOCAL_Y: float = 0.244
-const ISLAND_SCALE: float = 52.0
+const BASE_ISLAND_SCALE: float = 52.0
 ## Sampled from floating_island basecolor grass.
 const ISLAND_GRASS_COLOR := Color(0.30, 0.40, 0.03)
 const ISLAND_GRASS_TUFT_COLOR := Color(0.34, 0.45, 0.04)
@@ -29,6 +34,8 @@ const GRASS_Y_SCALE: float = 0.7
 const DRAW_GRID_LINES: bool = false
 
 var undo_manager: UndoManager
+## Current circular playable radius (world units). Existing placements keep grid coords.
+var play_radius: float = DEFAULT_PLAY_RADIUS
 
 ## Two layers per cell:
 ## - _terrain: dirt / water / stone_path (explicit ground). Missing terrain = default grass.
@@ -105,17 +112,18 @@ func _build_island() -> void:
 		if packed:
 			var model: Node3D = packed.instantiate() as Node3D
 			model.name = "FloatingIslandModel"
-			model.scale = Vector3.ONE * ISLAND_SCALE
+			var island_scale := _island_scale_for_radius(play_radius)
+			model.scale = Vector3.ONE * island_scale
 			# Lift so the model's top deck sits on the playable plane (y=0).
-			model.position.y = -ISLAND_TOP_LOCAL_Y * ISLAND_SCALE
+			model.position.y = -ISLAND_TOP_LOCAL_Y * island_scale
 			island.add_child(model)
 
 	# Solid grass floor (cheap). Sparse Grass Patch tufts add detail on top.
 	var deck := MeshInstance3D.new()
 	deck.name = "PlayableDeck"
 	var deck_mesh := CylinderMesh.new()
-	deck_mesh.top_radius = PLAY_RADIUS
-	deck_mesh.bottom_radius = PLAY_RADIUS
+	deck_mesh.top_radius = play_radius
+	deck_mesh.bottom_radius = play_radius
 	deck_mesh.height = 0.04
 	deck_mesh.radial_segments = 48
 	deck.mesh = deck_mesh
@@ -130,7 +138,7 @@ func _build_island() -> void:
 	# Thin ring marking the circular playable boundary.
 	var ring := MeshInstance3D.new()
 	ring.name = "PlayableRing"
-	ring.mesh = _make_circle_ring_mesh(PLAY_RADIUS, 0.12, 64)
+	ring.mesh = _make_circle_ring_mesh(play_radius, 0.12, 64)
 	ring.position = Vector3(center.x, 0.03, center.z)
 	var ring_mat := StandardMaterial3D.new()
 	ring_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -350,7 +358,78 @@ func is_in_bounds(grid_pos: Vector2i) -> bool:
 	var center := get_map_center()
 	var dx := world.x - center.x
 	var dz := world.z - center.z
-	return dx * dx + dz * dz <= PLAY_RADIUS * PLAY_RADIUS
+	return dx * dx + dz * dz <= play_radius * play_radius
+
+
+func get_play_radius() -> float:
+	return play_radius
+
+
+func can_expand() -> bool:
+	return play_radius + 0.001 < MAX_PLAY_RADIUS
+
+
+func expand_island(record_undo: bool = true) -> bool:
+	## Grow the playable disc; grid coords of existing objects stay put.
+	if not can_expand():
+		return false
+	var old_radius := play_radius
+	var new_radius := minf(play_radius + EXPAND_STEP, MAX_PLAY_RADIUS)
+	_apply_play_radius(new_radius)
+	if record_undo and undo_manager and not undo_manager.is_applying_undo():
+		undo_manager.record_expand(old_radius, new_radius)
+	return true
+
+
+func set_play_radius_silent(radius: float) -> void:
+	## Used by undo / load — does not push undo.
+	_apply_play_radius(clampf(radius, DEFAULT_PLAY_RADIUS, MAX_PLAY_RADIUS))
+
+
+func _island_scale_for_radius(radius: float) -> float:
+	return BASE_ISLAND_SCALE * (radius / DEFAULT_PLAY_RADIUS)
+
+
+func _apply_play_radius(radius: float) -> void:
+	play_radius = radius
+	_refresh_island_visuals()
+	_rebuild_default_grass()
+	play_radius_changed.emit(play_radius)
+
+
+func _refresh_island_visuals() -> void:
+	if _grid_visual == null:
+		return
+	var center := get_map_center()
+	var island_scale := _island_scale_for_radius(play_radius)
+
+	var island := _grid_visual.get_node_or_null("Island") as Node3D
+	if island:
+		var model := island.get_node_or_null("FloatingIslandModel") as Node3D
+		if model:
+			model.scale = Vector3.ONE * island_scale
+			model.position.y = -ISLAND_TOP_LOCAL_Y * island_scale
+
+	var deck := _grid_visual.get_node_or_null("PlayableDeck") as MeshInstance3D
+	if deck and deck.mesh is CylinderMesh:
+		var deck_mesh := deck.mesh as CylinderMesh
+		deck_mesh.top_radius = play_radius
+		deck_mesh.bottom_radius = play_radius
+		deck.position = Vector3(center.x, -0.015, center.z)
+
+	var ring := _grid_visual.get_node_or_null("PlayableRing") as MeshInstance3D
+	if ring:
+		ring.mesh = _make_circle_ring_mesh(play_radius, 0.12, 64)
+		ring.position = Vector3(center.x, 0.03, center.z)
+
+
+func _rebuild_default_grass() -> void:
+	if _grass_mmi != null and is_instance_valid(_grass_mmi):
+		_grass_mmi.free()
+		_grass_mmi = null
+	_grass_cell_index.clear()
+	_grass_visible_xform.clear()
+	_build_default_grass()
 
 
 func is_occupied(grid_pos: Vector2i) -> bool:

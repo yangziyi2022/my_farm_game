@@ -6,9 +6,10 @@ const SAVE_PATH := "user://farm_save.json"
 
 static func save_farm(grid_manager: GridManager, inventory_manager: InventoryManager = null) -> bool:
 	var data := {
-		"version": 4,
+		"version": 5,
 		"grid_width": GridManager.GRID_WIDTH,
 		"grid_height": GridManager.GRID_HEIGHT,
+		"play_radius": grid_manager.get_play_radius(),
 		"objects": grid_manager.get_all_objects_data(),
 	}
 	if inventory_manager:
@@ -46,13 +47,16 @@ static func load_farm(grid_manager: GridManager, inventory_manager: InventoryMan
 	var data: Dictionary = json.data
 	if data.has("objects") and data["objects"] is Array:
 		var objects: Array = data["objects"]
-		# v3 and older used a 40x40 grid without GRID_SHIFT.
 		var version := int(data.get("version", 1))
+		# v3 and older used a 40x40 grid without GRID_SHIFT.
 		if version < 4:
 			for entry in objects:
 				if entry is Dictionary:
 					entry["grid_x"] = int(entry.get("grid_x", 0)) + GridManager.GRID_SHIFT
 					entry["grid_y"] = int(entry.get("grid_y", 0)) + GridManager.GRID_SHIFT
+		# Apply island size before placing objects so is_in_bounds matches save.
+		var radius := float(data.get("play_radius", GridManager.DEFAULT_PLAY_RADIUS))
+		grid_manager.set_play_radius_silent(radius)
 		grid_manager.load_objects_data(objects)
 		if inventory_manager and data.has("inventory") and data["inventory"] is Dictionary:
 			inventory_manager.load_data(data["inventory"])
