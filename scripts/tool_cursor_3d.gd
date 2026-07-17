@@ -337,6 +337,12 @@ func _process(delta: float) -> void:
 	if _active_tool == ActiveTool.NONE or camera == null:
 		return
 
+	# Rod (and other tools) keep following the cursor — even while the line is cast.
+	var screen := get_viewport().get_mouse_position() + CURSOR_SCREEN_OFFSET
+	global_position = camera.project_position(screen, FOLLOW_DEPTH)
+	look_at(camera.global_position, Vector3.UP)
+	rotate_object_local(Vector3.UP, PI)
+
 	if _line_active:
 		if _bite_shake and _swing_pivot:
 			_shake_time += delta
@@ -344,9 +350,3 @@ func _process(delta: float) -> void:
 			_swing_pivot.rotation_degrees.x = 8.0 + cos(_shake_time * 33.0) * 14.0
 			_swing_pivot.position.y = sin(_shake_time * 40.0) * 0.05
 		_update_fishing_line()
-		return
-
-	var screen := get_viewport().get_mouse_position() + CURSOR_SCREEN_OFFSET
-	global_position = camera.project_position(screen, FOLLOW_DEPTH)
-	look_at(camera.global_position, Vector3.UP)
-	rotate_object_local(Vector3.UP, PI)

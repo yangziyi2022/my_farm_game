@@ -51,8 +51,13 @@ func _ready() -> void:
 	undo_manager.stack_changed.connect(_on_undo_stack_changed)
 	undo_manager.undo_applied.connect(_on_status_message)
 
+	var time_controls := TimeOfDayControls.new()
+	time_controls.name = "TimeOfDayControls"
+	$UI.add_child(time_controls)
+	time_controls.setup(day_night_cycle)
+
 	_on_undo_stack_changed(undo_manager.can_undo())
-	_on_status_message("Island view: right-drag orbit, middle-drag pan, scroll zoom. 10 min day / night.")
+	_on_status_message("Island view: right-drag orbit, middle-drag pan, scroll zoom. 5 min day / night.")
 
 
 func _on_day_night_phase_changed(phase: String) -> void:
@@ -66,7 +71,7 @@ func _on_day_night_phase_changed(phase: String) -> void:
 		"predawn": "Before dawn",
 	}
 	var label: String = str(labels.get(phase, phase.capitalize()))
-	_on_status_message("%s — 10 min day / 10 min night cycle" % label)
+	_on_status_message("%s — 5 min day / 5 min night cycle" % label)
 
 
 func _on_select_tool_activated() -> void:

@@ -24,11 +24,72 @@ var _active_tool: Tool = Tool.SELECT
 var _section_bodies: Dictionary = {}  # section_id -> Control
 var _section_headers: Dictionary = {}  # section_id -> Button
 var _open_section: String = ""
+var _collapsed: bool = false
+var _slide_tween: Tween
+var _toggle_btn: Button
+var _dock: Control
+var _panel_width: float = 156.0
+var _dock_left: float = 12.0
+var _dock_top: float = 12.0
+var _toggle_size := Vector2(30, 56)
 
 
 func _ready() -> void:
+	_install_dock_and_handle()
 	_build_palette()
 	activate_select_tool()
+
+
+func _install_dock_and_handle() -> void:
+	## Wrap this PanelContainer in a side dock so the collapse handle can sit
+	## beside the menu without being a PanelContainer child (those cover content).
+	var ui := get_parent()
+	if ui == null:
+		return
+	_panel_width = maxf(offset_right - offset_left, 156.0)
+	var panel_h := maxf(offset_bottom - offset_top, 400.0)
+	_dock_left = offset_left
+	_dock_top = offset_top
+
+	_dock = Control.new()
+	_dock.name = "ItemPaletteDock"
+	_dock.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_dock.z_index = 30
+	_dock.position = Vector2(_dock_left, _dock_top)
+	_dock.size = Vector2(_panel_width + _toggle_size.x + 8.0, panel_h)
+	ui.add_child(_dock)
+	# Keep above full-screen overlays (inventory bar / cursor) so the handle stays visible.
+	ui.move_child(_dock, ui.get_child_count() - 1)
+
+	reparent(_dock)
+	set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+	position = Vector2.ZERO
+	size = Vector2(_panel_width, panel_h)
+	offset_left = 0.0
+	offset_top = 0.0
+	offset_right = _panel_width
+	offset_bottom = panel_h
+
+	_toggle_btn = Button.new()
+	_toggle_btn.name = "PaletteSlideToggle"
+	_toggle_btn.focus_mode = Control.FOCUS_NONE
+	_toggle_btn.text = "«"
+	_toggle_btn.tooltip_text = "Hide / show menu"
+	_toggle_btn.custom_minimum_size = _toggle_size
+	_toggle_btn.size = _toggle_size
+	_toggle_btn.position = Vector2(_panel_width + 4.0, panel_h * 0.5 - _toggle_size.y * 0.5)
+	_toggle_btn.z_index = 20
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.32, 0.26, 0.18, 0.98)
+	style.set_corner_radius_all(8)
+	style.set_border_width_all(2)
+	style.border_color = Color(0.85, 0.7, 0.4, 1.0)
+	_toggle_btn.add_theme_stylebox_override("normal", style)
+	var hover := style.duplicate() as StyleBoxFlat
+	hover.bg_color = Color(0.42, 0.34, 0.22, 1.0)
+	_toggle_btn.add_theme_stylebox_override("hover", hover)
+	_toggle_btn.pressed.connect(_toggle_slide)
+	_dock.add_child(_toggle_btn)
 
 
 func _build_palette() -> void:
@@ -47,11 +108,11 @@ func _build_palette() -> void:
 
 	var outer := VBoxContainer.new()
 	outer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	outer.add_theme_constant_override("separation", 8)
+	outer.add_theme_constant_override("separation", 10)
 	scroll.add_child(outer)
 
 	# Always-available Select (pointer).
-	_select_btn = _make_icon_header("Select", _icon_select(), Color(0.35, 0.55, 0.85))
+	_select_btn = _make_labeled_header("Select", _icon_select(), Color(0.35, 0.55, 0.85))
 	_select_btn.toggle_mode = true
 	_select_btn.pressed.connect(_on_select_tool_pressed)
 	outer.add_child(_select_btn)
@@ -68,15 +129,15 @@ func _build_palette() -> void:
 	_rod_btn = _make_child_button("Rod")
 	_rod_btn.pressed.connect(_on_rod_tool_pressed)
 	tools_body.add_child(_rod_btn)
-	_add_section(outer, "tools", "Tools", _icon_hammer(), Color(0.55, 0.45, 0.35), tools_body)
+	_add_section(outer, "tools", "Tool", _icon_hammer(), Color(0.55, 0.45, 0.35), tools_body)
 
 	# Category accordions
 	var cat_meta := {
-		ItemData.Category.TERRAIN: {"id": "terrain", "icon": _icon_dirt(), "color": Color(0.55, 0.38, 0.22)},
-		ItemData.Category.STRUCTURE: {"id": "buildings", "icon": _icon_house(), "color": Color(0.7, 0.45, 0.35)},
-		ItemData.Category.ANIMAL: {"id": "animals", "icon": _icon_rabbit(), "color": Color(0.85, 0.75, 0.7)},
-		ItemData.Category.PLANT: {"id": "crops", "icon": _icon_wheat(), "color": Color(0.85, 0.72, 0.25)},
-		ItemData.Category.DECOR: {"id": "decor", "icon": _icon_bulb(), "color": Color(0.95, 0.85, 0.35)},
+		ItemData.Category.TERRAIN: {"id": "terrain", "title": "Terrain", "icon": _icon_dirt(), "color": Color(0.55, 0.38, 0.22)},
+		ItemData.Category.STRUCTURE: {"id": "buildings", "title": "Building", "icon": _icon_house(), "color": Color(0.7, 0.45, 0.35)},
+		ItemData.Category.ANIMAL: {"id": "animals", "title": "Animal", "icon": _icon_rabbit(), "color": Color(0.85, 0.75, 0.7)},
+		ItemData.Category.PLANT: {"id": "crops", "title": "Seed", "icon": _icon_wheat(), "color": Color(0.85, 0.72, 0.25)},
+		ItemData.Category.DECOR: {"id": "decor", "title": "Decoration", "icon": _icon_bulb(), "color": Color(0.95, 0.85, 0.35)},
 	}
 
 	for category in ItemData.CATEGORIES:
@@ -96,11 +157,31 @@ func _build_palette() -> void:
 		_add_section(
 			outer,
 			str(meta["id"]),
-			ItemData.CATEGORIES[category],
+			str(meta["title"]),
 			meta["icon"],
 			meta["color"],
 			body
 		)
+
+
+func _toggle_slide() -> void:
+	if _dock == null or _toggle_btn == null:
+		return
+	_collapsed = not _collapsed
+	if _slide_tween and _slide_tween.is_running():
+		_slide_tween.kill()
+	_slide_tween = create_tween()
+	_slide_tween.set_trans(Tween.TRANS_CUBIC)
+	_slide_tween.set_ease(Tween.EASE_OUT)
+	var target_x: float
+	if _collapsed:
+		# Keep only the handle on-screen at the left edge.
+		target_x = -_panel_width - 4.0
+		_toggle_btn.text = "»"
+	else:
+		target_x = _dock_left
+		_toggle_btn.text = "«"
+	_slide_tween.tween_property(_dock, "position:x", target_x, 0.28)
 
 
 func _add_section(
@@ -111,7 +192,7 @@ func _add_section(
 	tint: Color,
 	body: Control
 ) -> void:
-	var header := _make_icon_header(title, icon, tint)
+	var header := _make_labeled_header(title, icon, tint)
 	header.pressed.connect(_on_section_header_pressed.bind(section_id))
 	parent.add_child(header)
 	body.visible = false
@@ -120,18 +201,33 @@ func _add_section(
 	_section_bodies[section_id] = body
 
 
-func _make_icon_header(title: String, icon: Texture2D, tint: Color) -> Button:
+func _make_labeled_header(title: String, icon: Texture2D, tint: Color) -> Button:
+	## Icon + caption drawn together on the button (not a separate label above).
 	var btn := Button.new()
+	btn.text = title
 	btn.tooltip_text = title
-	btn.custom_minimum_size = ICON_SIZE
 	btn.icon = icon
 	btn.expand_icon = true
 	btn.focus_mode = Control.FOCUS_NONE
+	btn.custom_minimum_size = Vector2(140, 58)
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	btn.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	btn.add_theme_font_size_override("font_size", 16)
+	btn.add_theme_constant_override("h_separation", 10)
+	btn.add_theme_constant_override("icon_max_width", 40)
+	btn.add_theme_color_override("font_color", Color(1.0, 0.98, 0.92))
+	btn.add_theme_color_override("font_hover_color", Color(1.0, 1.0, 0.95))
+	btn.add_theme_color_override("font_pressed_color", Color(1.0, 0.95, 0.85))
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(tint.r, tint.g, tint.b, 0.92)
 	style.set_corner_radius_all(10)
 	style.set_border_width_all(2)
 	style.border_color = Color(1, 1, 1, 0.45)
+	style.content_margin_left = 8
+	style.content_margin_right = 8
+	style.content_margin_top = 6
+	style.content_margin_bottom = 6
 	btn.add_theme_stylebox_override("normal", style)
 	var hover := style.duplicate() as StyleBoxFlat
 	hover.bg_color = tint.lightened(0.12)

@@ -6,7 +6,12 @@ const ANIMAL_PIVOT_NAME := "AnimalPivot"
 
 
 # Attach ambient life and placement polish without touching core grid logic.
-static func setup(obj: Node3D, item_type: ItemData.ItemType, animate_placement: bool = true) -> void:
+static func setup(
+	obj: Node3D,
+	item_type: ItemData.ItemType,
+	animate_placement: bool = true,
+	grid_manager: GridManager = null
+) -> void:
 	# Terrain tiles must stay full size — pop-in scale makes dirt look shrunk.
 	if animate_placement and not ItemData.is_terrain(item_type):
 		PlacementAnimation.play(obj)
@@ -15,7 +20,7 @@ static func setup(obj: Node3D, item_type: ItemData.ItemType, animate_placement: 
 		_attach_sway(obj, item_type)
 
 	if ItemData.is_animal(item_type):
-		_attach_animal_behavior(obj)
+		_attach_animal_behavior(obj, item_type, grid_manager)
 
 	if ItemData.is_growable_plant(item_type):
 		_attach_plant_growth(obj, item_type)
@@ -182,44 +187,75 @@ static func _attach_sway(obj: Node3D, item_type: ItemData.ItemType) -> void:
 	pivot.add_child(sway)
 
 
-static func _attach_animal_behavior(obj: Node3D) -> void:
+static func _attach_animal_behavior(
+	obj: Node3D,
+	item_type: ItemData.ItemType,
+	grid_manager: GridManager = null
+) -> void:
 	var pivot := _create_visual_pivot(obj, ANIMAL_PIVOT_NAME)
 	var controller := AnimalController.new()
 	controller.name = "AnimalController"
-	_configure_animal(controller, obj.get_meta("item_type"))
-	controller.setup(pivot)
+	_configure_animal(controller, item_type)
+	controller.setup(pivot, obj, grid_manager)
 	obj.add_child(controller)
 
 
 static func _configure_animal(controller: AnimalController, item_type: ItemData.ItemType) -> void:
 	match item_type:
 		ItemData.ItemType.CHICKEN:
-			controller.walk_speed = 0.42
-			controller.wander_radius = 0.3
-			controller.idle_time_min = 1.8
-			controller.idle_time_max = 4.5
-		ItemData.ItemType.DUCK:
-			controller.walk_speed = 0.38
-			controller.wander_radius = 0.32
-			controller.walk_chance = 0.65
-		ItemData.ItemType.RABBIT:
-			controller.walk_speed = 0.48
-			controller.wander_radius = 0.34
+			controller.species = AnimalController.Species.CHICKEN
+			controller.walk_speed = 0.55
+			controller.wander_radius = 0.28
 			controller.idle_time_min = 1.2
-			controller.idle_time_max = 3.5
+			controller.idle_time_max = 3.2
+			controller.cross_tile_chance = 0.6
+			controller.special_chance = 0.45
+		ItemData.ItemType.DUCK:
+			controller.species = AnimalController.Species.DUCK
+			controller.walk_speed = 0.48
+			controller.wander_radius = 0.32
+			controller.walk_chance = 0.75
+			controller.cross_tile_chance = 0.65
+			controller.special_chance = 0.4
+			controller.idle_time_min = 1.0
+			controller.idle_time_max = 2.8
+		ItemData.ItemType.RABBIT:
+			controller.species = AnimalController.Species.RABBIT
+			controller.walk_speed = 0.7
+			controller.wander_radius = 0.32
+			controller.idle_time_min = 0.8
+			controller.idle_time_max = 2.4
+			controller.hop_height = 0.16
+			controller.cross_tile_chance = 0.7
+			controller.special_chance = 0.05
+			controller.walk_chance = 0.75
 		ItemData.ItemType.PIG:
-			controller.walk_speed = 0.3
-			controller.wander_radius = 0.26
-		ItemData.ItemType.SHEEP:
-			controller.walk_speed = 0.28
+			controller.species = AnimalController.Species.PIG
+			controller.walk_speed = 0.32
 			controller.wander_radius = 0.24
-			controller.idle_time_min = 3.0
-			controller.idle_time_max = 7.0
-		ItemData.ItemType.COW:
-			controller.walk_speed = 0.22
+			controller.idle_time_min = 2.0
+			controller.idle_time_max = 5.0
+			controller.cross_tile_chance = 0.45
+			controller.special_chance = 0.4
+		ItemData.ItemType.SHEEP:
+			controller.species = AnimalController.Species.SHEEP
+			controller.walk_speed = 0.3
 			controller.wander_radius = 0.22
-			controller.idle_time_min = 3.5
-			controller.idle_time_max = 8.0
+			controller.idle_time_min = 2.5
+			controller.idle_time_max = 6.0
+			controller.cross_tile_chance = 0.5
+			controller.special_chance = 0.45
+		ItemData.ItemType.COW:
+			controller.species = AnimalController.Species.COW
+			controller.walk_speed = 0.24
+			controller.wander_radius = 0.2
+			controller.idle_time_min = 3.0
+			controller.idle_time_max = 7.5
+			controller.cross_tile_chance = 0.4
+			controller.special_chance = 0.08
+		_:
+			controller.species = AnimalController.Species.GENERIC
+			controller.cross_tile_chance = 0.5
 
 
 static func _create_visual_pivot(obj: Node3D, pivot_name: String) -> Node3D:
@@ -236,12 +272,16 @@ static func _create_visual_pivot(obj: Node3D, pivot_name: String) -> Node3D:
 	for child in children:
 		if child == pivot:
 			continue
-		if child.name in ["TileCollider", "CropGrowth", "AnimalController", "SpinningBlades", "LampLight", "LampGlow"]:
+		if child.name in [
+			"TileCollider", "CropGrowth", "AnimalController",
+			"SpinningBlades", "LampLight", "LampGlow", "SelectionFootprint",
+			"FootprintOverlay",
+		]:
 			continue
 		if child is MeshInstance3D:
 			child.reparent(pivot)
-		elif child is Node3D and child.name == "Visual":
-			# Scene-based assets (e.g. KFC chicken wrapper) live under Visual.
+		elif child is Node3D and child.name in ["Visual", "Head"]:
+			# Scene wrappers + sheep Head (for graze animation).
 			child.reparent(pivot)
 
 	return pivot

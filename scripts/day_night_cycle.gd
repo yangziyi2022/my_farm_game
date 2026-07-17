@@ -2,14 +2,14 @@ class_name DayNightCycle
 extends Node3D
 
 ## Continuous day/night orbit around the farm map center.
-## 10 minutes of daylight, 10 minutes of night, looping forever.
+## 5 minutes of daylight, 5 minutes of night, looping forever.
 ## Drives sun/moon visuals, directional light, sky colors, and ambient fill.
 
 signal time_changed(normalized_time: float, is_day: bool)
 signal phase_changed(phase: String)
 
-const DAY_SECONDS := 600.0
-const NIGHT_SECONDS := 600.0
+const DAY_SECONDS := 300.0
+const NIGHT_SECONDS := 300.0
 const CYCLE_SECONDS := DAY_SECONDS + NIGHT_SECONDS
 
 @export var orbit_radius: float = 32.0
@@ -17,6 +17,9 @@ const CYCLE_SECONDS := DAY_SECONDS + NIGHT_SECONDS
 @export var moon_disc_radius: float = 0.95
 ## 0 = sunrise, 0.25 = noon, 0.5 = sunset, 0.75 = midnight.
 @export var start_normalized_time: float = 0.06
+## Jump targets for the sun / moon UI buttons.
+const TIME_SUNRISE := 0.06
+const TIME_MOONRISE := 0.52
 
 var world_environment: WorldEnvironment
 var sun_light: DirectionalLight3D
@@ -27,7 +30,8 @@ var _elapsed: float = 0.0
 var _center: Vector3 = Vector3(0.0, 0.0, 25.0)
 var _sky_mat: ProceduralSkyMaterial
 var _sun_visual: MeshInstance3D
-var _moon_visual: MeshInstance3D
+var _moon_visual: Node3D
+var _stars: MultiMeshInstance3D
 var _last_phase: String = ""
 var _energy_mul: float = 1.0
 
@@ -53,6 +57,21 @@ func setup(
 
 func set_weather_energy_multiplier(mul: float) -> void:
 	_energy_mul = clampf(mul, 0.2, 1.5)
+
+
+func set_normalized_time(t: float) -> void:
+	_elapsed = clampf(t, 0.0, 0.999) * CYCLE_SECONDS
+	_apply_frame(0.0)
+
+
+func jump_to_sunrise() -> void:
+	## Sun just rising — morning.
+	set_normalized_time(TIME_SUNRISE)
+
+
+func jump_to_moonrise() -> void:
+	## Moon just rising — evening / early night.
+	set_normalized_time(TIME_MOONRISE)
 
 
 func get_normalized_time() -> float:
@@ -110,7 +129,11 @@ func _apply_frame(delta: float) -> void:
 	if _moon_visual:
 		_moon_visual.global_position = moon_pos
 		_moon_visual.visible = moon_above
+		# Keep the crescent facing the farm so the lit half reads clearly.
+		if moon_above and moon_pos.distance_squared_to(_center) > 0.01:
+			_moon_visual.look_at(_center, Vector3.UP)
 
+	_update_stars(t, sun_elevation, moon_above)
 	_update_lights(sun_pos, moon_pos, sun_above, moon_above, sun_elevation, moon_elevation, t)
 	_update_sky_and_ambient(t, sun_elevation)
 	_update_fill(t, sun_elevation)
@@ -154,8 +177,8 @@ func _update_lights(
 			from = look + Vector3(0.0, 1.0, 0.0)
 		moon_light.look_at_from_position(from, look, Vector3.UP)
 		var night_factor := smoothstep(0.0, 0.2, moon_elevation)
-		moon_light.light_color = Color(0.62, 0.72, 1.0)
-		moon_light.light_energy = (0.05 + 0.55 * night_factor) * _energy_mul
+		moon_light.light_color = Color(0.72, 0.74, 0.78)
+		moon_light.light_energy = (0.04 + 0.28 * night_factor) * _energy_mul
 		moon_light.shadow_enabled = moon_above and not sun_above
 		moon_light.visible = moon_above
 
@@ -283,8 +306,11 @@ func _ensure_celestial_visuals() -> void:
 		_sun_visual = _make_disc("SunDisc", sun_disc_radius, Color(1.0, 0.92, 0.55), 4.5)
 		add_child(_sun_visual)
 	if _moon_visual == null:
-		_moon_visual = _make_disc("MoonDisc", moon_disc_radius, Color(0.82, 0.88, 1.0), 1.6)
+		_moon_visual = _make_waxing_crescent_moon("MoonCrescent", moon_disc_radius)
 		add_child(_moon_visual)
+	if _stars == null:
+		_stars = _make_starfield("NightStars", 280)
+		add_child(_stars)
 
 
 func _make_disc(mesh_name: String, radius: float, color: Color, emission: float) -> MeshInstance3D:
@@ -301,6 +327,93 @@ func _make_disc(mesh_name: String, radius: float, color: Color, emission: float)
 	mat.emission = color
 	mat.emission_energy_multiplier = emission
 	inst.material_override = mat
-	# Don't cast shadows from the celestial discs themselves.
 	inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return inst
+
+
+func _make_waxing_crescent_moon(mesh_name: String, radius: float) -> Node3D:
+	## 上弦月: soft gray crescent, only faintly lit.
+	var root := Node3D.new()
+	root.name = mesh_name
+
+	var lit := _make_disc("Lit", radius, Color(0.62, 0.64, 0.68), 0.35)
+	root.add_child(lit)
+
+	# Dark occluder shifted left → leaves a bright crescent / first-quarter shape.
+	var shade := SphereMesh.new()
+	shade.radius = radius * 0.96
+	shade.height = radius * 1.92
+	var shade_inst := MeshInstance3D.new()
+	shade_inst.name = "Shade"
+	shade_inst.mesh = shade
+	shade_inst.position = Vector3(-radius * 0.55, 0.0, radius * 0.08)
+	var shade_mat := StandardMaterial3D.new()
+	shade_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	shade_mat.albedo_color = Color(0.02, 0.03, 0.08)
+	shade_mat.emission_enabled = false
+	shade_inst.material_override = shade_mat
+	shade_inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(shade_inst)
+	return root
+
+
+func _make_starfield(field_name: String, count: int) -> MultiMeshInstance3D:
+	var mmi := MultiMeshInstance3D.new()
+	mmi.name = field_name
+	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	var star_mesh := SphereMesh.new()
+	star_mesh.radius = 0.045
+	star_mesh.height = 0.09
+	star_mesh.radial_segments = 4
+	star_mesh.rings = 2
+	mm.mesh = star_mesh
+	mm.instance_count = count
+	mmi.multimesh = mm
+
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(0.95, 0.96, 1.0)
+	mat.emission_enabled = true
+	mat.emission = Color(0.9, 0.93, 1.0)
+	mat.emission_energy_multiplier = 2.4
+	mmi.material_override = mat
+
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 77
+	var radius := orbit_radius * 1.55
+	for i in range(count):
+		# Full sphere around the island so stars wrap the horizon when orbiting.
+		var u := rng.randf()
+		var v := rng.randf()
+		var yaw := u * TAU
+		var pitch := acos(2.0 * v - 1.0)  # 0..PI uniform on sphere
+		var dir := Vector3(
+			sin(pitch) * cos(yaw),
+			cos(pitch),
+			sin(pitch) * sin(yaw)
+		)
+		var pos := dir * radius
+		var s := rng.randf_range(0.55, 1.4)
+		var xf := Transform3D(Basis.from_scale(Vector3.ONE * s), pos)
+		mm.set_instance_transform(i, xf)
+	mmi.visible = false
+	return mmi
+
+
+func _update_stars(t: float, sun_elevation: float, _moon_above: bool) -> void:
+	if _stars == null:
+		return
+	# Fade in after dusk; full sparkle through night.
+	var night := 0.0
+	if t >= 0.5 and t < 0.95:
+		night = smoothstep(0.5, 0.6, t) * (1.0 - smoothstep(0.88, 0.95, t))
+	elif sun_elevation < 0.0:
+		night = smoothstep(0.0, 0.25, -sun_elevation)
+	_stars.visible = night > 0.02
+	_stars.position = _center
+	_stars.transparency = clampf(1.0 - night, 0.0, 1.0)
+	var mat := _stars.material_override as StandardMaterial3D
+	if mat:
+		mat.emission_energy_multiplier = lerpf(0.5, 3.0, night) * (0.88 + 0.12 * sin(_elapsed * 1.7))

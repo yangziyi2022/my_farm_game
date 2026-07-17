@@ -712,30 +712,114 @@ static func _build_chicken(parent: Node3D, info: Dictionary) -> void:
 
 
 static func _build_sheep(parent: Node3D, info: Dictionary) -> void:
-	var body_mesh := SphereMesh.new()
-	body_mesh.radius = 0.32
-	body_mesh.height = 0.5
-	_add_mesh(parent, body_mesh, info["color"], Vector3(0.0, 0.32, 0.0))
+	## Fluffy cloud-like body from overlapping wool spheres + animated Head.
+	var wool: Color = info["color"]
+	var face: Color = info.get("face_color", Color(0.35, 0.32, 0.3))
+	var eye: Color = Color(0.08, 0.08, 0.1)
 
-	var head_mesh := BoxMesh.new()
-	head_mesh.size = Vector3(0.22, 0.2, 0.22)
-	_add_mesh(parent, head_mesh, info.get("face_color", Color(0.3, 0.3, 0.3)), Vector3(0.0, 0.3, 0.35))
+	var cloud_offsets := [
+		Vector3(0.0, 0.28, 0.0),
+		Vector3(0.16, 0.3, 0.06),
+		Vector3(-0.16, 0.3, 0.04),
+		Vector3(0.08, 0.34, -0.14),
+		Vector3(-0.1, 0.34, -0.12),
+		Vector3(0.0, 0.38, 0.1),
+		Vector3(0.12, 0.26, 0.16),
+		Vector3(-0.12, 0.26, 0.14),
+	]
+	var cloud_radii := [0.22, 0.16, 0.16, 0.14, 0.14, 0.12, 0.13, 0.13]
+	for i in range(cloud_offsets.size()):
+		var puff := SphereMesh.new()
+		puff.radius = cloud_radii[i]
+		puff.height = cloud_radii[i] * 1.7
+		_add_mesh(parent, puff, wool, cloud_offsets[i])
+
+	for side in [-1.0, 1.0]:
+		for z in [0.06, -0.1]:
+			var leg := CylinderMesh.new()
+			leg.top_radius = 0.035
+			leg.bottom_radius = 0.04
+			leg.height = 0.16
+			_add_mesh(parent, leg, face, Vector3(side * 0.1, 0.08, z))
+
+	var head := Node3D.new()
+	head.name = "Head"
+	head.position = Vector3(0.0, 0.32, 0.28)
+	parent.add_child(head)
+
+	var face_mesh := SphereMesh.new()
+	face_mesh.radius = 0.1
+	face_mesh.height = 0.16
+	_add_mesh(head, face_mesh, face, Vector3(0.0, 0.0, 0.04))
+
+	for side in [-1.0, 1.0]:
+		var eye_mesh := SphereMesh.new()
+		eye_mesh.radius = 0.022
+		eye_mesh.height = 0.03
+		_add_mesh(head, eye_mesh, eye, Vector3(side * 0.045, 0.02, 0.11))
+
+	var ear_l := SphereMesh.new()
+	ear_l.radius = 0.035
+	ear_l.height = 0.05
+	var ear_r := SphereMesh.new()
+	ear_r.radius = 0.035
+	ear_r.height = 0.05
+	_add_mesh(head, ear_l, face, Vector3(-0.09, 0.04, 0.0))
+	_add_mesh(head, ear_r, face, Vector3(0.09, 0.04, 0.0))
 
 
 static func _build_pig(parent: Node3D, info: Dictionary) -> void:
-	var body_mesh := BoxMesh.new()
-	body_mesh.size = Vector3(0.7, 0.45, 0.95)
-	_add_mesh(parent, body_mesh, info["color"], Vector3(0.0, 0.3, 0.0))
+	## Pink oval body, black eyes, little curly tail.
+	var pink: Color = info.get("color", Color(0.95, 0.72, 0.75))
+	var nose_color: Color = info.get("nose_color", Color(0.9, 0.55, 0.6))
+	var eye: Color = Color(0.05, 0.05, 0.08)
 
-	var head_mesh := BoxMesh.new()
-	head_mesh.size = Vector3(0.35, 0.3, 0.3)
-	_add_mesh(parent, head_mesh, info["color"], Vector3(0.0, 0.32, 0.55))
+	var body := SphereMesh.new()
+	body.radius = 0.22
+	body.height = 0.4
+	var body_mi := _add_mesh(parent, body, pink, Vector3(0.0, 0.26, 0.0))
+	# Stretch into a soft ellipse (longer front-to-back).
+	body_mi.scale = Vector3(1.15, 0.82, 1.45)
 
-	var nose_mesh := CylinderMesh.new()
-	nose_mesh.top_radius = 0.08
-	nose_mesh.bottom_radius = 0.08
-	nose_mesh.height = 0.06
-	_add_mesh(parent, nose_mesh, info.get("nose_color", Color(0.9, 0.5, 0.55)), Vector3(0.0, 0.28, 0.72), Vector3(90.0, 0.0, 0.0))
+	for side in [-1.0, 1.0]:
+		var eye_mesh := SphereMesh.new()
+		eye_mesh.radius = 0.032
+		eye_mesh.height = 0.038
+		_add_mesh(parent, eye_mesh, eye, Vector3(side * 0.1, 0.32, 0.26))
+
+	var snout := SphereMesh.new()
+	snout.radius = 0.075
+	snout.height = 0.11
+	_add_mesh(parent, snout, nose_color, Vector3(0.0, 0.24, 0.34))
+
+	var nostril_l := SphereMesh.new()
+	nostril_l.radius = 0.016
+	nostril_l.height = 0.02
+	var nostril_r := SphereMesh.new()
+	nostril_r.radius = 0.016
+	nostril_r.height = 0.02
+	_add_mesh(parent, nostril_l, nose_color.darkened(0.25), Vector3(-0.022, 0.24, 0.4))
+	_add_mesh(parent, nostril_r, nose_color.darkened(0.25), Vector3(0.022, 0.24, 0.4))
+
+	for side in [-1.0, 1.0]:
+		var ear := SphereMesh.new()
+		ear.radius = 0.055
+		ear.height = 0.07
+		_add_mesh(parent, ear, pink.darkened(0.05), Vector3(side * 0.15, 0.4, 0.08))
+
+	# Tiny curly tail at the rear.
+	var tail_base := SphereMesh.new()
+	tail_base.radius = 0.035
+	tail_base.height = 0.05
+	_add_mesh(parent, tail_base, pink.darkened(0.08), Vector3(0.0, 0.3, -0.3))
+	var tail_curl := SphereMesh.new()
+	tail_curl.radius = 0.028
+	tail_curl.height = 0.04
+	_add_mesh(parent, tail_curl, pink.darkened(0.05), Vector3(0.04, 0.36, -0.34))
+	var tip := SphereMesh.new()
+	tip.radius = 0.018
+	tip.height = 0.025
+	_add_mesh(parent, tip, pink.lightened(0.05), Vector3(0.02, 0.4, -0.3))
 
 
 static func _build_duck(parent: Node3D, info: Dictionary) -> void:

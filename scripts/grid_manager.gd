@@ -19,6 +19,9 @@ const ISLAND_GLB_PATH: String = "res://assets/models/nature/floating_island.glb"
 ## Raw mesh top Y of floating_island.glb (used to flush the deck with y=0).
 const ISLAND_TOP_LOCAL_Y: float = 0.244
 const ISLAND_SCALE: float = 52.0
+## Sampled from floating_island basecolor grass.
+const ISLAND_GRASS_COLOR := Color(0.30, 0.40, 0.03)
+const ISLAND_GRASS_TUFT_COLOR := Color(0.34, 0.45, 0.04)
 ## Low-poly tuft Multimesh (tiny tris) — safe to place on most cells.
 const GRASS_CELL_STEP: int = 2
 const GRASS_XZ_SCALE: float = 0.55
@@ -60,7 +63,7 @@ func _build_grid_visual() -> void:
 	if DRAW_GRID_LINES:
 		var line_material := StandardMaterial3D.new()
 		line_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		line_material.albedo_color = Color(0.28, 0.38, 0.1, 0.45)
+		line_material.albedo_color = Color(ISLAND_GRASS_COLOR.r, ISLAND_GRASS_COLOR.g, ISLAND_GRASS_COLOR.b, 0.45)
 		line_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		for x in range(GRID_WIDTH + 1):
 			for y in range(GRID_HEIGHT):
@@ -119,7 +122,7 @@ func _build_island() -> void:
 	deck.position = Vector3(center.x, -0.015, center.z)
 	deck.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var deck_mat := StandardMaterial3D.new()
-	deck_mat.albedo_color = Color(0.30, 0.42, 0.10, 1.0)
+	deck_mat.albedo_color = ISLAND_GRASS_COLOR
 	deck_mat.roughness = 0.95
 	deck.material_override = deck_mat
 	_grid_visual.add_child(deck)
@@ -158,7 +161,7 @@ func _build_default_grass() -> void:
 	mm.instance_count = cells.size()
 	_grass_mmi.multimesh = mm
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.34, 0.52, 0.14)
+	mat.albedo_color = ISLAND_GRASS_TUFT_COLOR
 	mat.roughness = 0.92
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	_grass_mmi.material_override = mat
@@ -559,6 +562,10 @@ func can_place_at(grid_pos: Vector2i, item_type: ItemData.ItemType, rotation: in
 		if has_content(cell):
 			return false
 
+	# Only ducks may sit on water tiles; other animals stay on dry land.
+	if ItemData.is_animal(item_type) and is_water_cell(grid_pos):
+		return ItemData.can_live_on_water(item_type)
+
 	if ItemData.stacks_on_terrain(item_type):
 		return true
 
@@ -726,7 +733,7 @@ func _spawn_object(
 		_register_content_cells(obj, grid_pos, footprint, rotation)
 
 	# Polish first (AnimalPivot / reparent Visual) so mesh colliders match what you see.
-	ObjectPolish.setup(obj, item_type, animate_placement)
+	ObjectPolish.setup(obj, item_type, animate_placement, self)
 	_add_tile_collider(obj, item_type)
 
 	if record_undo and undo_manager and not undo_manager.is_applying_undo():
@@ -1213,6 +1220,108 @@ func get_animal_at(grid_pos: Vector2i) -> Node3D:
 	if obj and ItemData.is_animal(obj.get_meta("item_type")):
 		return obj
 	return null
+
+
+func animal_can_step_to(animal: Node3D, to: Vector2i) -> bool:
+	if animal == null or not is_instance_valid(animal):
+		return false
+	if not is_in_bounds(to):
+		return false
+	# Occupied cells (fence, buildings, plants, other animals…) are impassable.
+	if has_content(to):
+		var occupant: Node3D = _objects[to]
+		if occupant != animal:
+			return false
+	var item_type: ItemData.ItemType = animal.get_meta("item_type")
+	if is_water_cell(to) and not ItemData.can_live_on_water(item_type):
+		return false
+	# Don't cut corners through fences / buildings on a diagonal step.
+	var from: Vector2i = animal.get_meta("grid_pos")
+	var delta := to - from
+	if absi(delta.x) == 1 and absi(delta.y) == 1:
+		if _cell_blocks_animal_passage(from + Vector2i(delta.x, 0)):
+			return false
+		if _cell_blocks_animal_passage(from + Vector2i(0, delta.y)):
+			return false
+	return true
+
+
+func _cell_blocks_animal_passage(cell: Vector2i) -> bool:
+	## Any content (especially fence / buildings) blocks diagonal corner-cutting.
+	if not is_in_bounds(cell):
+		return true
+	return has_content(cell)
+
+
+func is_water_cell(grid_pos: Vector2i) -> bool:
+	return get_terrain_type_at(grid_pos) == ItemData.ItemType.WATER
+
+
+func find_water_within(anchor: Vector2i, radius: int) -> Array[Vector2i]:
+	## Chebyshev neighborhood (square) of free water tiles, nearest first.
+	var found: Array[Vector2i] = []
+	for dist in range(1, radius + 1):
+		for dx in range(-dist, dist + 1):
+			for dy in range(-dist, dist + 1):
+				if maxi(absi(dx), absi(dy)) != dist:
+					continue
+				var cell := anchor + Vector2i(dx, dy)
+				if not is_in_bounds(cell):
+					continue
+				if not is_water_cell(cell):
+					continue
+				if has_content(cell):
+					continue
+				found.append(cell)
+	return found
+
+
+func move_animal_to(animal: Node3D, to: Vector2i) -> bool:
+	## Update occupancy for a free adjacent cell; caller animates world position.
+	if not animal_can_step_to(animal, to):
+		return false
+	var footprint := get_object_footprint(animal)
+	var rotation := get_object_rotation(animal)
+	_unregister_content_object(animal)
+	animal.set_meta("grid_pos", to)
+	_register_content_cells(animal, to, footprint, rotation)
+	return true
+
+
+func begin_animal_mud(grid_pos: Vector2i) -> Dictionary:
+	## Temporarily turn a tile into dirt for pig wallowing. Returns restore info.
+	if not is_in_bounds(grid_pos):
+		return {}
+	if get_terrain_type_at(grid_pos) == ItemData.ItemType.WATER:
+		return {}
+	if has_terrain(grid_pos):
+		var current := get_terrain_type_at(grid_pos)
+		if current == ItemData.ItemType.DIRT:
+			return {"mode": "keep"}
+		_remove_terrain_silent(grid_pos)
+		_spawn_object(ItemData.ItemType.DIRT, grid_pos, 0, 0, false, false)
+		return {"mode": "terrain", "type": current}
+	_spawn_object(ItemData.ItemType.DIRT, grid_pos, 0, 0, false, false)
+	return {"mode": "grass"}
+
+
+func end_animal_mud(grid_pos: Vector2i, restore: Dictionary) -> void:
+	if restore.is_empty() or not is_in_bounds(grid_pos):
+		return
+	var mode: String = str(restore.get("mode", "grass"))
+	match mode:
+		"keep":
+			return
+		"grass":
+			if get_terrain_type_at(grid_pos) == ItemData.ItemType.DIRT:
+				_remove_terrain_silent(grid_pos)
+				_refresh_grass_around(grid_pos)
+		"terrain":
+			var previous: ItemData.ItemType = restore.get("type", ItemData.ItemType.STONE_PATH)
+			if has_terrain(grid_pos):
+				_remove_terrain_silent(grid_pos)
+			if ItemData.is_terrain(previous):
+				_spawn_object(previous, grid_pos, 0, 0, false, false)
 
 
 func load_objects_data(data: Array) -> void:

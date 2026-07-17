@@ -48,10 +48,10 @@ enum ItemType {
 
 const CATEGORIES: Dictionary = {
 	Category.TERRAIN: "Terrain",
-	Category.STRUCTURE: "Buildings",
-	Category.ANIMAL: "Animals",
-	Category.PLANT: "Crops",
-	Category.DECOR: "Decor",
+	Category.STRUCTURE: "Building",
+	Category.ANIMAL: "Animal",
+	Category.PLANT: "Seed",
+	Category.DECOR: "Decoration",
 }
 
 const ITEMS: Dictionary = {
@@ -59,7 +59,7 @@ const ITEMS: Dictionary = {
 		"id": "grass",
 		"name": "Grass",
 		"category": Category.TERRAIN,
-		"color": Color(0.31, 0.40, 0.09),
+		"color": Color(0.30, 0.40, 0.03),
 		"size": Vector3(1.0, 0.1, 1.0),
 		"offset_y": 0.05,
 		"rotatable": false,
@@ -520,6 +520,23 @@ static func stacks_on_terrain(item_type: ItemType) -> bool:
 
 static func is_animal(item_type: ItemType) -> bool:
 	return ITEMS[item_type].get("category") == Category.ANIMAL
+
+
+static func is_structure(item_type: ItemType) -> bool:
+	return ITEMS[item_type].get("category") == Category.STRUCTURE
+
+
+static func blocks_animal(item_type: ItemType) -> bool:
+	## Fences and buildings confine animals — they cannot step onto these cells.
+	if item_type == ItemType.FENCE:
+		return true
+	if is_structure(item_type):
+		return true
+	return false
+
+
+static func can_live_on_water(item_type: ItemType) -> bool:
+	return item_type == ItemType.DUCK
 
 
 static func should_sway(item_type: ItemType) -> bool:
