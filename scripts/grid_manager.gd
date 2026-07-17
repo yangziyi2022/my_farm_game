@@ -495,6 +495,8 @@ func _deselect() -> void:
 
 func _highlight_object(obj: Node3D, enabled: bool) -> void:
 	_apply_highlight_recursive(obj, enabled)
+	if not enabled:
+		SelectionFlash.reset(obj)
 
 
 func _apply_highlight_recursive(node: Node, enabled: bool) -> void:

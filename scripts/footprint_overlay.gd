@@ -2,6 +2,7 @@ class_name FootprintOverlay
 extends Node3D
 
 ## Semi-transparent isometric diamond footprint (matches grid cells, not axis-aligned squares).
+## Stays grid-aligned even when parented under a rotated placeable / ghost.
 
 const FILL_VALID := Color(0.35, 0.9, 0.45, 0.32)
 const FILL_INVALID := Color(0.95, 0.3, 0.3, 0.35)
@@ -10,6 +11,12 @@ const EDGE_INVALID := Color(0.95, 0.25, 0.25, 0.95)
 
 var _fill_meshes: Array[MeshInstance3D] = []
 var _edge_meshes: Array[MeshInstance3D] = []
+
+
+func _process(_delta: float) -> void:
+	## Parent (ghost/object) may rotate for preview; footprint must stay on the iso grid.
+	if get_parent() is Node3D:
+		global_rotation = Vector3.ZERO
 
 
 static func create_for_item(item_type: ItemData.ItemType, grid_manager: GridManager) -> FootprintOverlay:

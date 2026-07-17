@@ -54,14 +54,31 @@ static func _attach_fountain_jet(obj: Node3D) -> void:
 	var jet := obj.get_node_or_null("FountainJet") as Node3D
 	if jet == null:
 		jet = obj.find_child("FountainJet", true, false) as Node3D
-	if jet == null:
+	if jet:
+		if jet.get_node_or_null("FountainSway") == null:
+			var sway := AmbientSway.new()
+			sway.name = "FountainSway"
+			sway.sway_angle_deg = 1.2
+			sway.sway_speed = 2.4
+			sway.bob_amount = 0.02
+			jet.add_child(sway)
+
+	# Flower-spray droplets falling into the donut basin.
+	if obj.find_child("FountainSplash", true, false) != null:
 		return
-	var sway := AmbientSway.new()
-	sway.name = "FountainSway"
-	sway.sway_angle_deg = 1.2
-	sway.sway_speed = 2.4
-	sway.bob_amount = 0.02
-	jet.add_child(sway)
+	var anchor := obj.find_child("FountainSplashAnchor", true, false) as Node3D
+	if anchor == null:
+		anchor = jet
+	if anchor == null:
+		return
+	var splash := FountainSplash.new()
+	splash.name = "FountainSplash"
+	var water_color := Color(0.45, 0.72, 0.95, 0.75)
+	var info: Dictionary = ItemData.ITEMS.get(ItemData.ItemType.FOUNTAIN, {})
+	if info.has("water_color"):
+		water_color = info["water_color"]
+	anchor.add_child(splash)
+	splash.setup(water_color)
 
 
 static func _attach_lamp_glow(obj: Node3D) -> void:

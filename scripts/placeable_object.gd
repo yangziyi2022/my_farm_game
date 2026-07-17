@@ -292,30 +292,26 @@ static func _footprint_center_offset(footprint: Vector2i) -> Vector3:
 
 
 static func _build_rock(parent: Node3D, info: Dictionary) -> void:
-	## Chunked 3D stone (not a flat box).
+	## Natural pile of several stones clustered together.
 	var base_color: Color = info.get("color", Color(0.52, 0.52, 0.54))
-	var main := SphereMesh.new()
-	main.radius = 0.28
-	main.height = 0.42
-	var main_mi := _add_mesh(parent, main, base_color, Vector3(0.0, 0.2, 0.0))
-	main_mi.scale = Vector3(1.15, 0.85, 1.0)
-
-	var bump := SphereMesh.new()
-	bump.radius = 0.16
-	bump.height = 0.26
-	var bump_mi := _add_mesh(parent, bump, base_color.darkened(0.08), Vector3(0.14, 0.22, 0.1))
-	bump_mi.scale = Vector3(1.1, 0.75, 0.95)
-
-	var chip := SphereMesh.new()
-	chip.radius = 0.12
-	chip.height = 0.18
-	var chip_mi := _add_mesh(parent, chip, base_color.lightened(0.06), Vector3(-0.12, 0.16, -0.08))
-	chip_mi.scale = Vector3(1.0, 0.7, 1.15)
-
-	var slab := BoxMesh.new()
-	slab.size = Vector3(0.35, 0.12, 0.28)
-	var slab_mi := _add_mesh(parent, slab, base_color.darkened(0.12), Vector3(0.02, 0.08, -0.12))
-	slab_mi.rotation_degrees = Vector3(8.0, 25.0, -6.0)
+	var stones: Array[Dictionary] = [
+		{"pos": Vector3(0.0, 0.14, 0.0), "scale": Vector3(0.55, 0.38, 0.48), "rot": Vector3(8, 20, -6), "shade": 0.0},
+		{"pos": Vector3(0.22, 0.1, 0.12), "scale": Vector3(0.32, 0.26, 0.3), "rot": Vector3(-10, 55, 12), "shade": 0.08},
+		{"pos": Vector3(-0.2, 0.09, 0.1), "scale": Vector3(0.28, 0.22, 0.26), "rot": Vector3(12, -40, 8), "shade": -0.06},
+		{"pos": Vector3(0.08, 0.08, -0.22), "scale": Vector3(0.3, 0.2, 0.34), "rot": Vector3(-5, 110, -10), "shade": 0.1},
+		{"pos": Vector3(-0.12, 0.18, -0.08), "scale": Vector3(0.24, 0.2, 0.22), "rot": Vector3(15, -15, 5), "shade": -0.1},
+		{"pos": Vector3(0.28, 0.07, -0.1), "scale": Vector3(0.18, 0.14, 0.16), "rot": Vector3(0, 70, 18), "shade": 0.04},
+		{"pos": Vector3(-0.26, 0.06, -0.18), "scale": Vector3(0.16, 0.12, 0.18), "rot": Vector3(20, -80, 0), "shade": 0.12},
+	]
+	for stone in stones:
+		var mesh := SphereMesh.new()
+		mesh.radius = 0.5
+		mesh.height = 1.0
+		var shade: float = stone["shade"]
+		var color := base_color.darkened(shade) if shade > 0.0 else base_color.lightened(-shade)
+		var mi := _add_mesh(parent, mesh, color, stone["pos"])
+		mi.scale = stone["scale"]
+		mi.rotation_degrees = stone["rot"]
 
 
 static func _build_shed(parent: Node3D, info: Dictionary) -> void:
@@ -901,19 +897,29 @@ static func _build_fountain(parent: Node3D, info: Dictionary) -> void:
 	visual.position = _footprint_center_offset(Vector2i(2, 2))
 	parent.add_child(visual)
 
+	var water_color: Color = info.get("water_color", Color(0.35, 0.62, 0.9, 0.75))
+
+	# Outer rim + inner well so the basin reads as a donut groove.
 	var basin_mesh := CylinderMesh.new()
 	basin_mesh.top_radius = 0.95
 	basin_mesh.bottom_radius = 0.88
 	basin_mesh.height = 0.22
 	_add_mesh(visual, basin_mesh, info["color"], Vector3(0.0, 0.12, 0.0))
 
+	var inner_well := CylinderMesh.new()
+	inner_well.top_radius = 0.42
+	inner_well.bottom_radius = 0.4
+	inner_well.height = 0.12
+	_add_mesh(visual, inner_well, info["color"].darkened(0.12), Vector3(0.0, 0.1, 0.0))
+
 	var water_mesh := CylinderMesh.new()
 	water_mesh.top_radius = 0.78
 	water_mesh.bottom_radius = 0.74
-	water_mesh.height = 0.06
-	var water := _add_mesh(visual, water_mesh, info.get("water_color", Color(0.35, 0.62, 0.9, 0.75)), Vector3(0.0, 0.18, 0.0))
+	water_mesh.height = 0.05
+	var water := _add_mesh(visual, water_mesh, water_color, Vector3(0.0, 0.2, 0.0))
 	var water_mat: StandardMaterial3D = water.material_override
 	water_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	water_mat.roughness = 0.2
 
 	var pillar_mesh := CylinderMesh.new()
 	pillar_mesh.top_radius = 0.1
@@ -930,14 +936,20 @@ static func _build_fountain(parent: Node3D, info: Dictionary) -> void:
 	jet_mesh.top_radius = 0.03
 	jet_mesh.bottom_radius = 0.08
 	jet_mesh.height = 0.3
-	var jet_inst := _add_mesh(jet, jet_mesh, info.get("water_color", Color(0.35, 0.62, 0.9, 0.75)), Vector3.ZERO)
+	var jet_inst := _add_mesh(jet, jet_mesh, water_color, Vector3.ZERO)
 	var jet_mat: StandardMaterial3D = jet_inst.material_override
 	jet_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 
 	var top_mesh := SphereMesh.new()
 	top_mesh.radius = 0.1
 	top_mesh.height = 0.12
-	_add_mesh(jet, top_mesh, info.get("water_color", Color(0.45, 0.72, 0.95, 0.8)), Vector3(0.0, 0.18, 0.0))
+	_add_mesh(jet, top_mesh, Color(0.45, 0.72, 0.95, 0.8), Vector3(0.0, 0.18, 0.0))
+
+	# Marker for splash FX attachment (world-local under Visual).
+	var splash_anchor := Node3D.new()
+	splash_anchor.name = "FountainSplashAnchor"
+	splash_anchor.position = Vector3(0.0, 0.95, 0.0)
+	visual.add_child(splash_anchor)
 
 
 static func _build_wind_wheel(parent: Node3D, info: Dictionary) -> void:

@@ -4,7 +4,8 @@ extends RefCounted
 ## Caught-fish popup using Fish.glb — rises from the water and fades out.
 
 const FISH_SCENE_PATH: String = "res://assets/models/animals/Fish.glb"
-const FISH_SCALE: float = 0.55
+## Slightly larger than water fish for catch readability, still under chicken size.
+const FISH_SCALE: float = 0.03
 
 
 static func play(host: Node3D, water_world_pos: Vector3) -> void:
@@ -19,6 +20,7 @@ static func play(host: Node3D, water_world_pos: Vector3) -> void:
 	if ResourceLoader.exists(FISH_SCENE_PATH):
 		var model: Node3D = (load(FISH_SCENE_PATH) as PackedScene).instantiate() as Node3D
 		model.scale = Vector3.ONE * FISH_SCALE
+		model.rotation_degrees = Vector3(0.0, 90.0, 0.0)
 		fish.add_child(model)
 		_make_fadeable(model)
 	else:

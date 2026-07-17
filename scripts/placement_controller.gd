@@ -117,6 +117,7 @@ func enter_select_mode() -> void:
 	_hide_cursor_overlay()
 	_hide_tool_cursor()
 	_remove_tool_footprint()
+	_clear_selection_footprint()
 	feed_mode_cancelled.emit()
 	select_mode_requested.emit()
 	status_message.emit("Select — drag empty ground to box-select, then drag selection to move.")
@@ -503,11 +504,21 @@ func _clear_selection_footprint() -> void:
 		_selection_footprint.queue_free()
 	_selection_footprint = null
 	for obj in _selected_group:
-		if not is_instance_valid(obj):
-			continue
-		var fp := obj.get_node_or_null("SelectionFootprint")
-		if fp:
-			fp.queue_free()
+		_strip_object_footprints(obj)
+	# Sweep leftovers on anything still in the world (deselect / mode switch race).
+	if grid_manager:
+		for obj in grid_manager.get_all_selectable_objects():
+			_strip_object_footprints(obj)
+
+
+func _strip_object_footprints(obj: Node3D) -> void:
+	if obj == null or not is_instance_valid(obj):
+		return
+	for child in obj.get_children():
+		if child is FootprintOverlay \
+				or child.name == "SelectionFootprint" \
+				or child.name == "FootprintOverlay":
+			child.queue_free()
 
 
 func _set_selected_group(objs: Array) -> void:
@@ -515,6 +526,7 @@ func _set_selected_group(objs: Array) -> void:
 	_cancel_menu_move()
 	for prev in _selected_group:
 		if is_instance_valid(prev):
+			SelectionFlash.reset(prev)
 			grid_manager.set_object_highlighted(prev, false)
 	_selected_group.clear()
 	_group_origins.clear()
@@ -1350,9 +1362,11 @@ func _update_ghost() -> void:
 	_ghost.name = "Ghost"
 	_ghost.rotation.y = deg_to_rad(_place_rotation * 90.0)
 	_set_ghost_transparency(_ghost, 0.4)
+	# Footprint is a sibling (not under rotated ghost) so it stays grid-aligned.
 	_footprint = FootprintOverlay.create_for_item(selected_item, grid_manager)
-	_ghost.add_child(_footprint)
+	_footprint.name = "GhostFootprint"
 	grid_manager.objects_container.add_child(_ghost)
+	grid_manager.objects_container.add_child(_footprint)
 
 
 func _set_ghost_transparency(node: Node, alpha: float) -> void:
@@ -1381,10 +1395,16 @@ func _set_ghost_transparency(node: Node, alpha: float) -> void:
 
 
 func _remove_ghost() -> void:
+	if _footprint and is_instance_valid(_footprint):
+		_footprint.queue_free()
 	_footprint = null
-	if _ghost:
+	if _ghost and is_instance_valid(_ghost):
 		_ghost.queue_free()
-		_ghost = null
+	_ghost = null
+	if grid_manager and grid_manager.objects_container:
+		for child in grid_manager.objects_container.get_children():
+			if child.name == "GhostFootprint" or child.name == "Ghost":
+				child.queue_free()
 
 
 func _update_ghost_position() -> void:
@@ -1401,11 +1421,17 @@ func _update_ghost_position() -> void:
 	_ghost_grid_pos = grid_pos
 	if not _is_valid_cell(grid_pos):
 		_ghost.visible = false
+		if _footprint:
+			_footprint.visible = false
 		return
 
 	_ghost.visible = true
 	_ghost.position = grid_manager.grid_to_world(grid_pos)
 	_ghost.rotation.y = deg_to_rad(_place_rotation * 90.0)
+	if _footprint and is_instance_valid(_footprint):
+		_footprint.visible = true
+		_footprint.global_position = grid_manager.grid_to_world(grid_pos)
+		_footprint.global_rotation = Vector3.ZERO
 
 	var valid := grid_manager.can_place_at(grid_pos, selected_item)
 	if _footprint:
