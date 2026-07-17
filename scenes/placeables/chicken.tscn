@@ -1,16 +1,17 @@
 [gd_scene format=3 uid="uid://b7yd3qw2d10ol"]
 
-[ext_resource type="PackedScene" uid="uid://dv6ps8oothrlu" path="res://assets/models/animals/Chicken.glb" id="1_chicken"]
+[ext_resource type="PackedScene" path="res://assets/models/animals/KFC chicken.glb" id="1_chicken"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_hit"]
-size = Vector3(0.45, 0.4, 0.5)
+size = Vector3(0.22, 0.28, 0.26)
 
-[node name="ChickenPlaceable" type="Node3D" unique_id=234238505]
+[node name="ChickenPlaceable" type="Node3D"]
 
-[node name="Model" parent="." unique_id=1052846121 instance=ExtResource("1_chicken")]
+[node name="Model" parent="." instance=ExtResource("1_chicken")]
+transform = Transform3D(0.26, 0, 0, 0, 0.26, 0, 0, 0, 0.26, 0, 0, 0)
 
-[node name="StaticBody3D" type="StaticBody3D" parent="." unique_id=1947338387]
+[node name="StaticBody3D" type="StaticBody3D" parent="."]
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="StaticBody3D" unique_id=1915759389]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.2, 0)
+[node name="CollisionShape3D" type="CollisionShape3D" parent="StaticBody3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.14, 0)
 shape = SubResource("BoxShape3D_hit")

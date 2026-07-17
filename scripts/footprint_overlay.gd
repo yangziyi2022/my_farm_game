@@ -1,8 +1,8 @@
 class_name FootprintOverlay
 extends Node3D
 
-## Semi-transparent isometric diamond footprint (matches grid cells, not axis-aligned squares).
-## Stays grid-aligned even when parented under a rotated placeable / ghost.
+## Semi-transparent square footprint (matches orthogonal grid cells).
+## Parent under a placeable / ghost so it rotates with the object.
 
 const FILL_VALID := Color(0.35, 0.9, 0.45, 0.32)
 const FILL_INVALID := Color(0.95, 0.3, 0.3, 0.35)
@@ -11,12 +11,6 @@ const EDGE_INVALID := Color(0.95, 0.25, 0.25, 0.95)
 
 var _fill_meshes: Array[MeshInstance3D] = []
 var _edge_meshes: Array[MeshInstance3D] = []
-
-
-func _process(_delta: float) -> void:
-	## Parent (ghost/object) may rotate for preview; footprint must stay on the iso grid.
-	if get_parent() is Node3D:
-		global_rotation = Vector3.ZERO
 
 
 static func create_for_item(item_type: ItemData.ItemType, grid_manager: GridManager) -> FootprintOverlay:
@@ -35,29 +29,28 @@ func _build(footprint: Vector2i, grid_manager: GridManager) -> void:
 		for y in range(h):
 			var cell_world := grid_manager.grid_to_world(Vector2i(x, y))
 			var local := cell_world - origin
-			_add_iso_cell(local, grid_manager.TILE_WIDTH, grid_manager.TILE_HEIGHT)
+			_add_square_cell(local, grid_manager.TILE_WIDTH, grid_manager.TILE_HEIGHT)
 
 
-func _add_iso_cell(local_pos: Vector3, tile_w: float, tile_h: float) -> void:
+func _add_square_cell(local_pos: Vector3, tile_w: float, tile_h: float) -> void:
 	var hw := tile_w * 0.5
 	var hh := tile_h * 0.5
-	# Isometric diamond corners in XZ (matches grid_to_world neighbor offsets).
+	# Axis-aligned square in XZ (matches orthogonal grid + box meshes).
 	var corners: Array[Vector3] = [
-		Vector3(hw, 0.0, 0.0),
-		Vector3(0.0, 0.0, hh),
-		Vector3(-hw, 0.0, 0.0),
-		Vector3(0.0, 0.0, -hh),
+		Vector3(-hw, 0.0, -hh),
+		Vector3(hw, 0.0, -hh),
+		Vector3(hw, 0.0, hh),
+		Vector3(-hw, 0.0, hh),
 	]
 
 	var fill := MeshInstance3D.new()
 	fill.name = "FootprintFill"
-	fill.mesh = _make_diamond_mesh(corners, 0.02)
+	fill.mesh = _make_quad_mesh(corners, 0.02)
 	fill.position = local_pos + Vector3(0.0, 0.03, 0.0)
 	fill.material_override = _make_mat(FILL_VALID)
 	add_child(fill)
 	_fill_meshes.append(fill)
 
-	# Edge ring along the diamond.
 	for i in range(4):
 		var a: Vector3 = corners[i]
 		var b: Vector3 = corners[(i + 1) % 4]
@@ -77,14 +70,12 @@ func _add_iso_cell(local_pos: Vector3, tile_w: float, tile_h: float) -> void:
 		_edge_meshes.append(edge)
 
 
-func _make_diamond_mesh(corners: Array[Vector3], thickness: float) -> ArrayMesh:
+func _make_quad_mesh(corners: Array[Vector3], thickness: float) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var y := thickness * 0.5
-	# Top face (two triangles).
 	_add_tri(st, corners[0] + Vector3(0, y, 0), corners[1] + Vector3(0, y, 0), corners[2] + Vector3(0, y, 0))
 	_add_tri(st, corners[0] + Vector3(0, y, 0), corners[2] + Vector3(0, y, 0), corners[3] + Vector3(0, y, 0))
-	# Bottom face.
 	_add_tri(st, corners[0] + Vector3(0, -y, 0), corners[2] + Vector3(0, -y, 0), corners[1] + Vector3(0, -y, 0))
 	_add_tri(st, corners[0] + Vector3(0, -y, 0), corners[3] + Vector3(0, -y, 0), corners[2] + Vector3(0, -y, 0))
 	st.generate_normals()

@@ -13,7 +13,7 @@ static func create(item_type: ItemData.ItemType, grid_pos: Vector2i, rotation: i
 	obj.set_meta("grid_pos", grid_pos)
 	obj.set_meta("rotation", rotation)
 	obj.set_meta("growth_stage", growth_stage)
-	obj.rotation.y = deg_to_rad(rotation * 90.0)
+	obj.rotation.y = GridManager.yaw_for_steps(rotation)
 	obj._attach_visual(item_type, growth_stage)
 	return obj
 
@@ -24,25 +24,23 @@ func _attach_visual(item_type: ItemData.ItemType, growth_stage: int = 0) -> void
 		var visual: Node3D = scene.instantiate() as Node3D
 		visual.name = "Visual"
 		var def := ItemData.get_item_def(item_type)
+		var info: Dictionary = ItemData.ITEMS[item_type]
+		var s: float = float(info.get("visual_scale", 1.0))
+		var sy: float = float(info.get("visual_scale_y", s))
+		var y_off: float = float(info.get("visual_y_offset", 0.0))
 		if def:
-			var s: float = def.visual_scale
-			visual.scale = Vector3(s, s, s)
-			visual.position.y = def.visual_y_offset
-			# Center multi-cell visuals on the footprint while root stays on the anchor cell.
-			var footprint := ItemData.get_footprint(item_type)
-			if footprint.x > 1 or footprint.y > 1:
-				var half_w := GridManager.TILE_WIDTH * 0.5
-				var half_h := GridManager.TILE_HEIGHT * 0.5
-				var avg_x := float(footprint.x - 1) * 0.5
-				var avg_y := float(footprint.y - 1) * 0.5
-				visual.position.x += (avg_x - avg_y) * half_w
-				visual.position.z += (avg_x + avg_y) * half_h
-		else:
-			var info: Dictionary = ItemData.ITEMS[item_type]
-			var sx: float = float(info.get("visual_scale", 1.0))
-			var sy: float = float(info.get("visual_scale_y", sx))
-			visual.scale = Vector3(sx, sy, sx)
-			visual.position.y = float(info.get("visual_y_offset", 0.0))
+			s = def.visual_scale
+			sy = s
+			y_off = def.visual_y_offset
+		visual.scale = Vector3(s, sy, s)
+		visual.position.y = y_off
+		# Center multi-cell visuals on the footprint while root stays on the anchor cell.
+		var footprint := ItemData.get_footprint(item_type)
+		if footprint.x > 1 or footprint.y > 1:
+			var avg_x := float(footprint.x - 1) * 0.5
+			var avg_y := float(footprint.y - 1) * 0.5
+			visual.position.x += avg_x * GridManager.TILE_WIDTH
+			visual.position.z += avg_y * GridManager.TILE_HEIGHT
 		add_child(visual)
 		return
 
@@ -126,7 +124,7 @@ static func _add_mesh(parent: Node3D, mesh: Mesh, color: Color, pos: Vector3, ro
 
 static func _build_box(parent: Node3D, info: Dictionary) -> void:
 	var size: Vector3 = info["size"]
-	# Terrain fills the whole cell so adjacent dirt/water tiles join with no gap.
+	# Terrain fills the whole orthogonal cell so adjacent tiles join with no gap.
 	if info.get("category") == ItemData.Category.TERRAIN:
 		size = Vector3(GridManager.TILE_WIDTH, size.y, GridManager.TILE_HEIGHT)
 	var box := BoxMesh.new()
@@ -284,11 +282,10 @@ static func _build_growing_sunflower(parent: Node3D, info: Dictionary) -> void:
 
 
 static func _footprint_center_offset(footprint: Vector2i) -> Vector3:
-	var half_w := GridManager.TILE_WIDTH * 0.5
-	var half_h := GridManager.TILE_HEIGHT * 0.5
+	## Orthogonal: offset from anchor cell center to multi-cell footprint center.
 	var avg_x := float(maxi(footprint.x, 1) - 1) * 0.5
 	var avg_y := float(maxi(footprint.y, 1) - 1) * 0.5
-	return Vector3((avg_x - avg_y) * half_w, 0.0, (avg_x + avg_y) * half_h)
+	return Vector3(avg_x * GridManager.TILE_WIDTH, 0.0, avg_y * GridManager.TILE_HEIGHT)
 
 
 static func _build_rock(parent: Node3D, info: Dictionary) -> void:
@@ -519,22 +516,19 @@ static func _make_flower_stage(info: Dictionary, stage: int, is_sunflower: bool)
 
 
 static func _build_growing_wheat(parent: Node3D, _info: Dictionary) -> void:
-	# Stage 0 — four seeds; 1–3 — growing_wheat_1/2/3 sized to the dirt tile.
+	## Stage 0 seeds → 1 small yellow grass → 2/3 mature wheat.glb.
 	parent.add_child(_make_wheat_seed_stage())
-	parent.add_child(_make_wheat_model_stage(
-		"Stage1",
-		"res://assets/models/crops/growing_wheat_1.glb",
-		0.82
-	))
+	parent.add_child(_make_wheat_yellow_grass_stage("Stage1", 0.55))
 	parent.add_child(_make_wheat_model_stage(
 		"Stage2",
-		"res://assets/models/crops/growing_wheat_2.glb",
-		0.94
+		"res://assets/models/crops/wheat.glb",
+		0.95
 	))
+	# Stage 3 keeps CropGrowth.STAGE_COUNT=4; same mature field for harvest-ready.
 	parent.add_child(_make_wheat_model_stage(
 		"Stage3",
-		"res://assets/models/crops/growing_wheat_3.glb",
-		1.02
+		"res://assets/models/crops/wheat.glb",
+		1.0
 	))
 
 
@@ -554,6 +548,36 @@ static func _make_wheat_seed_stage() -> Node3D:
 		seed_mesh.radius = 0.05
 		seed_mesh.height = 0.08
 		_add_mesh(node, seed_mesh, seed_color, offset)
+	return node
+
+
+static func _make_wheat_yellow_grass_stage(stage_name: String, height_scale: float) -> Node3D:
+	## Low procedural yellow-green tufts (replaces old growing_wheat_*.glb).
+	var node := Node3D.new()
+	node.name = stage_name
+	var grass_color := Color(0.82, 0.72, 0.22)
+	var tip_color := Color(0.92, 0.82, 0.28)
+	var positions := [
+		Vector3(-0.22, 0.0, -0.18),
+		Vector3(0.18, 0.0, -0.22),
+		Vector3(-0.12, 0.0, 0.2),
+		Vector3(0.24, 0.0, 0.12),
+		Vector3(0.0, 0.0, 0.0),
+	]
+	for i in range(positions.size()):
+		var clump := Node3D.new()
+		clump.position = positions[i]
+		clump.rotation.y = float(i) * 0.7
+		node.add_child(clump)
+		for b in range(3):
+			var blade := BoxMesh.new()
+			var h := (0.12 + float(b) * 0.04) * height_scale
+			blade.size = Vector3(0.025, h, 0.012)
+			var yaw := deg_to_rad(-25.0 + b * 25.0)
+			var pos := Vector3(cos(yaw) * 0.03, h * 0.5 + 0.02, sin(yaw) * 0.03)
+			var color := grass_color if b < 2 else tip_color
+			var mi := _add_mesh(clump, blade, color, pos)
+			mi.rotation_degrees = Vector3(8.0, rad_to_deg(yaw), float(b - 1) * 6.0)
 	return node
 
 
@@ -810,17 +834,15 @@ static func _build_stone_path(parent: Node3D, info: Dictionary) -> void:
 	_add_mesh(parent, base_mesh, info["color"], Vector3(0.0, 0.04, 0.0))
 
 	var stone_color: Color = info.get("stone_color", Color(0.72, 0.7, 0.68))
-	var sx := tw / 1.0
-	var sz := th / 1.0
 	var offsets := [
-		Vector3(-0.28 * sx, 0.1, -0.22 * sz), Vector3(0.12 * sx, 0.1, -0.3 * sz),
-		Vector3(0.32 * sx, 0.1, 0.05 * sz), Vector3(-0.08 * sx, 0.1, 0.28 * sz),
-		Vector3(0.22 * sx, 0.1, 0.32 * sz), Vector3(-0.32 * sx, 0.1, 0.12 * sz),
+		Vector3(-0.28, 0.1, -0.22), Vector3(0.12, 0.1, -0.3),
+		Vector3(0.32, 0.1, 0.05), Vector3(-0.08, 0.1, 0.28),
+		Vector3(0.22, 0.1, 0.32), Vector3(-0.32, 0.1, 0.12),
 	]
 	for i in range(offsets.size()):
 		var offset: Vector3 = offsets[i]
 		var stone_mesh := BoxMesh.new()
-		var size_scale := (0.18 + float(i % 3) * 0.04) * minf(sx, sz)
+		var size_scale := 0.18 + float(i % 3) * 0.04
 		stone_mesh.size = Vector3(size_scale, 0.05, size_scale - 0.02)
 		_add_mesh(parent, stone_mesh, stone_color, offset)
 

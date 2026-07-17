@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://fyln01xfx55d"
-path="res://.godot/imported/Sickle.glb-2a906ea68b46b4677bf7d7dda224cdcf.scn"
+uid="uid://cjbe7krjl56u0"
+path="res://.godot/imported/sickle.glb-cb23ea0a86c4a1a2adc8fc1e192c5649.scn"
 
 [deps]
 
-source_file="res://assets/models/others/Sickle.glb"
-dest_files=["res://.godot/imported/Sickle.glb-2a906ea68b46b4677bf7d7dda224cdcf.scn"]
+source_file="res://assets/models/others/sickle.glb"
+dest_files=["res://.godot/imported/sickle.glb-cb23ea0a86c4a1a2adc8fc1e192c5649.scn"]
 
 [params]
 

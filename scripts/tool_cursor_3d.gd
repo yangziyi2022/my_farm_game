@@ -4,13 +4,13 @@ extends Node3D
 
 const HOE_SCENE_PATH: String = "res://assets/models/crops/Hoe.glb"
 const ROD_SCENE_PATH: String = "res://assets/models/others/Fishing Rod.glb"
-const SICKLE_SCENE_PATH: String = "res://assets/models/others/Sickle.glb"
+const SICKLE_SCENE_PATH: String = "res://assets/models/others/sickle.glb"
 
 const HOE_EXTRA_SCALE: float = 0.85
 ## Rod GLB is already ×100 inside; keep final length close to the hoe.
 const ROD_EXTRA_SCALE: float = 0.18
-## Sickle mesh is ~2 units; scale down to hoe-like handheld size.
-const SICKLE_EXTRA_SCALE: float = 0.38
+## sickle.glb is ~1 unit tall; keep handheld size close to the hoe.
+const SICKLE_EXTRA_SCALE: float = 0.45
 
 const FOLLOW_DEPTH: float = 3.2
 const CURSOR_SCREEN_OFFSET := Vector2(28, 36)

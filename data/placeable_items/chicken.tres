@@ -1,7 +1,7 @@
-[gd_resource type="Resource" script_class="PlaceableItemDef" format=3 uid="uid://cnf4wdjeu6p4p"]
+[gd_resource type="Resource" script_class="PlaceableItemDef" load_steps=3 format=3 uid="uid://cnf4wdjeu6p4p"]
 
-[ext_resource type="Script" uid="uid://c53debo8hkrl2" path="res://scripts/placeable_item_def.gd" id="1_fx3ac"]
-[ext_resource type="PackedScene" uid="uid://b7yd3qw2d10ol" path="res://scenes/placeables/chicken.tscn" id="3_3qqp8"]
+[ext_resource type="Script" path="res://scripts/placeable_item_def.gd" id="1_fx3ac"]
+[ext_resource type="PackedScene" path="res://scenes/placeables/chicken.tscn" id="3_3qqp8"]
 
 [resource]
 script = ExtResource("1_fx3ac")
@@ -9,5 +9,7 @@ id = "chicken"
 display_name = "Chicken"
 visual_scene = ExtResource("3_3qqp8")
 category = 2
-visual_scale = 0.002
-metadata/_custom_type_script = "uid://c53debo8hkrl2"
+visual_scale = 1.0
+visual_y_offset = 0.0
+footprint_size = Vector2i(1, 1)
+rotatable = true

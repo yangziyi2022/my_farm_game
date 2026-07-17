@@ -8,10 +8,10 @@ signal selection_changed(object_node: Node3D)
 
 const TILE_WIDTH: float = 1.25
 const TILE_HEIGHT: float = 1.25
-## Expanded so a circular playable disc can be filled with cells (not just a diamond).
+## Expanded so a circular playable disc can be filled with cells.
 const GRID_WIDTH: int = 56
 const GRID_HEIGHT: int = 56
-## Shift so world center stays at the old farm center (0, 25).
+## Shift so world center stays near the island center.
 const GRID_SHIFT: int = 8
 ## Circular playable area — fitted to floating_island top (island xz radius ≈ 26).
 const PLAY_RADIUS: float = 24.2
@@ -292,6 +292,11 @@ func get_map_center() -> Vector3:
 	return grid_to_world(Vector2i(int(GRID_WIDTH / 2.0), int(GRID_HEIGHT / 2.0)))
 
 
+static func yaw_for_steps(rotation_steps: int) -> float:
+	## Player rotate steps only (90°). Orthogonal grid needs no 45° bias.
+	return deg_to_rad(float(posmod(rotation_steps, 4)) * 90.0)
+
+
 func _add_line(from: Vector3, to: Vector3, material: StandardMaterial3D) -> void:
 	var mesh_inst := MeshInstance3D.new()
 	var immediate := ImmediateMesh.new()
@@ -305,20 +310,15 @@ func _add_line(from: Vector3, to: Vector3, material: StandardMaterial3D) -> void
 
 
 func grid_to_world(grid_pos: Vector2i) -> Vector3:
-	var half_w := TILE_WIDTH * 0.5
-	var half_h := TILE_HEIGHT * 0.5
+	## Orthogonal cell centers — iso look comes from the angled camera.
 	var gx := float(grid_pos.x - GRID_SHIFT)
 	var gy := float(grid_pos.y - GRID_SHIFT)
-	var world_x := (gx - gy) * half_w
-	var world_z := (gx + gy) * half_h
-	return Vector3(world_x, 0.0, world_z)
+	return Vector3(gx * TILE_WIDTH, 0.0, gy * TILE_HEIGHT)
 
 
 func world_to_grid(world_pos: Vector3) -> Vector2i:
-	var half_w := TILE_WIDTH * 0.5
-	var half_h := TILE_HEIGHT * 0.5
-	var gx := (world_pos.x / half_w + world_pos.z / half_h) * 0.5
-	var gy := (world_pos.z / half_h - world_pos.x / half_w) * 0.5
+	var gx := world_pos.x / TILE_WIDTH
+	var gy := world_pos.z / TILE_HEIGHT
 	return Vector2i(roundi(gx) + GRID_SHIFT, roundi(gy) + GRID_SHIFT)
 
 
@@ -420,13 +420,27 @@ func get_all_selectable_objects() -> Array[Node3D]:
 	return result
 
 
-func get_footprint_cells(anchor: Vector2i, footprint: Vector2i) -> Array[Vector2i]:
+func get_footprint_cells(anchor: Vector2i, footprint: Vector2i, rotation: int = 0) -> Array[Vector2i]:
+	## Local cell offsets rotate with yaw_for_steps (90° CCW per step around the anchor).
 	var cells: Array[Vector2i] = []
 	var w: int = maxi(footprint.x, 1)
 	var h: int = maxi(footprint.y, 1)
+	var steps := posmod(rotation, 4)
 	for x in range(w):
 		for y in range(h):
-			cells.append(anchor + Vector2i(x, y))
+			var ox := x
+			var oy := y
+			match steps:
+				1:
+					ox = y
+					oy = -x
+				2:
+					ox = -x
+					oy = -y
+				3:
+					ox = -y
+					oy = x
+			cells.append(anchor + Vector2i(ox, oy))
 	return cells
 
 
@@ -439,8 +453,14 @@ func get_object_footprint(obj: Node3D) -> Vector2i:
 	return Vector2i(1, 1)
 
 
-func footprint_center_world(anchor: Vector2i, footprint: Vector2i) -> Vector3:
-	var cells := get_footprint_cells(anchor, footprint)
+func get_object_rotation(obj: Node3D) -> int:
+	if obj and obj.has_meta("rotation"):
+		return int(obj.get_meta("rotation"))
+	return 0
+
+
+func footprint_center_world(anchor: Vector2i, footprint: Vector2i, rotation: int = 0) -> Vector3:
+	var cells := get_footprint_cells(anchor, footprint, rotation)
 	var sum := Vector3.ZERO
 	for cell in cells:
 		sum += grid_to_world(cell)
@@ -449,11 +469,11 @@ func footprint_center_world(anchor: Vector2i, footprint: Vector2i) -> Vector3:
 
 func _cells_for_object(obj: Node3D) -> Array[Vector2i]:
 	var anchor: Vector2i = obj.get_meta("grid_pos")
-	return get_footprint_cells(anchor, get_object_footprint(obj))
+	return get_footprint_cells(anchor, get_object_footprint(obj), get_object_rotation(obj))
 
 
-func _register_content_cells(obj: Node3D, anchor: Vector2i, footprint: Vector2i) -> void:
-	for cell in get_footprint_cells(anchor, footprint):
+func _register_content_cells(obj: Node3D, anchor: Vector2i, footprint: Vector2i, rotation: int = 0) -> void:
+	for cell in get_footprint_cells(anchor, footprint, rotation):
 		_objects[cell] = obj
 
 
@@ -513,7 +533,7 @@ func _apply_highlight_recursive(node: Node, enabled: bool) -> void:
 		_apply_highlight_recursive(child, enabled)
 
 
-func can_place_at(grid_pos: Vector2i, item_type: ItemData.ItemType) -> bool:
+func can_place_at(grid_pos: Vector2i, item_type: ItemData.ItemType, rotation: int = 0) -> bool:
 	if not is_in_bounds(grid_pos):
 		return false
 
@@ -531,9 +551,9 @@ func can_place_at(grid_pos: Vector2i, item_type: ItemData.ItemType) -> bool:
 			return false
 		return true
 
-	# Multi-cell content (e.g. 2x2 farmhouse): every cell in the footprint must be free.
+	# Multi-cell content (e.g. 3x2 farmhouse): every cell in the rotated footprint must be free.
 	var footprint := ItemData.get_footprint(item_type)
-	for cell in get_footprint_cells(grid_pos, footprint):
+	for cell in get_footprint_cells(grid_pos, footprint, rotation):
 		if not is_in_bounds(cell):
 			return false
 		if has_content(cell):
@@ -587,7 +607,7 @@ func place_object(
 		return _spawn_object(item_type, grid_pos, rotation, growth_stage, animate_placement, true)
 
 	if ItemData.stacks_on_terrain(item_type):
-		if not can_place_at(grid_pos, item_type):
+		if not can_place_at(grid_pos, item_type, rotation):
 			return null
 		return _spawn_object(item_type, grid_pos, rotation, growth_stage, animate_placement, true)
 
@@ -703,7 +723,7 @@ func _spawn_object(
 		_terrain[grid_pos] = obj
 		_refresh_grass_around(grid_pos)
 	else:
-		_register_content_cells(obj, grid_pos, footprint)
+		_register_content_cells(obj, grid_pos, footprint, rotation)
 
 	# Polish first (AnimalPivot / reparent Visual) so mesh colliders match what you see.
 	ObjectPolish.setup(obj, item_type, animate_placement)
@@ -913,7 +933,8 @@ func can_move_content_to(obj: Node3D, new_anchor: Vector2i) -> bool:
 	if obj == null or not is_instance_valid(obj):
 		return false
 	var footprint := get_object_footprint(obj)
-	for cell in get_footprint_cells(new_anchor, footprint):
+	var rotation := get_object_rotation(obj)
+	for cell in get_footprint_cells(new_anchor, footprint, rotation):
 		if not is_in_bounds(cell):
 			return false
 		if has_content(cell) and _objects[cell] != obj:
@@ -935,9 +956,10 @@ func move_object(from: Vector2i, to: Vector2i) -> bool:
 		if not can_move_content_to(obj, to):
 			return false
 		var footprint := get_object_footprint(obj)
+		var rotation := get_object_rotation(obj)
 		_unregister_content_object(obj)
 		obj.set_meta("grid_pos", to)
-		_register_content_cells(obj, to, footprint)
+		_register_content_cells(obj, to, footprint, rotation)
 		obj.position = grid_to_world(to)
 		if undo_manager and not undo_manager.is_applying_undo():
 			undo_manager.record_move(from, to)
@@ -995,7 +1017,8 @@ func move_content_group(moves: Array) -> bool:
 					return false
 		else:
 			var footprint := get_object_footprint(obj)
-			for cell in get_footprint_cells(to, footprint):
+			var rotation := get_object_rotation(obj)
+			for cell in get_footprint_cells(to, footprint, rotation):
 				if not is_in_bounds(cell):
 					return false
 				if content_targets.has(cell):
@@ -1024,9 +1047,10 @@ func move_content_group(moves: Array) -> bool:
 			obj.position = grid_to_world(to)
 		else:
 			var footprint := get_object_footprint(obj)
+			var rotation := get_object_rotation(obj)
 			obj.set_meta("grid_pos", to)
 			obj.set_meta("footprint", footprint)
-			_register_content_cells(obj, to, footprint)
+			_register_content_cells(obj, to, footprint, rotation)
 			obj.position = grid_to_world(to)
 		if undo_manager and not undo_manager.is_applying_undo():
 			undo_manager.record_move(entry["from"], to)
@@ -1043,9 +1067,10 @@ func move_object_silent(from: Vector2i, to: Vector2i) -> bool:
 	if not can_move_content_to(obj, to):
 		return false
 	var footprint := get_object_footprint(obj)
+	var rotation := get_object_rotation(obj)
 	_unregister_content_object(obj)
 	obj.set_meta("grid_pos", to)
-	_register_content_cells(obj, to, footprint)
+	_register_content_cells(obj, to, footprint, rotation)
 	obj.position = grid_to_world(to)
 	object_moved.emit(from, to)
 	return true
@@ -1060,8 +1085,19 @@ func rotate_object(grid_pos: Vector2i, steps: int = 1) -> void:
 		return
 	var old_rot: int = obj.get_meta("rotation", 0)
 	var new_rot: int = (old_rot + steps) % 4
+	var footprint := get_object_footprint(obj)
+	var anchor: Vector2i = obj.get_meta("grid_pos")
+	# Ensure the rotated footprint fits before committing.
+	for cell in get_footprint_cells(anchor, footprint, new_rot):
+		if not is_in_bounds(cell):
+			return
+		if has_content(cell) and _objects[cell] != obj:
+			return
+	_unregister_content_object(obj)
 	obj.set_meta("rotation", new_rot)
-	obj.rotation.y = deg_to_rad(new_rot * 90.0)
+	obj.rotation.y = yaw_for_steps(new_rot)
+	if not is_terrain_object(obj):
+		_register_content_cells(obj, anchor, footprint, new_rot)
 
 	if undo_manager and not undo_manager.is_applying_undo():
 		undo_manager.record_rotate(grid_pos, old_rot, new_rot)
@@ -1071,8 +1107,13 @@ func set_rotation_silent(grid_pos: Vector2i, rotation: int) -> void:
 	var obj := get_object_at(grid_pos)
 	if obj == null:
 		return
+	var footprint := get_object_footprint(obj)
+	var anchor: Vector2i = obj.get_meta("grid_pos")
+	_unregister_content_object(obj)
 	obj.set_meta("rotation", rotation)
-	obj.rotation.y = deg_to_rad(rotation * 90.0)
+	obj.rotation.y = yaw_for_steps(rotation)
+	if not is_terrain_object(obj):
+		_register_content_cells(obj, anchor, footprint, rotation)
 
 
 func get_all_objects_data() -> Array:

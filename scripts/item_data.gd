@@ -248,6 +248,7 @@ const ITEMS: Dictionary = {
 		"size": Vector3(0.35, 0.35, 0.45),
 		"offset_y": 0.2,
 		"rotatable": true,
+		"visual_scale": 1.0,
 	},
 	ItemType.SHEEP: {
 		"id": "sheep",

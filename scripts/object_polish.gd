@@ -241,7 +241,7 @@ static func _create_visual_pivot(obj: Node3D, pivot_name: String) -> Node3D:
 		if child is MeshInstance3D:
 			child.reparent(pivot)
 		elif child is Node3D and child.name == "Visual":
-			# Scene-based assets (e.g. Chicken.glb wrapper) live under Visual.
+			# Scene-based assets (e.g. KFC chicken wrapper) live under Visual.
 			child.reparent(pivot)
 
 	return pivot

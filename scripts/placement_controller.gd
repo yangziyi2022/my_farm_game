@@ -505,16 +505,20 @@ func _clear_selection_footprint() -> void:
 	_selection_footprint = null
 	for obj in _selected_group:
 		_strip_object_footprints(obj)
-	# Sweep leftovers on anything still in the world (deselect / mode switch race).
+	# Sweep leftovers — skip already-freed nodes (delete / mode switch races).
 	if grid_manager:
 		for obj in grid_manager.get_all_selectable_objects():
 			_strip_object_footprints(obj)
 
 
-func _strip_object_footprints(obj: Node3D) -> void:
-	if obj == null or not is_instance_valid(obj):
+func _strip_object_footprints(obj: Variant) -> void:
+	## Use Variant so a freed Object doesn't fail typed Node3D arg coercion.
+	if obj == null or not is_instance_valid(obj) or not (obj is Node3D):
 		return
-	for child in obj.get_children():
+	var root := obj as Node3D
+	for child in root.get_children():
+		if not is_instance_valid(child):
+			continue
 		if child is FootprintOverlay \
 				or child.name == "SelectionFootprint" \
 				or child.name == "FootprintOverlay":
@@ -724,7 +728,8 @@ func _can_drop_group_at(delta: Vector2i) -> bool:
 					return false
 		else:
 			var footprint := grid_manager.get_object_footprint(obj)
-			for cell in grid_manager.get_footprint_cells(to, footprint):
+			var rotation := grid_manager.get_object_rotation(obj)
+			for cell in grid_manager.get_footprint_cells(to, footprint, rotation):
 				if not grid_manager.is_in_bounds(cell):
 					return false
 				if content_targets.has(cell):
@@ -960,7 +965,7 @@ func _on_left_release(screen_pos: Vector2) -> void:
 		if not _is_valid_cell(place_pos):
 			status_message.emit("Cancelled place")
 			return
-		if grid_manager.can_place_at(place_pos, selected_item):
+		if grid_manager.can_place_at(place_pos, selected_item, _place_rotation):
 			var placed := grid_manager.place_object(selected_item, place_pos, _place_rotation)
 			if selected_item == ItemData.ItemType.GRASS:
 				status_message.emit("Cleared to grass floor at (%d, %d)" % [place_pos.x, place_pos.y])
@@ -1037,7 +1042,7 @@ func _on_right_click(screen_pos: Vector2) -> void:
 func _rotate_place_preview() -> void:
 	_place_rotation = (_place_rotation + 1) % 4
 	if _ghost:
-		_ghost.rotation.y = deg_to_rad(_place_rotation * 90.0)
+		_ghost.rotation.y = GridManager.yaw_for_steps(_place_rotation)
 		_ghost.set_meta("rotation", _place_rotation)
 	status_message.emit("Facing %d° — still placing %s" % [
 		_place_rotation * 90, ItemData.get_item_name(selected_item)
@@ -1360,13 +1365,13 @@ func _update_ghost() -> void:
 		return
 	_ghost = PlaceableObject.create(selected_item, Vector2i.ZERO, _place_rotation)
 	_ghost.name = "Ghost"
-	_ghost.rotation.y = deg_to_rad(_place_rotation * 90.0)
+	_ghost.rotation.y = GridManager.yaw_for_steps(_place_rotation)
 	_set_ghost_transparency(_ghost, 0.4)
-	# Footprint is a sibling (not under rotated ghost) so it stays grid-aligned.
+	# Footprint under ghost so it rotates with the preview.
 	_footprint = FootprintOverlay.create_for_item(selected_item, grid_manager)
 	_footprint.name = "GhostFootprint"
 	grid_manager.objects_container.add_child(_ghost)
-	grid_manager.objects_container.add_child(_footprint)
+	_ghost.add_child(_footprint)
 
 
 func _set_ghost_transparency(node: Node, alpha: float) -> void:
@@ -1427,13 +1432,11 @@ func _update_ghost_position() -> void:
 
 	_ghost.visible = true
 	_ghost.position = grid_manager.grid_to_world(grid_pos)
-	_ghost.rotation.y = deg_to_rad(_place_rotation * 90.0)
+	_ghost.rotation.y = GridManager.yaw_for_steps(_place_rotation)
 	if _footprint and is_instance_valid(_footprint):
 		_footprint.visible = true
-		_footprint.global_position = grid_manager.grid_to_world(grid_pos)
-		_footprint.global_rotation = Vector3.ZERO
 
-	var valid := grid_manager.can_place_at(grid_pos, selected_item)
+	var valid := grid_manager.can_place_at(grid_pos, selected_item, _place_rotation)
 	if _footprint:
 		_footprint.set_valid(valid)
 	_set_ghost_tint(_ghost, Color(0.45, 1.0, 0.55, 0.4) if valid else Color(1.0, 0.45, 0.45, 0.4))
