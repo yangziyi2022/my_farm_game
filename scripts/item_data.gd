@@ -69,8 +69,9 @@ const ITEMS: Dictionary = {
 		"name": "Dirt",
 		"category": Category.TERRAIN,
 		"color": Color(0.55, 0.38, 0.22),
-		"size": Vector3(1.0, 0.1, 1.0),
-		"offset_y": 0.05,
+		## Same height as grass deck — hoe swaps color, not elevation.
+		"size": Vector3(1.0, 0.02, 1.0),
+		"offset_y": 0.005,
 		"rotatable": false,
 	},
 	ItemType.WATER: {
@@ -78,17 +79,17 @@ const ITEMS: Dictionary = {
 		"name": "Water",
 		"category": Category.TERRAIN,
 		"color": Color(0.2, 0.45, 0.85, 0.8),
-		"size": Vector3(1.0, 0.08, 1.0),
-		"offset_y": 0.04,
+		"size": Vector3(1.0, 0.02, 1.0),
+		"offset_y": 0.005,
 		"rotatable": false,
 	},
 	ItemType.ROCK: {
 		"id": "rock",
 		"name": "Rock",
 		"category": Category.DECOR,
-		"color": Color(0.5, 0.5, 0.52),
-		"size": Vector3(0.7, 0.4, 0.7),
-		"offset_y": 0.2,
+		"color": Color(0.52, 0.52, 0.54),
+		"size": Vector3(0.7, 0.5, 0.7),
+		"offset_y": 0.25,
 		"rotatable": true,
 	},
 	ItemType.TREE: {
@@ -131,6 +132,7 @@ const ITEMS: Dictionary = {
 		"size": Vector3(1.5, 1.2, 1.5),
 		"offset_y": 0.6,
 		"rotatable": true,
+		"show_in_palette": false,
 	},
 	ItemType.HOUSE: {
 		"id": "house",
@@ -187,9 +189,10 @@ const ITEMS: Dictionary = {
 		"id": "granary",
 		"name": "Granary",
 		"category": Category.STRUCTURE,
-		"color": Color(0.72, 0.68, 0.55),
-		"roof_color": Color(0.48, 0.32, 0.22),
-		"door_color": Color(0.45, 0.3, 0.18),
+		"color": Color(0.78, 0.22, 0.18),
+		"roof_color": Color(0.58, 0.58, 0.6),
+		"door_color": Color(0.42, 0.22, 0.14),
+		"window_color": Color(0.55, 0.75, 0.9),
 		"size": Vector3(1.6, 1.5, 1.4),
 		"offset_y": 0.75,
 		"rotatable": true,
@@ -363,8 +366,8 @@ const ITEMS: Dictionary = {
 		"category": Category.TERRAIN,
 		"color": Color(0.62, 0.6, 0.58),
 		"stone_color": Color(0.72, 0.7, 0.68),
-		"size": Vector3(1.0, 0.1, 1.0),
-		"offset_y": 0.05,
+		"size": Vector3(1.0, 0.02, 1.0),
+		"offset_y": 0.005,
 		"rotatable": false,
 	},
 	ItemType.GREENHOUSE: {
@@ -384,9 +387,10 @@ const ITEMS: Dictionary = {
 		"category": Category.DECOR,
 		"color": Color(0.2, 0.48, 0.82, 0.85),
 		"rim_color": Color(0.52, 0.5, 0.48),
-		"size": Vector3(1.1, 0.12, 1.1),
+		"size": Vector3(2.2, 0.12, 2.2),
 		"offset_y": 0.06,
 		"rotatable": true,
+		"footprint": Vector2i(2, 2),
 	},
 	ItemType.FOUNTAIN: {
 		"id": "fountain",
@@ -394,9 +398,10 @@ const ITEMS: Dictionary = {
 		"category": Category.DECOR,
 		"color": Color(0.58, 0.58, 0.6),
 		"water_color": Color(0.35, 0.62, 0.9, 0.75),
-		"size": Vector3(0.9, 0.7, 0.9),
-		"offset_y": 0.35,
+		"size": Vector3(1.8, 0.9, 1.8),
+		"offset_y": 0.4,
 		"rotatable": true,
+		"footprint": Vector2i(2, 2),
 	},
 	ItemType.WIND_WHEEL: {
 		"id": "wind_wheel",
@@ -418,6 +423,7 @@ const ITEMS: Dictionary = {
 		"size": Vector3(1.0, 2.4, 1.0),
 		"offset_y": 1.2,
 		"rotatable": true,
+		"show_in_palette": false,
 	},
 }
 
@@ -564,4 +570,7 @@ static func get_footprint(item_type: ItemType) -> Vector2i:
 	if def:
 		var size: Vector2i = def.footprint_size
 		return Vector2i(maxi(size.x, 1), maxi(size.y, 1))
+	var inline = ITEMS[item_type].get("footprint", Vector2i(1, 1))
+	if inline is Vector2i:
+		return Vector2i(maxi(inline.x, 1), maxi(inline.y, 1))
 	return Vector2i(1, 1)

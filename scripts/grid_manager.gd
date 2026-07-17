@@ -19,23 +19,32 @@ const ISLAND_GLB_PATH: String = "res://assets/models/nature/floating_island.glb"
 ## Raw mesh top Y of floating_island.glb (used to flush the deck with y=0).
 const ISLAND_TOP_LOCAL_Y: float = 0.244
 const ISLAND_SCALE: float = 52.0
+## Low-poly tuft Multimesh (tiny tris) — safe to place on most cells.
+const GRASS_CELL_STEP: int = 2
+const GRASS_XZ_SCALE: float = 0.55
+const GRASS_Y_SCALE: float = 0.7
+const DRAW_GRID_LINES: bool = false
 
 var undo_manager: UndoManager
 
 ## Two layers per cell:
-## - _terrain: grass / dirt / water / stone_path (ground stays when animals/fences sit on top)
+## - _terrain: dirt / water / stone_path (explicit ground). Missing terrain = default grass.
 ## - _objects: animals, buildings, plants, decor (the selectable "content")
 var _terrain: Dictionary = {}  # Vector2i -> Node3D
 var _objects: Dictionary = {}  # Vector2i -> Node3D
 var _selected: Node3D = null
 var _grid_visual: Node3D
 var _water_fish_manager: WaterFishManager
+var _grass_mmi: MultiMeshInstance3D = null
+var _grass_cell_index: Dictionary = {}  # Vector2i -> int
+var _grass_visible_xform: Dictionary = {}  # Vector2i -> Transform3D
 
 @onready var objects_container: Node3D = $Objects
 
 
 func _ready() -> void:
 	_build_grid_visual()
+	_build_default_grass()
 	_water_fish_manager = WaterFishManager.new()
 	_water_fish_manager.name = "WaterFishManager"
 	add_child(_water_fish_manager)
@@ -47,29 +56,28 @@ func _build_grid_visual() -> void:
 	_grid_visual.name = "GridVisual"
 	add_child(_grid_visual)
 
-	var line_material := StandardMaterial3D.new()
-	line_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	line_material.albedo_color = Color(0.28, 0.38, 0.1, 0.45)
-	line_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-
-	# Only draw grid edges that touch at least one circular-in-bounds cell.
-	for x in range(GRID_WIDTH + 1):
-		for y in range(GRID_HEIGHT):
-			if _cell_exists(Vector2i(x, y)) or _cell_exists(Vector2i(x - 1, y)):
-				_add_line(
-					grid_to_world(Vector2i(x, y)),
-					grid_to_world(Vector2i(x, y + 1)),
-					line_material
-				)
-
-	for y in range(GRID_HEIGHT + 1):
-		for x in range(GRID_WIDTH):
-			if _cell_exists(Vector2i(x, y)) or _cell_exists(Vector2i(x, y - 1)):
-				_add_line(
-					grid_to_world(Vector2i(x, y)),
-					grid_to_world(Vector2i(x + 1, y)),
-					line_material
-				)
+	# Per-edge MeshInstance nodes (~thousands) are expensive; off by default.
+	if DRAW_GRID_LINES:
+		var line_material := StandardMaterial3D.new()
+		line_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		line_material.albedo_color = Color(0.28, 0.38, 0.1, 0.45)
+		line_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		for x in range(GRID_WIDTH + 1):
+			for y in range(GRID_HEIGHT):
+				if _cell_exists(Vector2i(x, y)) or _cell_exists(Vector2i(x - 1, y)):
+					_add_line(
+						grid_to_world(Vector2i(x, y)),
+						grid_to_world(Vector2i(x, y + 1)),
+						line_material
+					)
+		for y in range(GRID_HEIGHT + 1):
+			for x in range(GRID_WIDTH):
+				if _cell_exists(Vector2i(x, y)) or _cell_exists(Vector2i(x, y - 1)):
+					_add_line(
+						grid_to_world(Vector2i(x, y)),
+						grid_to_world(Vector2i(x + 1, y)),
+						line_material
+					)
 
 	_build_island()
 
@@ -99,20 +107,19 @@ func _build_island() -> void:
 			model.position.y = -ISLAND_TOP_LOCAL_Y * ISLAND_SCALE
 			island.add_child(model)
 
-	# Soft circular playable disc — color sampled from floating_island grass texture.
+	# Solid grass floor (cheap). Sparse Grass Patch tufts add detail on top.
 	var deck := MeshInstance3D.new()
 	deck.name = "PlayableDeck"
 	var deck_mesh := CylinderMesh.new()
 	deck_mesh.top_radius = PLAY_RADIUS
 	deck_mesh.bottom_radius = PLAY_RADIUS
 	deck_mesh.height = 0.04
-	deck_mesh.radial_segments = 64
+	deck_mesh.radial_segments = 48
 	deck.mesh = deck_mesh
-	deck.position = Vector3(center.x, -0.02, center.z)
+	deck.position = Vector3(center.x, -0.015, center.z)
+	deck.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var deck_mat := StandardMaterial3D.new()
-	# Olive/yellow-green from island basecolor (avg grass).
-	deck_mat.albedo_color = Color(0.31, 0.40, 0.09, 0.42)
-	deck_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	deck_mat.albedo_color = Color(0.30, 0.42, 0.10, 1.0)
 	deck_mat.roughness = 0.95
 	deck.material_override = deck_mat
 	_grid_visual.add_child(deck)
@@ -128,6 +135,136 @@ func _build_island() -> void:
 	ring_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	ring.material_override = ring_mat
 	_grid_visual.add_child(ring)
+
+
+func _build_default_grass() -> void:
+	## Low-poly Multimesh tufts on a solid grass deck. ~20 tris/tuft, not Grass Patch.glb.
+	var cells: Array[Vector2i] = []
+	for x in range(0, GRID_WIDTH, GRASS_CELL_STEP):
+		for y in range(0, GRID_HEIGHT, GRASS_CELL_STEP):
+			var cell := Vector2i(x, y)
+			if is_in_bounds(cell):
+				cells.append(cell)
+	if cells.is_empty():
+		return
+
+	_grass_mmi = MultiMeshInstance3D.new()
+	_grass_mmi.name = "DefaultGrass"
+	_grass_mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_grass_mmi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = _make_lowpoly_grass_tuft_mesh()
+	mm.instance_count = cells.size()
+	_grass_mmi.multimesh = mm
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.34, 0.52, 0.14)
+	mat.roughness = 0.92
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_grass_mmi.material_override = mat
+	objects_container.add_child(_grass_mmi)
+
+	_grass_cell_index.clear()
+	_grass_visible_xform.clear()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 42
+	for i in range(cells.size()):
+		var cell: Vector2i = cells[i]
+		var world := grid_to_world(cell)
+		var yaw := rng.randf() * TAU
+		var xz := GRASS_XZ_SCALE * rng.randf_range(0.85, 1.2)
+		var y_s := GRASS_Y_SCALE * rng.randf_range(0.75, 1.15)
+		var xf := Transform3D.IDENTITY
+		xf.basis = Basis.from_euler(Vector3(0.0, yaw, 0.0)).scaled(Vector3(xz, y_s, xz))
+		xf.origin = world + Vector3(
+			rng.randf_range(-0.15, 0.15),
+			0.01,
+			rng.randf_range(-0.15, 0.15)
+		)
+		_grass_cell_index[cell] = i
+		_grass_visible_xform[cell] = xf
+		mm.set_instance_transform(i, xf)
+
+	_sync_grass_visibility()
+
+
+func _make_lowpoly_grass_tuft_mesh() -> ArrayMesh:
+	## Three crossed blade cards (~18 tris). Cheap enough for dense Multimesh.
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var blades := [
+		{"yaw": 0.0, "w": 0.22, "h": 0.18},
+		{"yaw": deg_to_rad(60.0), "w": 0.2, "h": 0.16},
+		{"yaw": deg_to_rad(120.0), "w": 0.18, "h": 0.2},
+	]
+	for blade in blades:
+		var yaw: float = blade["yaw"]
+		var half_w: float = blade["w"] * 0.5
+		var h: float = blade["h"]
+		var c := cos(yaw)
+		var s := sin(yaw)
+		var bl := Vector3(-half_w * c, 0.0, -half_w * s)
+		var br := Vector3(half_w * c, 0.0, half_w * s)
+		var tl := Vector3(-half_w * 0.35 * c, h, -half_w * 0.35 * s)
+		var tr := Vector3(half_w * 0.35 * c, h, half_w * 0.35 * s)
+		var tip := Vector3(0.0, h * 1.15, 0.0)
+		# Quad
+		st.add_vertex(bl)
+		st.add_vertex(br)
+		st.add_vertex(tr)
+		st.add_vertex(bl)
+		st.add_vertex(tr)
+		st.add_vertex(tl)
+		# Tip
+		st.add_vertex(tl)
+		st.add_vertex(tr)
+		st.add_vertex(tip)
+	st.generate_normals()
+	return st.commit()
+
+
+func _grass_home_for(cell: Vector2i) -> Vector2i:
+	return Vector2i(
+		int(floor(float(cell.x) / float(GRASS_CELL_STEP))) * GRASS_CELL_STEP,
+		int(floor(float(cell.y) / float(GRASS_CELL_STEP))) * GRASS_CELL_STEP
+	)
+
+
+func _refresh_grass_around(cell: Vector2i) -> void:
+	var home := _grass_home_for(cell)
+	if not _grass_cell_index.has(home):
+		return
+	var show := true
+	for ox in range(GRASS_CELL_STEP):
+		for oy in range(GRASS_CELL_STEP):
+			var c := home + Vector2i(ox, oy)
+			if not has_terrain(c):
+				continue
+			var t: ItemData.ItemType = _terrain[c].get_meta("item_type")
+			if t != ItemData.ItemType.GRASS:
+				show = false
+				break
+		if not show:
+			break
+	_set_grass_cell_visible(home, show)
+
+
+func _set_grass_cell_visible(cell: Vector2i, visible: bool) -> void:
+	if _grass_mmi == null or not _grass_cell_index.has(cell):
+		return
+	var idx: int = _grass_cell_index[cell]
+	if visible:
+		_grass_mmi.multimesh.set_instance_transform(idx, _grass_visible_xform[cell])
+	else:
+		_grass_mmi.multimesh.set_instance_transform(idx, Transform3D(Basis().scaled(Vector3.ZERO), Vector3.ZERO))
+
+
+func _sync_grass_visibility() -> void:
+	## Show tufts only when their local STEP×STEP block has no dirt/water/path.
+	if _grass_mmi == null:
+		return
+	for cell: Vector2i in _grass_cell_index:
+		_refresh_grass_around(cell)
 
 
 func _make_circle_ring_mesh(radius: float, thickness: float, segments: int) -> ArrayMesh:
@@ -562,6 +699,7 @@ func _spawn_object(
 
 	if ItemData.is_terrain(item_type):
 		_terrain[grid_pos] = obj
+		_refresh_grass_around(grid_pos)
 	else:
 		_register_content_cells(obj, grid_pos, footprint)
 
@@ -587,8 +725,8 @@ func _add_tile_collider(obj: Node3D, item_type: ItemData.ItemType) -> void:
 	if ItemData.is_terrain(item_type):
 		var col := CollisionShape3D.new()
 		var box := BoxShape3D.new()
-		box.size = Vector3(TILE_WIDTH * 0.98, 0.18, TILE_HEIGHT * 0.98)
-		col.position.y = 0.09
+		box.size = Vector3(TILE_WIDTH * 0.98, 0.08, TILE_HEIGHT * 0.98)
+		col.position.y = 0.02
 		col.shape = box
 		body.add_child(col)
 		obj.add_child(body)
@@ -766,6 +904,7 @@ func _remove_terrain_silent(grid_pos: Vector2i) -> void:
 	_terrain.erase(grid_pos)
 	obj.queue_free()
 	object_removed.emit(grid_pos)
+	_refresh_grass_around(grid_pos)
 
 
 func can_move_content_to(obj: Node3D, new_anchor: Vector2i) -> bool:
@@ -812,6 +951,8 @@ func move_object(from: Vector2i, to: Vector2i) -> bool:
 		_terrain[to] = terrain
 		terrain.set_meta("grid_pos", to)
 		terrain.position = grid_to_world(to)
+		_refresh_grass_around(from)
+		_refresh_grass_around(to)
 		if undo_manager and not undo_manager.is_applying_undo():
 			undo_manager.record_move(from, to)
 		object_moved.emit(from, to)
@@ -888,6 +1029,7 @@ func move_content_group(moves: Array) -> bool:
 		if undo_manager and not undo_manager.is_applying_undo():
 			undo_manager.record_move(entry["from"], to)
 		object_moved.emit(entry["from"], to)
+	_sync_grass_visibility()
 	return true
 
 
@@ -979,6 +1121,7 @@ func clear_all() -> void:
 			object_removed.emit(anchor)
 	for grid_pos: Vector2i in _terrain.duplicate():
 		_remove_terrain_silent(grid_pos)
+	_sync_grass_visibility()
 	if undo_manager:
 		undo_manager.clear()
 
@@ -1052,3 +1195,4 @@ func load_objects_data(data: Array) -> void:
 				place_object_silent(item_type, grid_pos, rotation, growth_stage)
 			continue
 		place_object_silent(item_type, grid_pos, rotation, growth_stage)
+	_sync_grass_visibility()

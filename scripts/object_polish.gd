@@ -53,6 +53,8 @@ static func _attach_spinning_blades(obj: Node3D, speed: float) -> void:
 static func _attach_fountain_jet(obj: Node3D) -> void:
 	var jet := obj.get_node_or_null("FountainJet") as Node3D
 	if jet == null:
+		jet = obj.find_child("FountainJet", true, false) as Node3D
+	if jet == null:
 		return
 	var sway := AmbientSway.new()
 	sway.name = "FountainSway"

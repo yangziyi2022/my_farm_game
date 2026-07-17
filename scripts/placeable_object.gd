@@ -37,6 +37,12 @@ func _attach_visual(item_type: ItemData.ItemType, growth_stage: int = 0) -> void
 				var avg_y := float(footprint.y - 1) * 0.5
 				visual.position.x += (avg_x - avg_y) * half_w
 				visual.position.z += (avg_x + avg_y) * half_h
+		else:
+			var info: Dictionary = ItemData.ITEMS[item_type]
+			var sx: float = float(info.get("visual_scale", 1.0))
+			var sy: float = float(info.get("visual_scale_y", sx))
+			visual.scale = Vector3(sx, sy, sx)
+			visual.position.y = float(info.get("visual_y_offset", 0.0))
 		add_child(visual)
 		return
 
@@ -49,8 +55,8 @@ func _build_procedural(item_type: ItemData.ItemType, _growth_stage: int = 0) -> 
 	match item_type:
 		ItemData.ItemType.TREE:
 			_build_growing_tree(self, info)
-		ItemData.ItemType.SHED:
-			_build_shed(self, info)
+		ItemData.ItemType.ROCK:
+			_build_rock(self, info)
 		ItemData.ItemType.HOUSE, ItemData.ItemType.HOUSE_GREEN:
 			_build_house(self, info)
 		ItemData.ItemType.BARN:
@@ -97,9 +103,8 @@ func _build_procedural(item_type: ItemData.ItemType, _growth_stage: int = 0) -> 
 			_build_fountain(self, info)
 		ItemData.ItemType.WIND_WHEEL:
 			_build_wind_wheel(self, info)
-		ItemData.ItemType.LOOKOUT_TOWER:
-			_build_lookout_tower(self, info)
-		ItemData.ItemType.FENCE:
+		ItemData.ItemType.SHED, ItemData.ItemType.LOOKOUT_TOWER:
+			# Removed from palette; keep minimal fallback for old saves.
 			_build_box(self, info)
 		_:
 			_build_box(self, info)
@@ -278,6 +283,41 @@ static func _build_growing_sunflower(parent: Node3D, info: Dictionary) -> void:
 	parent.add_child(s3)
 
 
+static func _footprint_center_offset(footprint: Vector2i) -> Vector3:
+	var half_w := GridManager.TILE_WIDTH * 0.5
+	var half_h := GridManager.TILE_HEIGHT * 0.5
+	var avg_x := float(maxi(footprint.x, 1) - 1) * 0.5
+	var avg_y := float(maxi(footprint.y, 1) - 1) * 0.5
+	return Vector3((avg_x - avg_y) * half_w, 0.0, (avg_x + avg_y) * half_h)
+
+
+static func _build_rock(parent: Node3D, info: Dictionary) -> void:
+	## Chunked 3D stone (not a flat box).
+	var base_color: Color = info.get("color", Color(0.52, 0.52, 0.54))
+	var main := SphereMesh.new()
+	main.radius = 0.28
+	main.height = 0.42
+	var main_mi := _add_mesh(parent, main, base_color, Vector3(0.0, 0.2, 0.0))
+	main_mi.scale = Vector3(1.15, 0.85, 1.0)
+
+	var bump := SphereMesh.new()
+	bump.radius = 0.16
+	bump.height = 0.26
+	var bump_mi := _add_mesh(parent, bump, base_color.darkened(0.08), Vector3(0.14, 0.22, 0.1))
+	bump_mi.scale = Vector3(1.1, 0.75, 0.95)
+
+	var chip := SphereMesh.new()
+	chip.radius = 0.12
+	chip.height = 0.18
+	var chip_mi := _add_mesh(parent, chip, base_color.lightened(0.06), Vector3(-0.12, 0.16, -0.08))
+	chip_mi.scale = Vector3(1.0, 0.7, 1.15)
+
+	var slab := BoxMesh.new()
+	slab.size = Vector3(0.35, 0.12, 0.28)
+	var slab_mi := _add_mesh(parent, slab, base_color.darkened(0.12), Vector3(0.02, 0.08, -0.12))
+	slab_mi.rotation_degrees = Vector3(8.0, 25.0, -6.0)
+
+
 static func _build_shed(parent: Node3D, info: Dictionary) -> void:
 	var body_mesh := BoxMesh.new()
 	body_mesh.size = Vector3(1.2, 0.8, 1.2)
@@ -362,23 +402,25 @@ static func _build_windmill(parent: Node3D, info: Dictionary) -> void:
 
 
 static func _build_granary(parent: Node3D, info: Dictionary) -> void:
+	## Red house with a triangular gray roof.
 	var body_mesh := BoxMesh.new()
-	body_mesh.size = Vector3(1.3, 1.0, 1.1)
-	_add_mesh(parent, body_mesh, info["color"], Vector3(0.0, 0.5, 0.0))
+	body_mesh.size = Vector3(1.35, 0.95, 1.15)
+	_add_mesh(parent, body_mesh, info["color"], Vector3(0.0, 0.48, 0.0))
 
-	var silo_mesh := CylinderMesh.new()
-	silo_mesh.top_radius = 0.35
-	silo_mesh.bottom_radius = 0.4
-	silo_mesh.height = 0.9
-	_add_mesh(parent, silo_mesh, Color(0.78, 0.74, 0.62), Vector3(0.45, 0.55, 0.0))
-
-	var roof_mesh := BoxMesh.new()
-	roof_mesh.size = Vector3(1.45, 0.12, 1.25)
-	_add_mesh(parent, roof_mesh, info.get("roof_color", Color(0.48, 0.32, 0.22)), Vector3(0.0, 1.06, 0.0))
+	var roof_color: Color = info.get("roof_color", Color(0.58, 0.58, 0.6))
+	var roof := PrismMesh.new()
+	roof.size = Vector3(1.5, 0.55, 1.3)
+	_add_mesh(parent, roof, roof_color, Vector3(0.0, 1.18, 0.0))
 
 	var door_mesh := BoxMesh.new()
-	door_mesh.size = Vector3(0.35, 0.5, 0.05)
-	_add_mesh(parent, door_mesh, info.get("door_color", Color(0.45, 0.3, 0.18)), Vector3(-0.2, 0.3, 0.58))
+	door_mesh.size = Vector3(0.32, 0.5, 0.05)
+	_add_mesh(parent, door_mesh, info.get("door_color", Color(0.42, 0.22, 0.14)), Vector3(0.0, 0.3, 0.6))
+
+	var window_mesh := BoxMesh.new()
+	window_mesh.size = Vector3(0.22, 0.22, 0.05)
+	var win_color: Color = info.get("window_color", Color(0.55, 0.75, 0.9))
+	_add_mesh(parent, window_mesh, win_color, Vector3(-0.38, 0.58, 0.6))
+	_add_mesh(parent, window_mesh, win_color, Vector3(0.38, 0.58, 0.6))
 
 
 static func _build_bridge(parent: Node3D, info: Dictionary) -> void:
@@ -549,8 +591,8 @@ static func _fit_crop_model_to_dirt_tile(model: Node3D, tile_fill: float) -> voi
 	var s: float = minf(sx, sz)
 	model.scale = Vector3.ONE * s
 
-	# Terrain dirt top is ~0.10; nest slightly so it doesn't hover.
-	const DIRT_TOP_Y: float = 0.06
+	# Terrain dirt top is flush with grass (~0.015).
+	const DIRT_TOP_Y: float = 0.015
 	model.position = Vector3(
 		-aabb.get_center().x * s,
 		DIRT_TOP_Y - aabb.position.y * s,
@@ -820,72 +862,82 @@ static func _build_greenhouse(parent: Node3D, info: Dictionary) -> void:
 
 
 static func _build_pond(parent: Node3D, info: Dictionary) -> void:
+	var visual := Node3D.new()
+	visual.name = "Visual"
+	visual.position = _footprint_center_offset(Vector2i(2, 2))
+	parent.add_child(visual)
+
 	var rim_color: Color = info.get("rim_color", Color(0.52, 0.5, 0.48))
-	for i in range(10):
-		var angle := deg_to_rad(i * 36.0)
+	for i in range(14):
+		var angle := deg_to_rad(i * (360.0 / 14.0))
 		var rim_mesh := BoxMesh.new()
-		rim_mesh.size = Vector3(0.22, 0.1, 0.14)
-		var pos := Vector3(cos(angle) * 0.42, 0.06, sin(angle) * 0.42)
-		var rim := _add_mesh(parent, rim_mesh, rim_color, pos)
+		rim_mesh.size = Vector3(0.32, 0.1, 0.2)
+		var pos := Vector3(cos(angle) * 0.95, 0.05, sin(angle) * 0.95)
+		var rim := _add_mesh(visual, rim_mesh, rim_color, pos)
 		rim.rotation.y = angle
 
 	var water_mesh := CylinderMesh.new()
-	water_mesh.top_radius = 0.38
-	water_mesh.bottom_radius = 0.34
+	water_mesh.top_radius = 0.9
+	water_mesh.bottom_radius = 0.85
 	water_mesh.height = 0.06
-	var water := _add_mesh(parent, water_mesh, info["color"], Vector3(0.0, 0.05, 0.0))
-	water.scale = Vector3(1.15, 1.0, 0.85)
+	var water := _add_mesh(visual, water_mesh, info["color"], Vector3(0.0, 0.04, 0.0))
+	water.scale = Vector3(1.15, 1.0, 0.95)
 	var water_mat: StandardMaterial3D = water.material_override
 	water_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	water_mat.roughness = 0.15
 	water_mat.metallic = 0.05
 
 	var inner_mesh := CylinderMesh.new()
-	inner_mesh.top_radius = 0.28
-	inner_mesh.bottom_radius = 0.26
+	inner_mesh.top_radius = 0.55
+	inner_mesh.bottom_radius = 0.5
 	inner_mesh.height = 0.04
-	var inner := _add_mesh(parent, inner_mesh, Color(0.15, 0.42, 0.78, 0.7), Vector3(0.08, 0.07, -0.05))
-	inner.scale = Vector3(1.2, 1.0, 0.75)
+	var inner := _add_mesh(visual, inner_mesh, Color(0.15, 0.42, 0.78, 0.7), Vector3(0.12, 0.06, -0.08))
+	inner.scale = Vector3(1.15, 1.0, 0.85)
 
 
 static func _build_fountain(parent: Node3D, info: Dictionary) -> void:
+	var visual := Node3D.new()
+	visual.name = "Visual"
+	visual.position = _footprint_center_offset(Vector2i(2, 2))
+	parent.add_child(visual)
+
 	var basin_mesh := CylinderMesh.new()
-	basin_mesh.top_radius = 0.42
-	basin_mesh.bottom_radius = 0.38
-	basin_mesh.height = 0.18
-	_add_mesh(parent, basin_mesh, info["color"], Vector3(0.0, 0.12, 0.0))
+	basin_mesh.top_radius = 0.95
+	basin_mesh.bottom_radius = 0.88
+	basin_mesh.height = 0.22
+	_add_mesh(visual, basin_mesh, info["color"], Vector3(0.0, 0.12, 0.0))
 
 	var water_mesh := CylinderMesh.new()
-	water_mesh.top_radius = 0.34
-	water_mesh.bottom_radius = 0.32
+	water_mesh.top_radius = 0.78
+	water_mesh.bottom_radius = 0.74
 	water_mesh.height = 0.06
-	var water := _add_mesh(parent, water_mesh, info.get("water_color", Color(0.35, 0.62, 0.9, 0.75)), Vector3(0.0, 0.16, 0.0))
+	var water := _add_mesh(visual, water_mesh, info.get("water_color", Color(0.35, 0.62, 0.9, 0.75)), Vector3(0.0, 0.18, 0.0))
 	var water_mat: StandardMaterial3D = water.material_override
 	water_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 
 	var pillar_mesh := CylinderMesh.new()
-	pillar_mesh.top_radius = 0.06
-	pillar_mesh.bottom_radius = 0.08
-	pillar_mesh.height = 0.45
-	_add_mesh(parent, pillar_mesh, info["color"].lightened(0.08), Vector3(0.0, 0.38, 0.0))
+	pillar_mesh.top_radius = 0.1
+	pillar_mesh.bottom_radius = 0.14
+	pillar_mesh.height = 0.7
+	_add_mesh(visual, pillar_mesh, info["color"].lightened(0.08), Vector3(0.0, 0.5, 0.0))
 
 	var jet := Node3D.new()
 	jet.name = "FountainJet"
-	jet.position = Vector3(0.0, 0.62, 0.0)
-	parent.add_child(jet)
+	jet.position = Vector3(0.0, 0.9, 0.0)
+	visual.add_child(jet)
 
 	var jet_mesh := CylinderMesh.new()
-	jet_mesh.top_radius = 0.02
-	jet_mesh.bottom_radius = 0.05
-	jet_mesh.height = 0.22
+	jet_mesh.top_radius = 0.03
+	jet_mesh.bottom_radius = 0.08
+	jet_mesh.height = 0.3
 	var jet_inst := _add_mesh(jet, jet_mesh, info.get("water_color", Color(0.35, 0.62, 0.9, 0.75)), Vector3.ZERO)
 	var jet_mat: StandardMaterial3D = jet_inst.material_override
 	jet_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 
 	var top_mesh := SphereMesh.new()
-	top_mesh.radius = 0.06
-	top_mesh.height = 0.08
-	_add_mesh(jet, top_mesh, info.get("water_color", Color(0.45, 0.72, 0.95, 0.8)), Vector3(0.0, 0.14, 0.0))
+	top_mesh.radius = 0.1
+	top_mesh.height = 0.12
+	_add_mesh(jet, top_mesh, info.get("water_color", Color(0.45, 0.72, 0.95, 0.8)), Vector3(0.0, 0.18, 0.0))
 
 
 static func _build_wind_wheel(parent: Node3D, info: Dictionary) -> void:

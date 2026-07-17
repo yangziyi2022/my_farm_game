@@ -329,6 +329,13 @@ func _on_left_press(screen_pos: Vector2) -> void:
 			else:
 				_select_placed_object(picked)
 		else:
+			# Empty ground / sky — clear selection (action buttons handle their own clicks).
+			_dragging = false
+			_group_dragging = false
+			_drag_object = null
+			if not _selected_group.is_empty():
+				_clear_selected_group()
+				status_message.emit("Deselected")
 			_begin_marquee(screen_pos)
 		return
 
@@ -523,6 +530,9 @@ func _set_selected_group(objs: Array) -> void:
 		grid_manager.set_object_highlighted(obj, true)
 		SelectionFlash.play(obj)
 	if _selected_group.is_empty():
+		_drag_object = null
+		_dragging = false
+		_group_dragging = false
 		grid_manager.select_object(null)
 		_hide_selection_actions()
 	else:
