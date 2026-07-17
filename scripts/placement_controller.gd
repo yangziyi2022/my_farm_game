@@ -18,6 +18,10 @@ var cursor_overlay: CursorOverlay
 var tool_cursor: ToolCursor3D
 var _action_bar: Control = null
 var _menu_move_active: bool = false
+var _fish_phase: int = 0  # 0 idle, 1 waiting, 2 biting
+var _fish_cell: Vector2i = Vector2i(-9999, -9999)
+var _fish_water_pos: Vector3 = Vector3.ZERO
+var _fish_wait_left: float = 0.0
 var selected_item: ItemData.ItemType = ItemData.ItemType.GRASS
 var mode: Mode = Mode.SELECT
 var feed_item: InventoryData.Item = InventoryData.Item.WHEAT
@@ -32,7 +36,7 @@ var _drag_origin: Vector2i = Vector2i.ZERO
 var _drag_hover: Vector2i = Vector2i.ZERO
 var _ghost: Node3D = null
 var _footprint: FootprintOverlay = null
-var _hoe_footprint: FootprintOverlay = null
+var _tool_footprint: FootprintOverlay = null
 var _selection_footprint: FootprintOverlay = null
 var _mouse_down_pos: Vector2 = Vector2.ZERO
 var _right_down_pos: Vector2 = Vector2.ZERO
@@ -112,7 +116,7 @@ func enter_select_mode() -> void:
 	_remove_ghost()
 	_hide_cursor_overlay()
 	_hide_tool_cursor()
-	_remove_hoe_footprint()
+	_remove_tool_footprint()
 	feed_mode_cancelled.emit()
 	select_mode_requested.emit()
 	status_message.emit("Select — drag empty ground to box-select, then drag selection to move.")
@@ -127,8 +131,9 @@ func enter_hoe_mode() -> void:
 	_reset_selection_state()
 	_remove_ghost()
 	_hide_cursor_overlay()
+	_reset_fishing_session()
 	_show_hoe_cursor()
-	_ensure_hoe_footprint()
+	_ensure_tool_footprint()
 	feed_mode_cancelled.emit()
 	status_message.emit("Hoe — click grass to turn it into dirt paths.")
 
@@ -141,10 +146,11 @@ func enter_harvest_mode() -> void:
 	_cancel_marquee()
 	_reset_selection_state()
 	_remove_ghost()
-	_hide_tool_cursor()
-	_remove_hoe_footprint()
+	_hide_cursor_overlay()
+	_reset_fishing_session()
+	_show_sickle_cursor()
+	_ensure_tool_footprint()
 	feed_mode_cancelled.emit()
-	_show_cursor_overlay("Harvest", Color(0.95, 0.75, 0.2))
 	status_message.emit("Harvest — click mature plants to collect them.")
 
 
@@ -156,11 +162,12 @@ func enter_fish_mode() -> void:
 	_cancel_marquee()
 	_reset_selection_state()
 	_remove_ghost()
-	_hide_tool_cursor()
-	_remove_hoe_footprint()
+	_reset_fishing_session()
+	_hide_cursor_overlay()
 	feed_mode_cancelled.emit()
-	_show_cursor_overlay("Rod", Color(0.45, 0.35, 0.2))
-	status_message.emit("Rod — click water tiles to catch fish.")
+	_show_rod_cursor()
+	_ensure_tool_footprint()
+	status_message.emit("Rod — click water to cast, wait for a bite, click again to reel in")
 
 
 func enter_feed_mode(item: InventoryData.Item) -> void:
@@ -178,7 +185,7 @@ func enter_feed_mode(item: InventoryData.Item) -> void:
 	_reset_selection_state()
 	_remove_ghost()
 	_hide_tool_cursor()
-	_remove_hoe_footprint()
+	_remove_tool_footprint()
 	_show_cursor_overlay(InventoryData.get_item_name(item), InventoryData.get_color(item))
 	status_message.emit("Feed — click an animal with %s" % InventoryData.get_item_name(item))
 
@@ -193,7 +200,7 @@ func set_selected_item(item_type: ItemData.ItemType) -> void:
 	_cancel_marquee()
 	_reset_selection_state()
 	_hide_tool_cursor()
-	_remove_hoe_footprint()
+	_remove_tool_footprint()
 	feed_mode_cancelled.emit()
 	_update_ghost()
 	_hide_cursor_overlay()
@@ -210,8 +217,10 @@ func perform_undo() -> void:
 func _process(_delta: float) -> void:
 	if mode == Mode.PLACE and _ghost:
 		_update_ghost_position()
-	if mode == Mode.HOE:
-		_update_hoe_footprint()
+	if mode == Mode.HOE or mode == Mode.HARVEST or mode == Mode.FISH:
+		_update_tool_footprint()
+	if mode == Mode.FISH:
+		_update_fishing(_delta)
 	if _menu_move_active:
 		_update_menu_move_follow()
 	if _dragging and _drag_object and is_instance_valid(_drag_object) and not _group_dragging and not _menu_move_active:
@@ -323,6 +332,20 @@ func _on_left_press(screen_pos: Vector2) -> void:
 			_begin_marquee(screen_pos)
 		return
 
+	# Fishing uses ground cell + session state (cast → wait → reel).
+	if mode == Mode.FISH:
+		var fish_cell := _raycast_ground_cell(screen_pos)
+		_register_click(null)
+		if _fish_phase == 2:
+			_reel_in_fish()
+		elif _fish_phase == 1:
+			status_message.emit("Patience — wait for the rod to shake")
+		elif _is_valid_cell(fish_cell):
+			_on_fish_click(fish_cell)
+		else:
+			status_message.emit("Cast only on water")
+		return
+
 	if hit.is_empty():
 		_place_drag = false
 		_register_click(null)
@@ -342,8 +365,6 @@ func _on_left_press(screen_pos: Vector2) -> void:
 				status_message.emit("Hoe only works on grass")
 		Mode.HARVEST:
 			_try_harvest(grid_pos)
-		Mode.FISH:
-			_try_fish(grid_pos)
 		Mode.FEED:
 			_try_feed(grid_pos, hit_obj)
 
@@ -441,7 +462,7 @@ func _select_placed_object(obj: Node3D) -> void:
 	_remove_ghost()
 	_hide_cursor_overlay()
 	_hide_tool_cursor()
-	_remove_hoe_footprint()
+	_remove_tool_footprint()
 	feed_mode_cancelled.emit()
 	select_mode_requested.emit()
 	_set_selected_group([obj])
@@ -821,18 +842,70 @@ func _try_harvest(grid_pos: Vector2i) -> void:
 	if harvest_item == null:
 		status_message.emit("Nothing ready to harvest here")
 		return
+	if tool_cursor:
+		tool_cursor.play_sickle_swing()
 	if inventory_manager:
 		inventory_manager.add_item(harvest_item)
 	status_message.emit("Harvested %s!" % InventoryData.get_item_name(harvest_item))
 
 
 func _try_fish(grid_pos: Vector2i) -> void:
-	if not grid_manager.try_fish(grid_pos):
-		status_message.emit("Cast the rod on water")
+	## Kept for compatibility — fishing now uses the cast / bite / reel flow.
+	_on_fish_click(grid_pos)
+
+
+func _on_fish_click(grid_pos: Vector2i) -> void:
+	match _fish_phase:
+		0:
+			if not grid_manager.try_fish(grid_pos):
+				status_message.emit("Cast only on water")
+				return
+			_fish_cell = grid_pos
+			_fish_water_pos = grid_manager.grid_to_world(grid_pos) + Vector3(0.0, 0.05, 0.0)
+			_fish_phase = 1
+			_fish_wait_left = 5.0
+			if tool_cursor:
+				tool_cursor.play_rod_cast(_fish_water_pos)
+			status_message.emit("Line cast — wait for a bite…")
+		1:
+			status_message.emit("Patience — wait for the rod to shake")
+		2:
+			_reel_in_fish()
+		_:
+			_reset_fishing_session()
+
+
+func _update_fishing(delta: float) -> void:
+	if _fish_phase != 1:
 		return
+	_fish_wait_left -= delta
+	if _fish_wait_left > 0.0:
+		return
+	_fish_phase = 2
+	if tool_cursor:
+		tool_cursor.start_rod_bite_shake()
+	status_message.emit("Bite! Click again to reel in the fish!")
+
+
+func _reel_in_fish() -> void:
 	if inventory_manager:
 		inventory_manager.add_item(InventoryData.Item.FISH)
+	FishCatchEffect.play(grid_manager.objects_container, _fish_water_pos)
+	if tool_cursor:
+		tool_cursor.stop_rod_session()
+	_reset_fishing_session()
 	status_message.emit("Caught a fish!")
+	# Keep rod mode ready for another cast.
+	if tool_cursor and mode == Mode.FISH:
+		tool_cursor.show_rod()
+
+
+func _reset_fishing_session() -> void:
+	_fish_phase = 0
+	_fish_cell = Vector2i(-9999, -9999)
+	_fish_wait_left = 0.0
+	if tool_cursor:
+		tool_cursor.stop_rod_session()
 
 
 func _try_feed(grid_pos: Vector2i, hit_obj: Node3D) -> void:
@@ -1002,6 +1075,7 @@ func _cancel_action() -> void:
 		_cancel_marquee()
 	if _menu_move_active:
 		_cancel_menu_move()
+	_reset_fishing_session()
 	if _group_dragging:
 		_snap_group_home()
 		_end_group_drag()
@@ -1013,7 +1087,7 @@ func _cancel_action() -> void:
 	_remove_ghost()
 	_hide_cursor_overlay()
 	_hide_tool_cursor()
-	_remove_hoe_footprint()
+	_remove_tool_footprint()
 	mode = Mode.SELECT
 	select_mode_requested.emit()
 	status_message.emit("Cancelled — selection cleared")
@@ -1034,37 +1108,61 @@ func _show_hoe_cursor() -> void:
 		tool_cursor.show_hoe()
 
 
+func _show_rod_cursor() -> void:
+	if tool_cursor:
+		tool_cursor.show_rod()
+
+
+func _show_sickle_cursor() -> void:
+	if tool_cursor:
+		tool_cursor.show_sickle()
+
+
 func _hide_tool_cursor() -> void:
+	_reset_fishing_session()
 	if tool_cursor:
 		tool_cursor.hide_tool()
 
 
-func _ensure_hoe_footprint() -> void:
-	if _hoe_footprint and is_instance_valid(_hoe_footprint):
-		_hoe_footprint.visible = true
+func _ensure_tool_footprint() -> void:
+	if _tool_footprint and is_instance_valid(_tool_footprint):
+		_tool_footprint.visible = true
+		_update_tool_footprint()
 		return
-	_hoe_footprint = FootprintOverlay.create_for_item(ItemData.ItemType.DIRT, grid_manager)
-	_hoe_footprint.name = "HoeFootprint"
-	grid_manager.objects_container.add_child(_hoe_footprint)
-	_update_hoe_footprint()
+	_tool_footprint = FootprintOverlay.create_for_item(ItemData.ItemType.DIRT, grid_manager)
+	_tool_footprint.name = "ToolFootprint"
+	grid_manager.objects_container.add_child(_tool_footprint)
+	_update_tool_footprint()
 
 
-func _update_hoe_footprint() -> void:
-	if _hoe_footprint == null or not is_instance_valid(_hoe_footprint):
+func _tool_cell_valid(cell: Vector2i) -> bool:
+	match mode:
+		Mode.HOE:
+			return grid_manager.can_hoe_at(cell)
+		Mode.HARVEST:
+			return grid_manager.is_plant_mature(cell)
+		Mode.FISH:
+			return grid_manager.try_fish(cell)
+		_:
+			return false
+
+
+func _update_tool_footprint() -> void:
+	if _tool_footprint == null or not is_instance_valid(_tool_footprint):
 		return
 	var cell := _raycast_ground_cell(get_viewport().get_mouse_position())
 	if not _is_valid_cell(cell):
-		_hoe_footprint.visible = false
+		_tool_footprint.visible = false
 		return
-	_hoe_footprint.visible = true
-	_hoe_footprint.position = grid_manager.grid_to_world(cell)
-	_hoe_footprint.set_valid(grid_manager.can_hoe_at(cell))
+	_tool_footprint.visible = true
+	_tool_footprint.position = grid_manager.grid_to_world(cell)
+	_tool_footprint.set_valid(_tool_cell_valid(cell))
 
 
-func _remove_hoe_footprint() -> void:
-	if _hoe_footprint and is_instance_valid(_hoe_footprint):
-		_hoe_footprint.queue_free()
-	_hoe_footprint = null
+func _remove_tool_footprint() -> void:
+	if _tool_footprint and is_instance_valid(_tool_footprint):
+		_tool_footprint.queue_free()
+	_tool_footprint = null
 
 
 func _ensure_action_bar() -> void:
