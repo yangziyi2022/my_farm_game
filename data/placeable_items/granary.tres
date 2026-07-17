@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="PlaceableItemDef" load_steps=3 format=3 uid="uid://placeable_item_granary"]
+
+[ext_resource type="Script" path="res://scripts/placeable_item_def.gd" id="1_def"]
+[ext_resource type="PackedScene" uid="uid://granary_placeable" path="res://scenes/placeables/granary.tscn" id="2_granary"]
+
+[resource]
+script = ExtResource("1_def")
+id = "granary"
+display_name = "Granary"
+visual_scene_path = "res://scenes/placeables/granary.tscn"
+visual_scene = ExtResource("2_granary")
+category = 1
+rotatable = true
+visual_scale = 3.5
+visual_y_offset = 0.0
+footprint_size = Vector2i(3, 2)

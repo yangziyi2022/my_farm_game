@@ -1,0 +1,7 @@
+[gd_scene format=3 uid="uid://bridge_placeable"]
+
+[ext_resource type="PackedScene" path="res://assets/models/decorations/bridge.glb" id="1_bridge"]
+
+[node name="BridgePlaceable" type="Node3D"]
+
+[node name="Model" parent="." instance=ExtResource("1_bridge")]

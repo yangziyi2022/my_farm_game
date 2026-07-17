@@ -119,6 +119,9 @@ func enter_select_mode() -> void:
 	_remove_tool_footprint()
 	_clear_selection_footprint()
 	feed_mode_cancelled.emit()
+	# Heal desynced occupancy / unpickable colliders (e.g. stuck windmill).
+	grid_manager.repair_content_registry()
+	_restore_all_pickable()
 	select_mode_requested.emit()
 	status_message.emit("Select — drag empty ground to box-select, then drag selection to move.")
 
@@ -403,16 +406,16 @@ func _restore_all_pickable() -> void:
 
 
 func _pick_selectable_at_screen(screen_pos: Vector2) -> Node3D:
-	## Prefer whatever visible mesh the ray actually hits.
+	## Grid cell under cursor wins — stops tall/wrong colliders from stealing selection.
+	var ground_cell := _raycast_ground_cell(screen_pos)
+	if _is_valid_cell(ground_cell):
+		var at_ground := grid_manager.get_object_at(ground_cell)
+		if at_ground and _is_selectable(at_ground):
+			return at_ground
+
 	var hit := _raycast_pick_object(screen_pos)
 	if hit and _is_selectable(hit):
 		return hit
-	# Empty ground / thin misses: fall back to the cell under the cursor (terrain).
-	var ground_cell := _raycast_ground_cell(screen_pos)
-	if _is_valid_cell(ground_cell):
-		var at_cell := grid_manager.get_object_at(ground_cell)
-		if at_cell and _is_selectable(at_cell):
-			return at_cell
 	return null
 
 
@@ -552,13 +555,18 @@ func _set_selected_group(objs: Array) -> void:
 		grid_manager.select_object(null)
 		_hide_selection_actions()
 	else:
-		grid_manager.select_object(_selected_group[0])
+		if is_instance_valid(_selected_group[0]):
+			grid_manager.select_object(_selected_group[0])
 		_refresh_group_footprints()
 		_show_selection_actions()
 
 
 func _clear_selected_group() -> void:
 	_set_selected_group([])
+	# Same heal as entering Select — clears stuck occupancy / dead colliders.
+	if grid_manager:
+		grid_manager.repair_content_registry()
+		_restore_all_pickable()
 
 
 func _refresh_group_footprints() -> void:
@@ -1042,8 +1050,8 @@ func _on_right_click(screen_pos: Vector2) -> void:
 func _rotate_place_preview() -> void:
 	_place_rotation = (_place_rotation + 1) % 4
 	if _ghost:
-		_ghost.rotation.y = GridManager.yaw_for_steps(_place_rotation)
 		_ghost.set_meta("rotation", _place_rotation)
+		GridManager.apply_placeable_yaw(_ghost, _place_rotation, ItemData.get_footprint(selected_item))
 	status_message.emit("Facing %d° — still placing %s" % [
 		_place_rotation * 90, ItemData.get_item_name(selected_item)
 	])
@@ -1350,11 +1358,17 @@ func _raycast(screen_pos: Vector2) -> Dictionary:
 
 func _resolve_object_from_collider(node: Node) -> Node3D:
 	var current: Node = node
-	while current:
-		if current is Node3D and current.has_meta("grid_pos"):
-			var grid_pos: Vector2i = current.get_meta("grid_pos")
-			if grid_manager.get_object_at(grid_pos) == current:
-				return current
+	while current != null and is_instance_valid(current):
+		if current is Node3D and current.has_meta("item_type") and current.has_meta("grid_pos"):
+			var obj := current as Node3D
+			# Identity match in the content registry (works for multi-cell + repaired anchors).
+			if grid_manager.is_registered_content(obj):
+				return obj
+			if grid_manager.is_terrain_object(obj):
+				return obj
+			# Orphaned placeable (desynced occupancy) — still allow selecting it.
+			if not grid_manager.is_terrain_object(obj):
+				return obj
 		current = current.get_parent()
 	return null
 
@@ -1365,7 +1379,7 @@ func _update_ghost() -> void:
 		return
 	_ghost = PlaceableObject.create(selected_item, Vector2i.ZERO, _place_rotation)
 	_ghost.name = "Ghost"
-	_ghost.rotation.y = GridManager.yaw_for_steps(_place_rotation)
+	GridManager.apply_placeable_yaw(_ghost, _place_rotation, ItemData.get_footprint(selected_item))
 	_set_ghost_transparency(_ghost, 0.4)
 	# Footprint under ghost so it rotates with the preview.
 	_footprint = FootprintOverlay.create_for_item(selected_item, grid_manager)
@@ -1375,6 +1389,8 @@ func _update_ghost() -> void:
 
 
 func _set_ghost_transparency(node: Node, alpha: float) -> void:
+	if node == null or not is_instance_valid(node):
+		return
 	if node is FootprintOverlay:
 		return
 	if node is MeshInstance3D:
@@ -1386,17 +1402,21 @@ func _set_ghost_transparency(node: Node, alpha: float) -> void:
 				var src: Material = node.get_active_material(i)
 				if src == null:
 					continue
-				var dup: Material = src.duplicate() as Material
+				var dup := src.duplicate()
 				if dup is BaseMaterial3D:
-					var bm: BaseMaterial3D = dup as BaseMaterial3D
-					bm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-					bm.albedo_color.a = alpha
+					(dup as BaseMaterial3D).transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+					var c := (dup as BaseMaterial3D).albedo_color
+					c.a = alpha
+					(dup as BaseMaterial3D).albedo_color = c
 				node.set_surface_override_material(i, dup)
 		elif mat:
 			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-			mat.albedo_color.a = alpha
+			var c2 := mat.albedo_color
+			c2.a = alpha
+			mat.albedo_color = c2
 	for child in node.get_children():
-		_set_ghost_transparency(child, alpha)
+		if is_instance_valid(child):
+			_set_ghost_transparency(child, alpha)
 
 
 func _remove_ghost() -> void:
@@ -1432,7 +1452,7 @@ func _update_ghost_position() -> void:
 
 	_ghost.visible = true
 	_ghost.position = grid_manager.grid_to_world(grid_pos)
-	_ghost.rotation.y = GridManager.yaw_for_steps(_place_rotation)
+	GridManager.apply_placeable_yaw(_ghost, _place_rotation, ItemData.get_footprint(selected_item))
 	if _footprint and is_instance_valid(_footprint):
 		_footprint.visible = true
 
@@ -1443,6 +1463,8 @@ func _update_ghost_position() -> void:
 
 
 func _set_ghost_tint(node: Node, color: Color) -> void:
+	if node == null or not is_instance_valid(node):
+		return
 	if node is FootprintOverlay:
 		return
 	if node is MeshInstance3D:
@@ -1452,7 +1474,8 @@ func _set_ghost_tint(node: Node, color: Color) -> void:
 			c.a = mat.albedo_color.a
 			mat.albedo_color = c
 	for child in node.get_children():
-		_set_ghost_tint(child, color)
+		if is_instance_valid(child):
+			_set_ghost_tint(child, color)
 
 
 func _set_ghost_color(node: Node, color: Color) -> void:

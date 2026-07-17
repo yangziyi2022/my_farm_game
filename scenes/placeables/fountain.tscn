@@ -1,0 +1,13 @@
+[gd_scene format=3 uid="uid://fountain_placeable"]
+
+[ext_resource type="PackedScene" uid="uid://dneol5c4bna8t" path="res://assets/models/decorations/stone fountain 3d model.glb" id="1_fountain"]
+
+[node name="FountainPlaceable" type="Node3D"]
+
+[node name="Model" parent="." instance=ExtResource("1_fountain")]
+
+[node name="FountainJet" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.42, 0)
+
+[node name="FountainSplashAnchor" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.42, 0)

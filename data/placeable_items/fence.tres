@@ -9,9 +9,11 @@ id = "fence"
 display_name = "Fence"
 visual_scene = ExtResource("2_fence")
 category = 4
-## fence.glb span on X ≈ 5.89; scale so end posts sit on the end-cell centers
-## of a 3-wide footprint: distance = 2 * TILE_WIDTH (1.25) = 2.5 → 2.5/5.89 ≈ 0.424
-visual_scale = 0.424
+## Auto-fit long axis to 2-cell footprint; overscale so chained ends overlap.
+visual_scale = 1.0
 visual_y_offset = 0.0
-footprint_size = Vector2i(3, 1)
+footprint_size = Vector2i(2, 1)
+fit_long_axis_to_footprint = true
+## Extra length so rails overlap at straight joins AND 90° corners.
+footprint_overscale = 1.66
 rotatable = true

@@ -1,0 +1,7 @@
+[gd_scene format=3 uid="uid://hay_bale_placeable"]
+
+[ext_resource type="PackedScene" uid="uid://cbphfod3y4dmi" path="res://assets/models/decorations/hay bale 3d model.glb" id="1_hay"]
+
+[node name="HayBalePlaceable" type="Node3D"]
+
+[node name="Model" parent="." instance=ExtResource("1_hay")]

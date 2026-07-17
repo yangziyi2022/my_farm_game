@@ -21,6 +21,8 @@ static func play(root: Node3D) -> void:
 
 	var originals: Array[Dictionary] = []
 	for mi in meshes:
+		if mi == null or not is_instance_valid(mi):
+			continue
 		var entry := {"mi": mi, "surfaces": []}
 		# Remember originals so reset() can put them back exactly.
 		var surface_backup: Array = []
@@ -29,14 +31,15 @@ static func play(root: Node3D) -> void:
 				var src: Material = mi.get_active_material(i)
 				surface_backup.append(mi.get_surface_override_material(i))
 				var mat: BaseMaterial3D
-				if src is BaseMaterial3D:
+				if src != null and is_instance_valid(src) and src is BaseMaterial3D:
 					mat = (src as BaseMaterial3D).duplicate() as BaseMaterial3D
 				else:
 					mat = StandardMaterial3D.new()
 				var orig_color := mat.albedo_color
 				entry["surfaces"].append({"index": i, "mat": mat, "color": orig_color})
 				mi.set_surface_override_material(i, mat)
-		if mi.material_override is BaseMaterial3D:
+		var override_mat = mi.material_override
+		if override_mat != null and is_instance_valid(override_mat) and override_mat is BaseMaterial3D:
 			entry["had_override"] = true
 			entry["override_backup"] = mi.material_override
 			var mat2 := (mi.material_override as BaseMaterial3D).duplicate() as BaseMaterial3D
@@ -65,7 +68,7 @@ static func reset(root: Node3D) -> void:
 		return
 	if root.has_meta(META_FLASH_TWEEN):
 		var tw = root.get_meta(META_FLASH_TWEEN)
-		if tw is Tween and is_instance_valid(tw):
+		if tw != null and is_instance_valid(tw) and tw is Tween:
 			(tw as Tween).kill()
 		root.remove_meta(META_FLASH_TWEEN)
 
@@ -111,8 +114,11 @@ static func _restore_meshes(entries: Array) -> void:
 
 
 static func _force_opaque_restore(mi: MeshInstance3D) -> void:
-	if mi.material_override is BaseMaterial3D:
-		var mat := mi.material_override as BaseMaterial3D
+	if mi == null or not is_instance_valid(mi):
+		return
+	var override_mat = mi.material_override
+	if override_mat != null and is_instance_valid(override_mat) and override_mat is BaseMaterial3D:
+		var mat := override_mat as BaseMaterial3D
 		# Procedural placeables use solid colors; restore full alpha if flash left it low.
 		if mat.albedo_color.a < 0.99 and mat.albedo_color.a > 0.01:
 			# Only bump alpha for materials that were meant to be opaque (no intentional glass).
@@ -125,7 +131,7 @@ static func _force_opaque_restore(mi: MeshInstance3D) -> void:
 	if mi.mesh:
 		for i in range(mi.mesh.get_surface_count()):
 			var m := mi.get_surface_override_material(i)
-			if m is BaseMaterial3D:
+			if m != null and is_instance_valid(m) and m is BaseMaterial3D:
 				var bm := m as BaseMaterial3D
 				if bm.albedo_color.a >= 0.4 and bm.albedo_color.a <= 0.7:
 					var c2 := bm.albedo_color
@@ -150,6 +156,8 @@ static func _set_flash(entries: Array, amount: float) -> void:
 
 
 static func _gather(node: Node, out: Array[MeshInstance3D]) -> void:
+	if node == null or not is_instance_valid(node):
+		return
 	if node is FootprintOverlay:
 		return
 	if node.name in ["SelectionFootprint", "HoeFootprint", "HarvestFX", "TileCollider", "LampLight", "FountainSplash"]:
@@ -159,4 +167,5 @@ static func _gather(node: Node, out: Array[MeshInstance3D]) -> void:
 	if node is MeshInstance3D:
 		out.append(node as MeshInstance3D)
 	for child in node.get_children():
-		_gather(child, out)
+		if is_instance_valid(child):
+			_gather(child, out)

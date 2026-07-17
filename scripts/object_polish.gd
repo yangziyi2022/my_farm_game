@@ -23,7 +23,7 @@ static func setup(
 		_attach_animal_behavior(obj, item_type, grid_manager)
 
 	if ItemData.is_growable_plant(item_type):
-		_attach_plant_growth(obj, item_type)
+		_attach_plant_growth(obj, item_type, grid_manager)
 
 	if item_type in [ItemData.ItemType.WINDMILL, ItemData.ItemType.WIND_WHEEL]:
 		_attach_spinning_blades(obj, 52.0 if item_type == ItemData.ItemType.WIND_WHEEL else 38.0)
@@ -56,19 +56,26 @@ static func _attach_spinning_blades(obj: Node3D, speed: float) -> void:
 
 
 static func _attach_fountain_jet(obj: Node3D) -> void:
+	## Prefer markers inside the visual scene; otherwise create a tip above the mesh.
+	var visual := obj.get_node_or_null("Visual") as Node3D
 	var jet := obj.get_node_or_null("FountainJet") as Node3D
 	if jet == null:
 		jet = obj.find_child("FountainJet", true, false) as Node3D
-	if jet:
-		if jet.get_node_or_null("FountainSway") == null:
-			var sway := AmbientSway.new()
-			sway.name = "FountainSway"
-			sway.sway_angle_deg = 1.2
-			sway.sway_speed = 2.4
-			sway.bob_amount = 0.02
-			jet.add_child(sway)
+	if jet == null and visual:
+		jet = Node3D.new()
+		jet.name = "FountainJet"
+		# Raw stone-fountain top ≈ 0.42; sits under Visual scale.
+		jet.position = Vector3(0.0, 0.42, 0.0)
+		visual.add_child(jet)
 
-	# Flower-spray droplets falling into the donut basin.
+	if jet and jet.get_node_or_null("FountainSway") == null:
+		var sway := AmbientSway.new()
+		sway.name = "FountainSway"
+		sway.sway_angle_deg = 1.0
+		sway.sway_speed = 2.2
+		sway.bob_amount = 0.015
+		jet.add_child(sway)
+
 	if obj.find_child("FountainSplash", true, false) != null:
 		return
 	var anchor := obj.find_child("FountainSplashAnchor", true, false) as Node3D
@@ -125,25 +132,43 @@ static func _attach_lamp_glow(obj: Node3D) -> void:
 	_enable_top_mesh_emission(obj, LAMP_TOP_Y - 0.25, GLOW_COLOR)
 
 
-static func _attach_plant_growth(obj: Node3D, item_type: ItemData.ItemType) -> void:
+static func _attach_plant_growth(obj: Node3D, item_type: ItemData.ItemType, grid_manager: GridManager = null) -> void:
 	var growth := CropGrowth.new()
 	growth.name = "CropGrowth"
 	var start_stage: int = obj.get_meta("growth_stage", 0)
 	obj.add_child(growth)
 	growth.setup(obj, start_stage)
-	growth.stage_changed.connect(_on_plant_stage_changed.bind(obj, item_type))
+	growth.stage_changed.connect(_on_plant_stage_changed.bind(obj, item_type, grid_manager))
 
-	if start_stage >= CropGrowth.STAGE_COUNT - 1 \
-			and item_type not in [ItemData.ItemType.WHEAT, ItemData.ItemType.CARROT]:
-		_attach_flower_sway(obj)
+	if start_stage >= CropGrowth.STAGE_COUNT - 1:
+		_on_plant_mature(obj, item_type, grid_manager)
+		if item_type not in [ItemData.ItemType.WHEAT, ItemData.ItemType.CARROT, ItemData.ItemType.TREE]:
+			_attach_flower_sway(obj)
 
 
-static func _on_plant_stage_changed(obj: Node3D, item_type: ItemData.ItemType, stage: int) -> void:
-	# Crops that should stay planted firmly (no soft flower sway).
-	if item_type in [ItemData.ItemType.WHEAT, ItemData.ItemType.CARROT]:
+static func _on_plant_stage_changed(
+	obj: Node3D,
+	item_type: ItemData.ItemType,
+	grid_manager: GridManager,
+	stage: int
+) -> void:
+	if stage < CropGrowth.STAGE_COUNT - 1:
 		return
-	if stage >= CropGrowth.STAGE_COUNT - 1:
-		_attach_flower_sway(obj)
+	_on_plant_mature(obj, item_type, grid_manager)
+	if item_type in [ItemData.ItemType.WHEAT, ItemData.ItemType.CARROT, ItemData.ItemType.TREE]:
+		return
+	_attach_flower_sway(obj)
+
+
+static func _on_plant_mature(obj: Node3D, item_type: ItemData.ItemType, grid_manager: GridManager) -> void:
+	## Mature trees reclaim the soil as grass under the canopy.
+	if item_type != ItemData.ItemType.TREE or grid_manager == null:
+		return
+	if not is_instance_valid(obj) or not obj.has_meta("grid_pos"):
+		return
+	var grid_pos: Vector2i = obj.get_meta("grid_pos")
+	# Defer so we don't free dirt mid-highlight / mid-signal and trip "previously freed" checks.
+	grid_manager.call_deferred("restore_default_grass_at", grid_pos)
 
 
 static func _attach_flower_sway(obj: Node3D) -> void:
@@ -152,6 +177,8 @@ static func _attach_flower_sway(obj: Node3D) -> void:
 
 	var pivot := _create_visual_pivot(obj, SWAY_PIVOT_NAME)
 	for child in obj.get_children():
+		if not is_instance_valid(child):
+			continue
 		if child == pivot or child.name in ["TileCollider", "CropGrowth", "AnimalController"]:
 			continue
 		if child is Node3D and str(child.name).begins_with("Stage"):
@@ -260,7 +287,7 @@ static func _configure_animal(controller: AnimalController, item_type: ItemData.
 
 static func _create_visual_pivot(obj: Node3D, pivot_name: String) -> Node3D:
 	var existing := obj.get_node_or_null(pivot_name)
-	if existing is Node3D:
+	if existing != null and is_instance_valid(existing) and existing is Node3D:
 		return existing
 
 	var pivot := Node3D.new()
@@ -270,6 +297,8 @@ static func _create_visual_pivot(obj: Node3D, pivot_name: String) -> Node3D:
 	# Move render meshes / packed visuals under the pivot so grid root stays fixed.
 	var children := obj.get_children()
 	for child in children:
+		if not is_instance_valid(child):
+			continue
 		if child == pivot:
 			continue
 		if child.name in [
@@ -311,7 +340,10 @@ static func _enable_top_mesh_emission(obj: Node3D, min_local_y: float, color: Co
 
 
 static func _gather_meshes(node: Node, out: Array[MeshInstance3D]) -> void:
+	if node == null or not is_instance_valid(node):
+		return
 	if node is MeshInstance3D:
 		out.append(node as MeshInstance3D)
 	for child in node.get_children():
-		_gather_meshes(child, out)
+		if is_instance_valid(child):
+			_gather_meshes(child, out)

@@ -64,8 +64,8 @@ func _is_water_tile(grid_pos: Vector2i) -> bool:
 		return true
 	# Pond is content (decor), not terrain.
 	var content := _grid_manager.get_content_at(grid_pos)
-	if content and ItemData.is_water_source(content.get_meta("item_type")):
-		return true
+	if content != null and is_instance_valid(content) and content.has_meta("item_type"):
+		return ItemData.is_water_source(content.get_meta("item_type"))
 	return false
 
 

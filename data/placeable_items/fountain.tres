@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="PlaceableItemDef" load_steps=3 format=3 uid="uid://placeable_item_fountain"]
+
+[ext_resource type="Script" path="res://scripts/placeable_item_def.gd" id="1_def"]
+[ext_resource type="PackedScene" uid="uid://fountain_placeable" path="res://scenes/placeables/fountain.tscn" id="2_fountain"]
+
+[resource]
+script = ExtResource("1_def")
+id = "fountain"
+display_name = "Fountain"
+visual_scene_path = "res://scenes/placeables/fountain.tscn"
+visual_scene = ExtResource("2_fountain")
+category = 4
+rotatable = true
+visual_scale = 2.4
+visual_y_offset = 0.0
+footprint_size = Vector2i(2, 2)

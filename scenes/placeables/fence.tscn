@@ -1,7 +1,7 @@
 [gd_scene format=3 uid="uid://cdtqx5ia7xtpu"]
 
-[ext_resource type="PackedScene" uid="uid://dg4er1t208p5r" path="res://assets/models/decorations/fence.glb" id="1_fence"]
+[ext_resource type="PackedScene" path="res://assets/models/decorations/fence.glb" id="1_fence"]
 
-[node name="FencePlaceable" type="Node3D" unique_id=373206370]
+[node name="FencePlaceable" type="Node3D"]
 
-[node name="Model" parent="." unique_id=1373605123 instance=ExtResource("1_fence")]
+[node name="Model" parent="." instance=ExtResource("1_fence")]

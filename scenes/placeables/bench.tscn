@@ -1,0 +1,7 @@
+[gd_scene format=3 uid="uid://bench_placeable"]
+
+[ext_resource type="PackedScene" uid="uid://dt5c344barsra" path="res://assets/models/decorations/wooden park bench 3d model.glb" id="1_bench"]
+
+[node name="BenchPlaceable" type="Node3D"]
+
+[node name="Model" parent="." instance=ExtResource("1_bench")]

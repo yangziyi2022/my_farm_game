@@ -1,0 +1,8 @@
+[gd_scene format=3 uid="uid://granary_placeable"]
+
+[ext_resource type="PackedScene" uid="uid://dkhhsjqltwkd4" path="res://assets/models/buildings/granary 3d model.glb" id="1_granary"]
+
+[node name="GranaryPlaceable" type="Node3D"]
+
+[node name="Model" parent="." instance=ExtResource("1_granary")]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 0, 0, 0)

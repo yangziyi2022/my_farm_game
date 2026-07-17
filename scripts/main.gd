@@ -57,6 +57,9 @@ func _ready() -> void:
 	time_controls.setup(day_night_cycle, grid_manager)
 	time_controls.expand_done.connect(_on_status_message)
 
+	# Fix any desynced placeables from earlier rotate/select bugs.
+	grid_manager.repair_content_registry()
+
 	_on_undo_stack_changed(undo_manager.can_undo())
 	_on_status_message("Island view: right-drag orbit, middle-drag pan, scroll zoom. Expand (right) grows the floor.")
 

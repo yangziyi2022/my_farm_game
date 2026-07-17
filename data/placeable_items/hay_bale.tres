@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="PlaceableItemDef" load_steps=3 format=3 uid="uid://placeable_item_hay_bale"]
+
+[ext_resource type="Script" path="res://scripts/placeable_item_def.gd" id="1_def"]
+[ext_resource type="PackedScene" uid="uid://hay_bale_placeable" path="res://scenes/placeables/hay_bale.tscn" id="2_hay"]
+
+[resource]
+script = ExtResource("1_def")
+id = "hay_bale"
+display_name = "Hay Bale"
+visual_scene_path = "res://scenes/placeables/hay_bale.tscn"
+visual_scene = ExtResource("2_hay")
+category = 4
+rotatable = true
+visual_scale = 1.6
+visual_y_offset = 0.0
+footprint_size = Vector2i(1, 1)

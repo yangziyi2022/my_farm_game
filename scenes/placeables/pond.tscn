@@ -1,0 +1,7 @@
+[gd_scene format=3 uid="uid://pond_placeable"]
+
+[ext_resource type="PackedScene" path="res://assets/models/decorations/pond with rocks 3d model.glb" id="1_pond"]
+
+[node name="PondPlaceable" type="Node3D"]
+
+[node name="Model" parent="." instance=ExtResource("1_pond")]

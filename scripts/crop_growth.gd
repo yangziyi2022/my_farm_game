@@ -49,11 +49,11 @@ func _process(delta: float) -> void:
 
 func _collect_stage_nodes() -> void:
 	_stage_nodes.clear()
-	if _crop_root == null:
+	if _crop_root == null or not is_instance_valid(_crop_root):
 		return
 	for i in range(STAGE_COUNT):
 		var node := _crop_root.get_node_or_null("Stage%d" % i)
-		if node is Node3D:
+		if node != null and is_instance_valid(node) and node is Node3D:
 			_stage_nodes.append(node)
 
 
@@ -63,15 +63,17 @@ func _advance_stage() -> void:
 	_stage += 1
 	_apply_stage(_stage)
 	stage_changed.emit(_stage)
-	if _crop_root:
+	if _crop_root and is_instance_valid(_crop_root):
 		_crop_root.set_meta("growth_stage", _stage)
 
 
 func _apply_stage(stage: int) -> void:
 	for i in range(_stage_nodes.size()):
-		_stage_nodes[i].visible = i == stage
+		var node := _stage_nodes[i]
+		if node != null and is_instance_valid(node):
+			node.visible = i == stage
 
-	if _stage_nodes.is_empty() and _crop_root:
+	if _stage_nodes.is_empty() and _crop_root and is_instance_valid(_crop_root):
 		# Fallback: scale the whole crop for older saves without stage nodes.
 		var scales := [0.25, 0.45, 0.7, 1.0]
 		_crop_root.scale = Vector3.ONE * scales[stage]

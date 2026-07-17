@@ -1,0 +1,8 @@
+[gd_scene format=3 uid="uid://greenhouse_placeable"]
+
+[ext_resource type="PackedScene" uid="uid://byfas6unuy8qp" path="res://assets/models/buildings/greenhouse 3d model.glb" id="1_greenhouse"]
+
+[node name="GreenhousePlaceable" type="Node3D"]
+
+[node name="Model" parent="." instance=ExtResource("1_greenhouse")]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 0, 0, 0)

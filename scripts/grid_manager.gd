@@ -437,76 +437,171 @@ func is_occupied(grid_pos: Vector2i) -> bool:
 
 
 func has_content(grid_pos: Vector2i) -> bool:
-	return _objects.has(grid_pos)
+	if not _objects.has(grid_pos):
+		return false
+	var obj = _objects[grid_pos]
+	if obj == null or not is_instance_valid(obj):
+		_objects.erase(grid_pos)
+		return false
+	return true
 
 
 func has_terrain(grid_pos: Vector2i) -> bool:
-	return _terrain.has(grid_pos)
+	if not _terrain.has(grid_pos):
+		return false
+	var obj = _terrain[grid_pos]
+	if obj == null or not is_instance_valid(obj):
+		_terrain.erase(grid_pos)
+		return false
+	return true
 
 
 func get_terrain_type_at(grid_pos: Vector2i) -> ItemData.ItemType:
-	if _terrain.has(grid_pos):
-		return _terrain[grid_pos].get_meta("item_type")
+	var terrain := get_terrain_at(grid_pos)
+	if terrain != null and is_instance_valid(terrain) and terrain.has_meta("item_type"):
+		return terrain.get_meta("item_type")
 	return ItemData.ItemType.GRASS
 
 
 func get_item_type_at(grid_pos: Vector2i) -> ItemData.ItemType:
 	# Prefer content (animal/building/plant); fall back to terrain.
-	if _objects.has(grid_pos):
-		return _objects[grid_pos].get_meta("item_type")
-	if _terrain.has(grid_pos):
-		return _terrain[grid_pos].get_meta("item_type")
+	var content := get_content_at(grid_pos)
+	if content != null and is_instance_valid(content) and content.has_meta("item_type"):
+		return content.get_meta("item_type")
+	var terrain := get_terrain_at(grid_pos)
+	if terrain != null and is_instance_valid(terrain) and terrain.has_meta("item_type"):
+		return terrain.get_meta("item_type")
 	return ItemData.ItemType.GRASS
 
 
 func get_object_at(grid_pos: Vector2i) -> Node3D:
-	if _objects.has(grid_pos):
-		return _objects[grid_pos]
-	return _terrain.get(grid_pos)
+	var content := get_content_at(grid_pos)
+	if content:
+		return content
+	return get_terrain_at(grid_pos)
 
 
 func get_content_at(grid_pos: Vector2i) -> Node3D:
-	return _objects.get(grid_pos)
+	if not _objects.has(grid_pos):
+		return null
+	var obj = _objects[grid_pos]
+	if obj == null or not is_instance_valid(obj):
+		_objects.erase(grid_pos)
+		return null
+	return obj
 
 
 func get_terrain_at(grid_pos: Vector2i) -> Node3D:
-	return _terrain.get(grid_pos)
+	if not _terrain.has(grid_pos):
+		return null
+	var obj = _terrain[grid_pos]
+	if obj == null or not is_instance_valid(obj):
+		_terrain.erase(grid_pos)
+		return null
+	return obj
 
 
 func get_selected() -> Node3D:
+	if _selected != null and not is_instance_valid(_selected):
+		_selected = null
 	return _selected
 
 
 func get_all_content_objects() -> Array[Node3D]:
 	var result: Array[Node3D] = []
 	var seen: Dictionary = {}
-	for obj in _objects.values():
+	var stale: Array[Vector2i] = []
+	for cell in _objects.keys():
+		var obj = _objects[cell]
+		if obj == null or not is_instance_valid(obj):
+			stale.append(cell)
+			continue
 		if obj is Node3D and not seen.has(obj):
 			seen[obj] = true
 			result.append(obj)
+	for cell in stale:
+		_objects.erase(cell)
 	return result
+
+
+func is_registered_content(obj: Node3D) -> bool:
+	if obj == null or not is_instance_valid(obj):
+		return false
+	for cell: Vector2i in _objects:
+		if _objects[cell] == obj:
+			return true
+	return false
+
+
+func repair_content_registry() -> void:
+	## Rebuild occupancy + pick colliders from live placeable nodes.
+	## Fixes windmills left unselectable after a failed rotate / desynced cells.
+	_objects.clear()
+	if objects_container == null:
+		return
+	for child in objects_container.get_children():
+		if not is_instance_valid(child):
+			continue
+		if not (child is Node3D):
+			continue
+		var obj := child as Node3D
+		if obj.name == "Ghost" or obj is MultiMeshInstance3D:
+			continue
+		if not obj.has_meta("item_type") or not obj.has_meta("grid_pos"):
+			continue
+		var item_type: ItemData.ItemType = obj.get_meta("item_type")
+		if ItemData.is_terrain(item_type):
+			continue
+		_register_content_cells(
+			obj,
+			obj.get_meta("grid_pos"),
+			get_object_footprint(obj),
+			get_object_rotation(obj)
+		)
+		refresh_tile_collider(obj)
+		apply_placeable_yaw(obj, get_object_rotation(obj), get_object_footprint(obj))
 
 
 func get_all_selectable_objects() -> Array[Node3D]:
 	## Content + terrain (dirt / water / stone path). Used by marquee select.
 	var result: Array[Node3D] = []
 	var seen: Dictionary = {}
-	for obj in _objects.values():
+	var stale_content: Array[Vector2i] = []
+	var stale_terrain: Array[Vector2i] = []
+	for cell in _objects.keys():
+		var obj = _objects[cell]
+		if obj == null or not is_instance_valid(obj):
+			stale_content.append(cell)
+			continue
 		if obj is Node3D and not seen.has(obj):
 			seen[obj] = true
 			result.append(obj)
-	for obj in _terrain.values():
+	for cell in _terrain.keys():
+		var obj = _terrain[cell]
+		if obj == null or not is_instance_valid(obj):
+			stale_terrain.append(cell)
+			continue
 		if obj is Node3D and not seen.has(obj):
 			seen[obj] = true
 			result.append(obj)
+	for cell in stale_content:
+		_objects.erase(cell)
+	for cell in stale_terrain:
+		_terrain.erase(cell)
 	return result
 
 
 func get_footprint_cells(anchor: Vector2i, footprint: Vector2i, rotation: int = 0) -> Array[Vector2i]:
-	## Local cell offsets rotate with yaw_for_steps (90° CCW per step around the anchor).
+	## Local cell offsets. Square footprints are rotation-invariant (visual yaw only).
+	## Non-square footprints rotate 90° CCW per step around the anchor.
 	var cells: Array[Vector2i] = []
 	var w: int = maxi(footprint.x, 1)
 	var h: int = maxi(footprint.y, 1)
+	if w == h:
+		for x in range(w):
+			for y in range(h):
+				cells.append(anchor + Vector2i(x, y))
+		return cells
 	var steps := posmod(rotation, 4)
 	for x in range(w):
 		for y in range(h):
@@ -524,6 +619,33 @@ func get_footprint_cells(anchor: Vector2i, footprint: Vector2i, rotation: int = 
 					oy = x
 			cells.append(anchor + Vector2i(ox, oy))
 	return cells
+
+
+static func is_square_footprint(footprint: Vector2i) -> bool:
+	return maxi(footprint.x, 1) == maxi(footprint.y, 1)
+
+
+static func apply_placeable_yaw(obj: Node3D, rotation_steps: int, footprint: Vector2i = Vector2i.ZERO) -> void:
+	## Square multi-cell: spin Visual in place so occupancy (and center offset) stay put.
+	## Non-square: yaw the root so the footprint cells and overlay rotate together.
+	if obj == null:
+		return
+	if footprint == Vector2i.ZERO:
+		if obj.has_meta("footprint"):
+			footprint = obj.get_meta("footprint")
+		elif obj.has_meta("item_type"):
+			footprint = ItemData.get_footprint(obj.get_meta("item_type"))
+		else:
+			footprint = Vector2i(1, 1)
+	var yaw := yaw_for_steps(rotation_steps)
+	var visual := obj.get_node_or_null("Visual") as Node3D
+	if is_square_footprint(footprint) and maxi(footprint.x, 1) > 1 and visual:
+		obj.rotation.y = 0.0
+		visual.rotation.y = yaw
+	else:
+		obj.rotation.y = yaw
+		if visual:
+			visual.rotation.y = 0.0
 
 
 func get_object_footprint(obj: Node3D) -> Vector2i:
@@ -554,6 +676,12 @@ func _cells_for_object(obj: Node3D) -> Array[Vector2i]:
 	return get_footprint_cells(anchor, get_object_footprint(obj), get_object_rotation(obj))
 
 
+func get_cells_for_object(obj: Node3D) -> Array[Vector2i]:
+	if obj == null or not obj.has_meta("grid_pos"):
+		return []
+	return _cells_for_object(obj)
+
+
 func _register_content_cells(obj: Node3D, anchor: Vector2i, footprint: Vector2i, rotation: int = 0) -> void:
 	for cell in get_footprint_cells(anchor, footprint, rotation):
 		_objects[cell] = obj
@@ -573,14 +701,19 @@ func is_terrain_object(obj: Node3D) -> bool:
 
 
 func set_object_highlighted(obj: Node3D, enabled: bool) -> void:
-	if obj and is_instance_valid(obj):
+	if obj != null and is_instance_valid(obj):
 		_highlight_object(obj, enabled)
 
 
 func select_object(obj: Node3D) -> void:
+	if obj != null and not is_instance_valid(obj):
+		obj = null
 	if _selected == obj:
 		return
 	_deselect()
+	# Never assign a freed instance into a typed Node3D slot (crashes hard).
+	if obj != null and not is_instance_valid(obj):
+		return
 	_selected = obj
 	if obj:
 		obj.set_meta("selected", true)
@@ -589,10 +722,13 @@ func select_object(obj: Node3D) -> void:
 
 
 func _deselect() -> void:
-	if _selected:
-		_selected.set_meta("selected", false)
-		_highlight_object(_selected, false)
-		_selected = null
+	var prev: Node3D = null
+	if _selected != null and is_instance_valid(_selected):
+		prev = _selected
+	_selected = null
+	if prev:
+		prev.set_meta("selected", false)
+		_highlight_object(prev, false)
 
 
 func _highlight_object(obj: Node3D, enabled: bool) -> void:
@@ -602,6 +738,8 @@ func _highlight_object(obj: Node3D, enabled: bool) -> void:
 
 
 func _apply_highlight_recursive(node: Node, enabled: bool) -> void:
+	if node == null or not is_instance_valid(node):
+		return
 	if node is FootprintOverlay or str(node.name).begins_with("Footprint") \
 			or node.name in ["SelectionFootprint", "HoeFootprint", "HarvestFX"]:
 		return
@@ -612,7 +750,8 @@ func _apply_highlight_recursive(node: Node, enabled: bool) -> void:
 			mat.emission = Color(0.3, 0.5, 0.8) if enabled else Color.BLACK
 			mat.emission_energy_multiplier = 0.5 if enabled else 0.0
 	for child in node.get_children():
-		_apply_highlight_recursive(child, enabled)
+		if is_instance_valid(child):
+			_apply_highlight_recursive(child, enabled)
 
 
 func can_place_at(grid_pos: Vector2i, item_type: ItemData.ItemType, rotation: int = 0) -> bool:
@@ -825,6 +964,10 @@ func _spawn_object(
 func _add_tile_collider(obj: Node3D, item_type: ItemData.ItemType) -> void:
 	_disable_nested_pick_bodies(obj)
 
+	var existing := find_tile_collider(obj)
+	if existing:
+		existing.free()
+
 	var body := StaticBody3D.new()
 	body.name = "TileCollider"
 	body.collision_layer = 1
@@ -840,93 +983,48 @@ func _add_tile_collider(obj: Node3D, item_type: ItemData.ItemType) -> void:
 		obj.add_child(body)
 		return
 
-	# Crops change mesh per growth stage — keep a stable full-cell pick volume.
+	# Stable footprint boxes only — mesh convex hulls (esp. windmill blades)
+	# caused "click here, select something far away" and broke after in-place yaw.
+	var footprint := ItemData.get_footprint(item_type)
+	var fw: float = float(maxi(footprint.x, 1))
+	var fh: float = float(maxi(footprint.y, 1))
+	var height := 0.7
 	if ItemData.is_growable_plant(item_type):
-		var col := CollisionShape3D.new()
-		var box := BoxShape3D.new()
-		box.size = Vector3(TILE_WIDTH * 0.9, 1.0, TILE_HEIGHT * 0.9)
-		col.position.y = 0.5
-		col.shape = box
-		body.add_child(col)
-		obj.add_child(body)
+		height = 1.0
+	elif ItemData.is_animal(item_type):
+		height = 0.55
+	elif ItemData.is_structure(item_type):
+		height = 2.8
+	elif item_type == ItemData.ItemType.FENCE:
+		height = 0.75
+
+	var col := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(TILE_WIDTH * fw * 0.92, height, TILE_HEIGHT * fh * 0.92)
+	# Local +X/+Z from anchor. Non-square roots yaw with the object; squares stay put.
+	var center := footprint_center_world(Vector2i.ZERO, footprint, 0)
+	col.position = Vector3(center.x, height * 0.5, center.z)
+	col.shape = box
+	body.add_child(col)
+	obj.add_child(body)
+
+
+func refresh_tile_collider(obj: Node3D) -> void:
+	if obj == null or not is_instance_valid(obj) or not obj.has_meta("item_type"):
 		return
-
-	# Content: collision follows visible meshes so clicking the model selects it.
-	var host: Node3D = obj
-	var animal_pivot := obj.get_node_or_null("AnimalPivot") as Node3D
-	var sway_pivot := obj.get_node_or_null("SwayPivot") as Node3D
-	if animal_pivot:
-		host = animal_pivot
-	elif sway_pivot:
-		host = sway_pivot
-
-	var added := 0
-	for mesh_inst in _collect_mesh_instances(host):
-		var col := _collision_shape_from_mesh(host, mesh_inst)
-		if col == null:
-			continue
-		body.add_child(col)
-		added += 1
-
-	if added == 0:
-		var footprint := ItemData.get_footprint(item_type)
-		var col := CollisionShape3D.new()
-		var box := BoxShape3D.new()
-		var fw: float = float(maxi(footprint.x, 1))
-		var fh: float = float(maxi(footprint.y, 1))
-		box.size = Vector3(TILE_WIDTH * fw * 0.82, 0.55, TILE_HEIGHT * fh * 0.82)
-		var center := footprint_center_world(Vector2i.ZERO, footprint)
-		col.position = Vector3(center.x, 0.28, center.z)
-		col.shape = box
-		body.add_child(col)
-
-	host.add_child(body)
+	_add_tile_collider(obj, obj.get_meta("item_type"))
 
 
 func _disable_nested_pick_bodies(root: Node) -> void:
 	## Scene wrappers may ship tiny/wrong StaticBodies; only TileCollider should be pickable.
+	if root == null or not is_instance_valid(root):
+		return
 	for child in root.get_children():
+		if not is_instance_valid(child):
+			continue
 		_disable_nested_pick_bodies(child)
 		if child is CollisionObject3D and child.name != "TileCollider":
 			(child as CollisionObject3D).collision_layer = 0
-
-
-func _collect_mesh_instances(root: Node) -> Array[MeshInstance3D]:
-	var out: Array[MeshInstance3D] = []
-	_collect_mesh_instances_recursive(root, out)
-	return out
-
-
-func _collect_mesh_instances_recursive(node: Node, out: Array[MeshInstance3D]) -> void:
-	if node is MeshInstance3D:
-		var mi := node as MeshInstance3D
-		if mi.mesh != null and mi.visible:
-			out.append(mi)
-	for child in node.get_children():
-		_collect_mesh_instances_recursive(child, out)
-
-
-func _collision_shape_from_mesh(host: Node3D, mesh_inst: MeshInstance3D) -> CollisionShape3D:
-	if mesh_inst.mesh == null:
-		return null
-	# Convex approximates the visible silhouette well enough for click selection.
-	var shape: Shape3D = mesh_inst.mesh.create_convex_shape(true, true)
-	if shape == null:
-		var aabb := mesh_inst.get_aabb()
-		if aabb.size.length_squared() < 0.000001:
-			return null
-		var box := BoxShape3D.new()
-		box.size = aabb.size
-		var col_aabb := CollisionShape3D.new()
-		col_aabb.shape = box
-		col_aabb.transform = host.global_transform.affine_inverse() * mesh_inst.global_transform \
-			* Transform3D(Basis.IDENTITY, aabb.get_center())
-		return col_aabb
-
-	var col := CollisionShape3D.new()
-	col.shape = shape
-	col.transform = host.global_transform.affine_inverse() * mesh_inst.global_transform
-	return col
 
 
 func find_tile_collider(obj: Node3D) -> CollisionObject3D:
@@ -941,7 +1039,9 @@ func find_tile_collider(obj: Node3D) -> CollisionObject3D:
 func remove_object(grid_pos: Vector2i) -> void:
 	# Prefer removing content (animal/fence); terrain only if nothing sits on it.
 	if has_content(grid_pos):
-		var obj: Node3D = _objects[grid_pos]
+		var obj := get_content_at(grid_pos)
+		if obj == null:
+			return
 		if undo_manager and not undo_manager.is_applying_undo():
 			undo_manager.record_remove(
 				grid_pos,
@@ -953,7 +1053,9 @@ func remove_object(grid_pos: Vector2i) -> void:
 		return
 
 	if has_terrain(grid_pos):
-		var terrain: Node3D = _terrain[grid_pos]
+		var terrain := get_terrain_at(grid_pos)
+		if terrain == null:
+			return
 		if undo_manager and not undo_manager.is_applying_undo():
 			undo_manager.record_remove(
 				grid_pos,
@@ -995,10 +1097,14 @@ func remove_node(obj: Node3D) -> bool:
 func remove_object_silent(grid_pos: Vector2i) -> void:
 	if not _objects.has(grid_pos):
 		return
-	var obj: Node3D = _objects[grid_pos]
+	var obj = _objects[grid_pos]
+	if obj == null or not is_instance_valid(obj):
+		_objects.erase(grid_pos)
+		return
 	if _selected == obj:
 		_deselect()
 	_unregister_content_object(obj)
+	SelectionFlash.reset(obj)
 	obj.queue_free()
 	object_removed.emit(grid_pos)
 
@@ -1007,12 +1113,28 @@ func _remove_terrain_silent(grid_pos: Vector2i) -> void:
 	if not _terrain.has(grid_pos):
 		return
 	var obj: Node3D = _terrain[grid_pos]
+	if not is_instance_valid(obj):
+		_terrain.erase(grid_pos)
+		_refresh_grass_around(grid_pos)
+		return
 	if _selected == obj:
 		_deselect()
 	_terrain.erase(grid_pos)
+	# Clear selection flash tweens before free to avoid "previously freed" checks.
+	SelectionFlash.reset(obj)
 	obj.queue_free()
 	object_removed.emit(grid_pos)
 	_refresh_grass_around(grid_pos)
+
+
+func restore_default_grass_at(grid_pos: Vector2i) -> void:
+	## Remove explicit dirt/path so the cell shows the default grass deck again.
+	if not is_in_bounds(grid_pos):
+		return
+	if has_terrain(grid_pos):
+		_remove_terrain_silent(grid_pos)
+	else:
+		_refresh_grass_around(grid_pos)
 
 
 func can_move_content_to(obj: Node3D, new_anchor: Vector2i) -> bool:
@@ -1173,17 +1295,19 @@ func rotate_object(grid_pos: Vector2i, steps: int = 1) -> void:
 	var new_rot: int = (old_rot + steps) % 4
 	var footprint := get_object_footprint(obj)
 	var anchor: Vector2i = obj.get_meta("grid_pos")
-	# Ensure the rotated footprint fits before committing.
-	for cell in get_footprint_cells(anchor, footprint, new_rot):
-		if not is_in_bounds(cell):
-			return
-		if has_content(cell) and _objects[cell] != obj:
-			return
-	_unregister_content_object(obj)
+	# Non-square footprints change occupied cells; square ones only spin the mesh.
+	if not is_square_footprint(footprint) or maxi(footprint.x, 1) <= 1:
+		for cell in get_footprint_cells(anchor, footprint, new_rot):
+			if not is_in_bounds(cell):
+				return
+			if has_content(cell) and _objects[cell] != obj:
+				return
+		_unregister_content_object(obj)
+		if not is_terrain_object(obj):
+			_register_content_cells(obj, anchor, footprint, new_rot)
+
 	obj.set_meta("rotation", new_rot)
-	obj.rotation.y = yaw_for_steps(new_rot)
-	if not is_terrain_object(obj):
-		_register_content_cells(obj, anchor, footprint, new_rot)
+	apply_placeable_yaw(obj, new_rot, footprint)
 
 	if undo_manager and not undo_manager.is_applying_undo():
 		undo_manager.record_rotate(grid_pos, old_rot, new_rot)
@@ -1195,11 +1319,12 @@ func set_rotation_silent(grid_pos: Vector2i, rotation: int) -> void:
 		return
 	var footprint := get_object_footprint(obj)
 	var anchor: Vector2i = obj.get_meta("grid_pos")
-	_unregister_content_object(obj)
+	if not is_square_footprint(footprint) or maxi(footprint.x, 1) <= 1:
+		_unregister_content_object(obj)
+		if not is_terrain_object(obj):
+			_register_content_cells(obj, anchor, footprint, rotation)
 	obj.set_meta("rotation", rotation)
-	obj.rotation.y = yaw_for_steps(rotation)
-	if not is_terrain_object(obj):
-		_register_content_cells(obj, anchor, footprint, rotation)
+	apply_placeable_yaw(obj, rotation, footprint)
 
 
 func get_all_objects_data() -> Array:
@@ -1314,22 +1439,13 @@ func animal_can_step_to(animal: Node3D, to: Vector2i) -> bool:
 	var item_type: ItemData.ItemType = animal.get_meta("item_type")
 	if is_water_cell(to) and not ItemData.can_live_on_water(item_type):
 		return false
-	# Don't cut corners through fences / buildings on a diagonal step.
+	# Orthogonal steps only — diagonal lets animals slip through fence-corner gaps
+	# (common with 3×1 fence segments that leave the corner cell empty).
 	var from: Vector2i = animal.get_meta("grid_pos")
 	var delta := to - from
-	if absi(delta.x) == 1 and absi(delta.y) == 1:
-		if _cell_blocks_animal_passage(from + Vector2i(delta.x, 0)):
-			return false
-		if _cell_blocks_animal_passage(from + Vector2i(0, delta.y)):
-			return false
+	if absi(delta.x) + absi(delta.y) != 1:
+		return false
 	return true
-
-
-func _cell_blocks_animal_passage(cell: Vector2i) -> bool:
-	## Any content (especially fence / buildings) blocks diagonal corner-cutting.
-	if not is_in_bounds(cell):
-		return true
-	return has_content(cell)
 
 
 func is_water_cell(grid_pos: Vector2i) -> bool:
@@ -1427,3 +1543,4 @@ func load_objects_data(data: Array) -> void:
 			continue
 		place_object_silent(item_type, grid_pos, rotation, growth_stage)
 	_sync_grass_visibility()
+	repair_content_registry()

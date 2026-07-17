@@ -133,10 +133,10 @@ func _build_palette() -> void:
 
 	# Category accordions
 	var cat_meta := {
-		ItemData.Category.TERRAIN: {"id": "terrain", "title": "Terrain", "icon": _icon_dirt(), "color": Color(0.55, 0.38, 0.22)},
+		ItemData.Category.TERRAIN: {"id": "terrain", "title": "Terrain", "icon": _icon_dirt(), "color": Color(0.40, 0.26, 0.07)},
 		ItemData.Category.STRUCTURE: {"id": "buildings", "title": "Building", "icon": _icon_house(), "color": Color(0.7, 0.45, 0.35)},
 		ItemData.Category.ANIMAL: {"id": "animals", "title": "Animal", "icon": _icon_rabbit(), "color": Color(0.85, 0.75, 0.7)},
-		ItemData.Category.PLANT: {"id": "crops", "title": "Seed", "icon": _icon_wheat(), "color": Color(0.85, 0.72, 0.25)},
+		ItemData.Category.PLANT: {"id": "crops", "title": "Seed", "icon": _icon_pink_flower(), "color": Color(0.9, 0.55, 0.7)},
 		ItemData.Category.DECOR: {"id": "decor", "title": "Decoration", "icon": _icon_bulb(), "color": Color(0.95, 0.85, 0.35)},
 	}
 
@@ -145,11 +145,8 @@ func _build_palette() -> void:
 		var body := VBoxContainer.new()
 		body.add_theme_constant_override("separation", 4)
 		for item_type in ItemData.get_items_by_category(category):
+			# Text-only item rows — icons belong on category headers only.
 			var btn := _make_child_button(ItemData.get_display_name(item_type))
-			var item_icon := ItemData.get_icon(item_type)
-			if item_icon:
-				btn.icon = item_icon
-				btn.expand_icon = true
 			btn.toggle_mode = true
 			btn.pressed.connect(_on_item_pressed.bind(item_type))
 			body.add_child(btn)
@@ -395,7 +392,7 @@ func _icon_hammer() -> Texture2D:
 func _icon_dirt() -> Texture2D:
 	var img := Image.create(64, 64, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0, 0, 0, 0))
-	var soil := Color(0.55, 0.38, 0.22)
+	var soil := Color(0.40, 0.26, 0.07)
 	var dark := Color(0.4, 0.28, 0.15)
 	# Isometric-ish mound
 	for y in range(20, 50):
@@ -449,6 +446,35 @@ func _icon_wheat() -> Texture2D:
 	for i in range(5):
 		var y := 12 + i * 4
 		_fill_rect(img, 24, y, 40, y + 3, head)
+	return ImageTexture.create_from_image(img)
+
+
+func _icon_pink_flower() -> Texture2D:
+	## Soft pink blossom for the Seed category header.
+	var img := Image.create(64, 64, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var petal := Color(0.95, 0.55, 0.72)
+	var petal_dark := Color(0.88, 0.4, 0.62)
+	var center := Color(1.0, 0.88, 0.45)
+	var stem := Color(0.35, 0.62, 0.32)
+	_fill_rect(img, 30, 36, 34, 56, stem)
+	# Five petals around center.
+	for i in range(5):
+		var ang := -PI * 0.5 + float(i) * TAU / 5.0
+		var cx := 32.0 + cos(ang) * 12.0
+		var cy := 26.0 + sin(ang) * 12.0
+		for y in range(64):
+			for x in range(64):
+				var dx := float(x) - cx
+				var dy := float(y) - cy
+				if dx * dx + dy * dy <= 81.0:
+					img.set_pixel(x, y, petal if (i % 2 == 0) else petal_dark)
+	for y in range(64):
+		for x in range(64):
+			var dx := x - 32
+			var dy := y - 26
+			if dx * dx + dy * dy <= 49:
+				img.set_pixel(x, y, center)
 	return ImageTexture.create_from_image(img)
 
 

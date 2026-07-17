@@ -13,8 +13,9 @@ static func create(item_type: ItemData.ItemType, grid_pos: Vector2i, rotation: i
 	obj.set_meta("grid_pos", grid_pos)
 	obj.set_meta("rotation", rotation)
 	obj.set_meta("growth_stage", growth_stage)
-	obj.rotation.y = GridManager.yaw_for_steps(rotation)
+	obj.set_meta("footprint", ItemData.get_footprint(item_type))
 	obj._attach_visual(item_type, growth_stage)
+	GridManager.apply_placeable_yaw(obj, rotation, ItemData.get_footprint(item_type))
 	return obj
 
 
@@ -28,11 +29,16 @@ func _attach_visual(item_type: ItemData.ItemType, growth_stage: int = 0) -> void
 		var s: float = float(info.get("visual_scale", 1.0))
 		var sy: float = float(info.get("visual_scale_y", s))
 		var y_off: float = float(info.get("visual_y_offset", 0.0))
+		var fit_long := false
+		var fit_xz := false
+		var overscale := 1.12
 		if def:
 			s = def.visual_scale
 			sy = s
 			y_off = def.visual_y_offset
-		visual.scale = Vector3(s, sy, s)
+			fit_long = def.fit_long_axis_to_footprint
+			fit_xz = def.fit_xz_to_footprint
+			overscale = def.footprint_overscale
 		visual.position.y = y_off
 		# Center multi-cell visuals on the footprint while root stays on the anchor cell.
 		var footprint := ItemData.get_footprint(item_type)
@@ -41,7 +47,22 @@ func _attach_visual(item_type: ItemData.ItemType, growth_stage: int = 0) -> void
 			var avg_y := float(footprint.y - 1) * 0.5
 			visual.position.x += avg_x * GridManager.TILE_WIDTH
 			visual.position.z += avg_y * GridManager.TILE_HEIGHT
+		# Measure at scale 1, then fit or apply visual_scale.
+		visual.scale = Vector3.ONE
 		add_child(visual)
+		if fit_xz:
+			_fit_visual_xz_to_footprint(visual, footprint, overscale)
+		elif fit_long:
+			_fit_visual_long_axis_to_footprint(visual, footprint, overscale)
+			# Fence rails (橫木) need extra length for 90° corners.
+			if item_type == ItemData.ItemType.FENCE:
+				var aabb := _collect_local_aabb(visual)
+				if aabb.size.x >= aabb.size.z:
+					visual.scale.x *= 1.28
+				else:
+					visual.scale.z *= 1.28
+		else:
+			visual.scale = Vector3(s, sy, s)
 		return
 
 	# Fallback: keep existing procedural builders so gameplay never breaks.
@@ -99,6 +120,10 @@ func _build_procedural(item_type: ItemData.ItemType, _growth_stage: int = 0) -> 
 			_build_pond(self, info)
 		ItemData.ItemType.FOUNTAIN:
 			_build_fountain(self, info)
+		ItemData.ItemType.BENCH:
+			_build_bench(self, info)
+		ItemData.ItemType.HAY_BALE:
+			_build_hay_bale(self, info)
 		ItemData.ItemType.WIND_WHEEL:
 			_build_wind_wheel(self, info)
 		ItemData.ItemType.SHED, ItemData.ItemType.LOOKOUT_TOWER:
@@ -146,13 +171,8 @@ static func _build_tree(parent: Node3D, info: Dictionary) -> void:
 
 
 static func _build_growing_tree(parent: Node3D, info: Dictionary) -> void:
-	# Stage 0 — seed; 1 sapling; 2 young tree; 3 mature tree.
-	var s0 := Node3D.new()
-	s0.name = "Stage0"
-	var seed := SphereMesh.new()
-	seed.radius = 0.05
-	_add_mesh(s0, seed, Color(0.4, 0.28, 0.15), Vector3(0.0, 0.1, 0.0))
-	parent.add_child(s0)
+	# Stage 0 — four seeds; 1 sapling; 2 young tree; 3 mature tree.glb.
+	parent.add_child(_make_four_seed_stage(Color(0.4, 0.28, 0.15)))
 
 	var s1 := Node3D.new()
 	s1.name = "Stage1"
@@ -167,39 +187,33 @@ static func _build_growing_tree(parent: Node3D, info: Dictionary) -> void:
 	_add_mesh(s1, leaf, info["color"], Vector3(0.0, 0.3, 0.0))
 	parent.add_child(s1)
 
-	var s2 := Node3D.new()
-	s2.name = "Stage2"
-	var trunk2 := CylinderMesh.new()
-	trunk2.top_radius = 0.07
-	trunk2.bottom_radius = 0.09
-	trunk2.height = 0.4
-	_add_mesh(s2, trunk2, info.get("trunk_color", Color(0.45, 0.3, 0.15)), Vector3(0.0, 0.22, 0.0))
-	var canopy2 := SphereMesh.new()
-	canopy2.radius = 0.28
-	canopy2.height = 0.45
-	_add_mesh(s2, canopy2, info["color"], Vector3(0.0, 0.55, 0.0))
-	parent.add_child(s2)
+	const TREE_GLB := "res://assets/models/nature/tree 3d model.glb"
+	parent.add_child(_make_glb_model_stage("Stage2", TREE_GLB, 1.35))
+	parent.add_child(_make_glb_model_stage("Stage3", TREE_GLB, 1.85))
 
-	var s3 := Node3D.new()
-	s3.name = "Stage3"
-	_build_tree(s3, info)
-	parent.add_child(s3)
+
+static func _make_glb_model_stage(stage_name: String, glb_path: String, model_scale: float) -> Node3D:
+	var node := Node3D.new()
+	node.name = stage_name
+	if ResourceLoader.exists(glb_path):
+		var packed := load(glb_path) as PackedScene
+		if packed:
+			var model: Node3D = packed.instantiate() as Node3D
+			model.name = "Model"
+			model.scale = Vector3.ONE * model_scale
+			node.add_child(model)
+			return node
+	# Fallback stub if the GLB is missing.
+	var stub := SphereMesh.new()
+	stub.radius = 0.35 * model_scale
+	_add_mesh(node, stub, Color(0.25, 0.55, 0.2), Vector3(0.0, 0.5 * model_scale, 0.0))
+	return node
 
 
 static func _build_growing_carrot(parent: Node3D, info: Dictionary) -> void:
 	var leaf_color: Color = info.get("leaf_color", Color(0.25, 0.65, 0.22))
-	var carrot_color: Color = info["color"]
 
-	var s0 := Node3D.new()
-	s0.name = "Stage0"
-	for offset in [
-		Vector3(-0.2, 0.1, -0.2), Vector3(0.2, 0.1, -0.2),
-		Vector3(-0.2, 0.1, 0.2), Vector3(0.2, 0.1, 0.2),
-	]:
-		var seed := SphereMesh.new()
-		seed.radius = 0.04
-		_add_mesh(s0, seed, Color(0.45, 0.32, 0.18), offset)
-	parent.add_child(s0)
+	parent.add_child(_make_four_seed_stage(Color(0.45, 0.32, 0.18)))
 
 	var s1 := Node3D.new()
 	s1.name = "Stage1"
@@ -211,49 +225,15 @@ static func _build_growing_carrot(parent: Node3D, info: Dictionary) -> void:
 		_add_mesh(s1, sprout, leaf_color, pos)
 	parent.add_child(s1)
 
-	var s2 := Node3D.new()
-	s2.name = "Stage2"
-	for i in range(4):
-		var angle := deg_to_rad(i * 90.0 + 20.0)
-		var base := Vector3(cos(angle) * 0.22, 0.0, sin(angle) * 0.22)
-		var top := CylinderMesh.new()
-		top.top_radius = 0.0
-		top.bottom_radius = 0.05
-		top.height = 0.18
-		_add_mesh(s2, top, carrot_color, base + Vector3(0.0, 0.12, 0.0))
-		var greens := BoxMesh.new()
-		greens.size = Vector3(0.05, 0.16, 0.05)
-		_add_mesh(s2, greens, leaf_color, base + Vector3(0.0, 0.28, 0.0))
-	parent.add_child(s2)
-
-	var s3 := Node3D.new()
-	s3.name = "Stage3"
-	for i in range(4):
-		var angle := deg_to_rad(i * 90.0 + 20.0)
-		var base := Vector3(cos(angle) * 0.24, 0.0, sin(angle) * 0.24)
-		var body := CylinderMesh.new()
-		body.top_radius = 0.02
-		body.bottom_radius = 0.07
-		body.height = 0.28
-		_add_mesh(s3, body, carrot_color, base + Vector3(0.0, 0.14, 0.0))
-		var greens := BoxMesh.new()
-		greens.size = Vector3(0.08, 0.22, 0.08)
-		_add_mesh(s3, greens, leaf_color, base + Vector3(0.0, 0.36, 0.0))
-	parent.add_child(s3)
+	const CARROT_GLB := "res://assets/models/crops/carrot plants 3d model.glb"
+	# Godot-yaw −32° squares the soil bed to the grid; cover-fill the translucent cell.
+	parent.add_child(_make_wheat_model_stage("Stage2", CARROT_GLB, 1.0, -32.0, true))
+	parent.add_child(_make_wheat_model_stage("Stage3", CARROT_GLB, 1.06, -32.0, true))
 
 
 static func _build_growing_sunflower(parent: Node3D, info: Dictionary) -> void:
-	# Same 4-stage flow as wheat: seeds → sprout → budding → mature bloom.
-	var s0 := Node3D.new()
-	s0.name = "Stage0"
-	for offset in [
-		Vector3(-0.2, 0.1, -0.2), Vector3(0.2, 0.1, -0.2),
-		Vector3(-0.2, 0.1, 0.2), Vector3(0.2, 0.1, 0.2),
-	]:
-		var seed := SphereMesh.new()
-		seed.radius = 0.04
-		_add_mesh(s0, seed, Color(0.45, 0.32, 0.18), offset)
-	parent.add_child(s0)
+	# Seeds → sprout → budding → mature sunflower.glb.
+	parent.add_child(_make_four_seed_stage(Color(0.45, 0.32, 0.18)))
 
 	var s1 := Node3D.new()
 	s1.name = "Stage1"
@@ -275,10 +255,8 @@ static func _build_growing_sunflower(parent: Node3D, info: Dictionary) -> void:
 	_add_mesh(s2, bud, info.get("center_color", Color(0.45, 0.32, 0.12)), Vector3(0.0, 0.42, 0.0))
 	parent.add_child(s2)
 
-	var s3 := Node3D.new()
-	s3.name = "Stage3"
-	_build_sunflower(s3, info)
-	parent.add_child(s3)
+	const SUNFLOWER_GLB := "res://assets/models/crops/sunflower 3d model.glb"
+	parent.add_child(_make_wheat_model_stage("Stage3", SUNFLOWER_GLB, 0.52))
 
 
 static func _footprint_center_offset(footprint: Vector2i) -> Vector3:
@@ -489,9 +467,17 @@ static func _make_flower_stage(info: Dictionary, stage: int, is_sunflower: bool)
 
 	match stage:
 		0:
-			var seed_mesh := SphereMesh.new()
-			seed_mesh.radius = 0.04
-			_add_mesh(node, seed_mesh, Color(0.45, 0.32, 0.18), Vector3(0.0, 0.1, 0.0))
+			# Four corner seeds — same layout as wheat / other crops.
+			var span := GridManager.TILE_WIDTH * 0.28
+			for offset in [
+				Vector3(-span, 0.1, -span),
+				Vector3(span, 0.1, -span),
+				Vector3(-span, 0.1, span),
+				Vector3(span, 0.1, span),
+			]:
+				var seed_mesh := SphereMesh.new()
+				seed_mesh.radius = 0.04
+				_add_mesh(node, seed_mesh, Color(0.45, 0.32, 0.18), offset)
 		1:
 			var sprout_mesh := BoxMesh.new()
 			sprout_mesh.size = Vector3(0.05, 0.12, 0.05)
@@ -517,7 +503,7 @@ static func _make_flower_stage(info: Dictionary, stage: int, is_sunflower: bool)
 
 static func _build_growing_wheat(parent: Node3D, _info: Dictionary) -> void:
 	## Stage 0 seeds → 1 small yellow grass → 2/3 mature wheat.glb.
-	parent.add_child(_make_wheat_seed_stage())
+	parent.add_child(_make_four_seed_stage(Color(0.52, 0.36, 0.18)))
 	parent.add_child(_make_wheat_yellow_grass_stage("Stage1", 0.55))
 	parent.add_child(_make_wheat_model_stage(
 		"Stage2",
@@ -532,10 +518,10 @@ static func _build_growing_wheat(parent: Node3D, _info: Dictionary) -> void:
 	))
 
 
-static func _make_wheat_seed_stage() -> Node3D:
+static func _make_four_seed_stage(seed_color: Color = Color(0.52, 0.36, 0.18)) -> Node3D:
+	## Shared Stage0: four seeds in the corners of the dirt tile.
 	var node := Node3D.new()
 	node.name = "Stage0"
-	var seed_color := Color(0.52, 0.36, 0.18)
 	var span := GridManager.TILE_WIDTH * 0.28
 	var offsets := [
 		Vector3(-span, 0.12, -span),
@@ -584,7 +570,9 @@ static func _make_wheat_yellow_grass_stage(stage_name: String, height_scale: flo
 static func _make_wheat_model_stage(
 	stage_name: String,
 	scene_path: String,
-	tile_fill: float
+	tile_fill: float,
+	yaw_degrees: float = 0.0,
+	cover_tile: bool = false
 ) -> Node3D:
 	var node := Node3D.new()
 	node.name = stage_name
@@ -593,14 +581,21 @@ static func _make_wheat_model_stage(
 		return node
 	var model: Node3D = (load(scene_path) as PackedScene).instantiate() as Node3D
 	model.name = "Model"
+	model.rotation_degrees.y = yaw_degrees
 	node.add_child(model)
-	_fit_crop_model_to_dirt_tile(model, tile_fill)
+	_fit_crop_model_to_dirt_tile(model, tile_fill, cover_tile)
 	return node
 
 
-static func _fit_crop_model_to_dirt_tile(model: Node3D, tile_fill: float) -> void:
-	## Scale XZ to the dirt cell, then drop the mesh so its bottom sits on the dirt top.
-	var aabb := _collect_local_aabb(model)
+static func _fit_crop_model_to_dirt_tile(model: Node3D, tile_fill: float, cover_tile: bool = false) -> void:
+	## Scale XZ to the dirt cell (honoring model yaw), then drop so the bottom sits on dirt.
+	## cover_tile=true uses max(sx,sz) so the patch fills the translucent footprint square.
+	var space: Node3D = model.get_parent() as Node3D
+	var aabb: AABB
+	if space != null:
+		aabb = _collect_aabb_in_ancestor(space, model)
+	else:
+		aabb = _collect_local_aabb(model)
 	if aabb.size.length_squared() < 0.000001:
 		return
 
@@ -608,16 +603,52 @@ static func _fit_crop_model_to_dirt_tile(model: Node3D, tile_fill: float) -> voi
 	var target_d: float = GridManager.TILE_HEIGHT * tile_fill
 	var sx: float = target_w / maxf(aabb.size.x, 0.001)
 	var sz: float = target_d / maxf(aabb.size.z, 0.001)
-	var s: float = minf(sx, sz)
-	model.scale = Vector3.ONE * s
+	var s: float = maxf(sx, sz) if cover_tile else minf(sx, sz)
+	model.scale = model.scale * s
 
-	# Terrain dirt top is flush with grass (~0.015).
+	if space != null:
+		aabb = _collect_aabb_in_ancestor(space, model)
+	else:
+		aabb = _collect_local_aabb(model)
+
 	const DIRT_TOP_Y: float = 0.015
-	model.position = Vector3(
-		-aabb.get_center().x * s,
-		DIRT_TOP_Y - aabb.position.y * s,
-		-aabb.get_center().z * s
-	)
+	var center := aabb.get_center()
+	model.position.x += -center.x
+	model.position.z += -center.z
+	model.position.y += DIRT_TOP_Y - aabb.position.y
+
+
+static func _fit_visual_long_axis_to_footprint(visual: Node3D, footprint: Vector2i, overscale: float) -> void:
+	## Match mesh long horizontal axis to footprint outer edges (slight overscale for chain seams).
+	var aabb := _collect_local_aabb(visual)
+	if aabb.size.length_squared() < 0.000001:
+		return
+	var long_cells := maxi(maxi(footprint.x, 1), maxi(footprint.y, 1))
+	var target_len := float(long_cells) * GridManager.TILE_WIDTH * maxf(overscale, 1.0)
+	var mesh_len := maxf(aabb.size.x, aabb.size.z)
+	if mesh_len < 0.0001:
+		return
+	var factor := target_len / mesh_len
+	visual.scale = Vector3.ONE * factor
+
+
+static func _fit_visual_xz_to_footprint(visual: Node3D, footprint: Vector2i, overscale: float) -> void:
+	## Scale so mesh XZ covers the full footprint (flush / slight overshoot on both axes).
+	var aabb := _collect_local_aabb(visual)
+	if aabb.size.length_squared() < 0.000001:
+		return
+	var target_w := float(maxi(footprint.x, 1)) * GridManager.TILE_WIDTH * maxf(overscale, 1.0)
+	var target_d := float(maxi(footprint.y, 1)) * GridManager.TILE_HEIGHT * maxf(overscale, 1.0)
+	var sx := target_w / maxf(aabb.size.x, 0.001)
+	var sz := target_d / maxf(aabb.size.z, 0.001)
+	# Uniform cover — both axes reach at least the footprint outer edges.
+	var factor := maxf(sx, sz)
+	visual.scale = Vector3.ONE * factor
+	# Nudge so mesh AABB center sits on the footprint center (visual origin).
+	var center := aabb.get_center()
+	visual.position.x -= center.x * factor
+	visual.position.z -= center.z * factor
+	visual.position.y -= aabb.position.y * factor
 
 
 static func _collect_local_aabb(root: Node3D) -> AABB:
@@ -636,12 +667,32 @@ static func _collect_local_aabb(root: Node3D) -> AABB:
 	return merged
 
 
+static func _collect_aabb_in_ancestor(ancestor: Node3D, root: Node3D) -> AABB:
+	## AABB of root's meshes expressed in ancestor local space (includes root transform).
+	var merged := AABB()
+	var has_any := false
+	for mi in _gather_mesh_instances(root):
+		var local_xf := _relative_transform(ancestor, mi)
+		var mesh_aabb := mi.get_aabb()
+		for corner in _aabb_corners(mesh_aabb):
+			var p: Vector3 = local_xf * corner
+			if not has_any:
+				merged = AABB(p, Vector3.ZERO)
+				has_any = true
+			else:
+				merged = merged.expand(p)
+	return merged
+
+
 static func _gather_mesh_instances(node: Node) -> Array[MeshInstance3D]:
 	var out: Array[MeshInstance3D] = []
+	if node == null or not is_instance_valid(node):
+		return out
 	if node is MeshInstance3D and (node as MeshInstance3D).mesh != null:
 		out.append(node as MeshInstance3D)
 	for child in node.get_children():
-		out.append_array(_gather_mesh_instances(child))
+		if is_instance_valid(child):
+			out.append_array(_gather_mesh_instances(child))
 	return out
 
 
@@ -670,6 +721,7 @@ static func _aabb_corners(aabb: AABB) -> Array[Vector3]:
 
 
 static func _build_cow(parent: Node3D, info: Dictionary) -> void:
+	## Fallback procedural cow if the GLB placeable is missing.
 	var body_mesh := BoxMesh.new()
 	body_mesh.size = Vector3(0.9, 0.55, 1.3)
 	_add_mesh(parent, body_mesh, info["color"], Vector3(0.0, 0.38, 0.0))
@@ -684,11 +736,15 @@ static func _build_cow(parent: Node3D, info: Dictionary) -> void:
 
 	for x in [-0.28, 0.28]:
 		for z in [-0.4, 0.4]:
+			var leg := Node3D.new()
+			leg.name = "Leg"
+			leg.position = Vector3(x, 0.11, z)
+			parent.add_child(leg)
 			var leg_mesh := CylinderMesh.new()
 			leg_mesh.top_radius = 0.06
 			leg_mesh.bottom_radius = 0.07
 			leg_mesh.height = 0.22
-			_add_mesh(parent, leg_mesh, info.get("spot_color", Color(0.2, 0.2, 0.2)), Vector3(x, 0.11, z))
+			_add_mesh(leg, leg_mesh, info.get("spot_color", Color(0.2, 0.2, 0.2)), Vector3(0.0, 0.0, 0.0))
 
 
 static func _build_chicken(parent: Node3D, info: Dictionary) -> void:
@@ -837,6 +893,14 @@ static func _build_duck(parent: Node3D, info: Dictionary) -> void:
 	beak_mesh.size = Vector3(0.1, 0.05, 0.08)
 	_add_mesh(parent, beak_mesh, info.get("beak_color", Color(0.9, 0.55, 0.15)), Vector3(0.0, 0.27, 0.26))
 
+	# Cute black-dot eyes.
+	var eye_color := Color(0.06, 0.06, 0.08)
+	for side in [-1.0, 1.0]:
+		var eye := SphereMesh.new()
+		eye.radius = 0.028
+		eye.height = 0.034
+		_add_mesh(parent, eye, eye_color, Vector3(side * 0.055, 0.34, 0.24))
+
 
 static func _build_rabbit(parent: Node3D, info: Dictionary) -> void:
 	var fur: Color = info["color"]
@@ -966,7 +1030,7 @@ static func _build_greenhouse(parent: Node3D, info: Dictionary) -> void:
 static func _build_pond(parent: Node3D, info: Dictionary) -> void:
 	var visual := Node3D.new()
 	visual.name = "Visual"
-	visual.position = _footprint_center_offset(Vector2i(2, 2))
+	visual.position = _footprint_center_offset(Vector2i(3, 3))
 	parent.add_child(visual)
 
 	var rim_color: Color = info.get("rim_color", Color(0.52, 0.5, 0.48))
@@ -1056,6 +1120,29 @@ static func _build_fountain(parent: Node3D, info: Dictionary) -> void:
 	splash_anchor.name = "FountainSplashAnchor"
 	splash_anchor.position = Vector3(0.0, 0.95, 0.0)
 	visual.add_child(splash_anchor)
+
+
+static func _build_bench(parent: Node3D, info: Dictionary) -> void:
+	## Procedural fallback if the GLB def fails to load.
+	var seat := BoxMesh.new()
+	seat.size = Vector3(1.4, 0.08, 0.4)
+	_add_mesh(parent, seat, info["color"], Vector3(0.0, 0.42, 0.0))
+	var back := BoxMesh.new()
+	back.size = Vector3(1.4, 0.45, 0.06)
+	_add_mesh(parent, back, info["color"].lightened(0.05), Vector3(0.0, 0.65, -0.17))
+	for x in [-0.55, 0.55]:
+		var leg := BoxMesh.new()
+		leg.size = Vector3(0.08, 0.4, 0.08)
+		_add_mesh(parent, leg, info["color"].darkened(0.1), Vector3(x, 0.2, 0.12))
+		_add_mesh(parent, leg, info["color"].darkened(0.1), Vector3(x, 0.2, -0.12))
+
+
+static func _build_hay_bale(parent: Node3D, info: Dictionary) -> void:
+	var bale := CylinderMesh.new()
+	bale.top_radius = 0.38
+	bale.bottom_radius = 0.38
+	bale.height = 0.85
+	_add_mesh(parent, bale, info["color"], Vector3(0.0, 0.38, 0.0), Vector3(0.0, 0.0, 90.0))
 
 
 static func _build_wind_wheel(parent: Node3D, info: Dictionary) -> void:

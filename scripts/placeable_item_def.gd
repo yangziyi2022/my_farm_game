@@ -12,11 +12,18 @@ extends Resource
 @export var category: ItemData.Category = ItemData.Category.STRUCTURE
 @export var rotatable: bool = true
 ## Uniform scale applied when the visual scene is instanced onto the grid.
-@export_range(0.01, 5.0, 0.01) var visual_scale: float = 1.0
+## Ignored for length when fit_long_axis_to_footprint is enabled (still used as Y fallback seed).
+@export_range(0.01, 10.0, 0.01) var visual_scale: float = 1.0
 ## Lift/sink the visual so feet sit on the tile (positive = up).
 @export var visual_y_offset: float = 0.0
 ## How many grid cells this item occupies (gameplay footprint, not mesh size).
 @export var footprint_size: Vector2i = Vector2i(1, 1)
+## Scale so the mesh long axis matches the footprint long edge (fence / bridge).
+@export var fit_long_axis_to_footprint: bool = false
+## Scale so mesh XZ fills the full footprint rectangle (pond / square pads).
+@export var fit_xz_to_footprint: bool = false
+## Extra length past footprint ends so chained segments overlap (1.0 = exact edge).
+@export_range(1.0, 2.0, 0.01) var footprint_overscale: float = 1.12
 
 
 func resolve_visual_scene() -> PackedScene:

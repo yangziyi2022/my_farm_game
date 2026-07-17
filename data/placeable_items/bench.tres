@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="PlaceableItemDef" load_steps=3 format=3 uid="uid://placeable_item_bench"]
+
+[ext_resource type="Script" path="res://scripts/placeable_item_def.gd" id="1_def"]
+[ext_resource type="PackedScene" uid="uid://bench_placeable" path="res://scenes/placeables/bench.tscn" id="2_bench"]
+
+[resource]
+script = ExtResource("1_def")
+id = "bench"
+display_name = "Bench"
+visual_scene_path = "res://scenes/placeables/bench.tscn"
+visual_scene = ExtResource("2_bench")
+category = 4
+rotatable = true
+visual_scale = 2.0
+visual_y_offset = 0.0
+footprint_size = Vector2i(2, 1)

@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="PlaceableItemDef" load_steps=3 format=3 uid="uid://placeable_item_bridge"]
+
+[ext_resource type="Script" path="res://scripts/placeable_item_def.gd" id="1_def"]
+[ext_resource type="PackedScene" uid="uid://bridge_placeable" path="res://scenes/placeables/bridge.tscn" id="2_bridge"]
+
+[resource]
+script = ExtResource("1_def")
+id = "bridge"
+display_name = "Bridge"
+visual_scene_path = "res://scenes/placeables/bridge.tscn"
+visual_scene = ExtResource("2_bridge")
+category = 4
+rotatable = true
+## Auto-fit long axis to 2-cell footprint; overscale so chained decks read continuous.
+visual_scale = 1.0
+visual_y_offset = 0.0
+footprint_size = Vector2i(2, 1)
+fit_long_axis_to_footprint = true
+footprint_overscale = 1.14

@@ -43,6 +43,9 @@ var _base_pivot_y: float = 0.0
 var _swim_pivot_y: float = -0.04
 var _head_base_rot_x: float = 0.0
 var _swim_time: float = 0.0
+var _gait_visual: Node3D
+var _legs: Array[Node3D] = []
+var _walk_phase: float = 0.0
 
 
 func setup(pivot: Node3D, root: Node3D = null, grid: GridManager = null) -> void:
@@ -56,7 +59,23 @@ func setup(pivot: Node3D, root: Node3D = null, grid: GridManager = null) -> void
 		_head = _pivot.find_child("Head", true, false) as Node3D
 		if _head:
 			_head_base_rot_x = _head.rotation.x
+		_cache_gait_nodes()
 		_sync_yaw()
+
+
+func _cache_gait_nodes() -> void:
+	_gait_visual = null
+	_legs.clear()
+	if _pivot == null or not is_instance_valid(_pivot):
+		return
+	var visual := _pivot.get_node_or_null("Visual")
+	if visual != null and is_instance_valid(visual) and visual is Node3D:
+		_gait_visual = visual as Node3D
+	for node in _pivot.find_children("*", "Node3D", true, false):
+		if not is_instance_valid(node):
+			continue
+		if str(node.name).begins_with("Leg"):
+			_legs.append(node as Node3D)
 
 
 func _ready() -> void:
@@ -170,7 +189,6 @@ func _try_step_toward_water(from: Vector2i, radius: int) -> bool:
 func _try_step_to_adjacent_water(from: Vector2i) -> bool:
 	var dirs: Array[Vector2i] = [
 		Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1),
-		Vector2i(1, 1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(-1, -1),
 	]
 	dirs.shuffle()
 	for dir in dirs:
@@ -186,8 +204,7 @@ func _best_step_toward(from: Vector2i, target: Vector2i) -> Vector2i:
 	var sx := mini(1, maxi(-1, target.x - from.x))
 	var sy := mini(1, maxi(-1, target.y - from.y))
 	var candidates: Array[Vector2i] = []
-	if sx != 0 and sy != 0:
-		candidates.append(Vector2i(sx, sy))
+	# Prefer axis-aligned first so ducks don't try diagonal around fence corners.
 	if sx != 0:
 		candidates.append(Vector2i(sx, 0))
 	if sy != 0:
@@ -221,7 +238,6 @@ func _try_start_cross_tile_walk() -> bool:
 	var from: Vector2i = _root.get_meta("grid_pos")
 	var dirs: Array[Vector2i] = [
 		Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1),
-		Vector2i(1, 1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(-1, -1),
 	]
 	dirs.shuffle()
 	for dir in dirs:
@@ -271,9 +287,40 @@ func _update_walk(delta: float) -> void:
 		# Gentle slide bob while paddling across water.
 		_pivot.position.y = py + sin(_swim_time * 3.5) * 0.018
 		_pivot.rotation.z = sin(_swim_time * 2.2) * deg_to_rad(6.0)
+	elif species == Species.COW:
+		_apply_cow_walk_gait(delta)
 
 	if _walk_progress >= 1.0:
 		_finish_walk()
+
+
+func _apply_cow_walk_gait(delta: float) -> void:
+	## Single-mesh cow has no skeleton — fake footfalls via body bob + leg pivots if present.
+	_walk_phase += delta * 9.0
+	var step := sin(_walk_phase)
+	var step2 := sin(_walk_phase + PI)  # opposite diagonal
+	if _gait_visual != null and is_instance_valid(_gait_visual):
+		_gait_visual.position.y = absf(step) * 0.02
+		_gait_visual.rotation.z = step * deg_to_rad(3.5)
+		_gait_visual.rotation.x = sin(_walk_phase * 0.5) * deg_to_rad(2.0)
+	# Procedural / named legs: alternate FL-BR vs FR-BL.
+	for i in range(_legs.size()):
+		var leg := _legs[i]
+		if leg == null or not is_instance_valid(leg):
+			continue
+		var phase := step if (i % 2 == 0) else step2
+		leg.rotation.x = phase * deg_to_rad(24.0)
+
+
+func _reset_cow_gait() -> void:
+	_walk_phase = 0.0
+	if _gait_visual != null and is_instance_valid(_gait_visual):
+		_gait_visual.position.y = 0.0
+		_gait_visual.rotation.x = 0.0
+		_gait_visual.rotation.z = 0.0
+	for leg in _legs:
+		if leg != null and is_instance_valid(leg):
+			leg.rotation.x = 0.0
 
 
 func _finish_walk() -> void:
@@ -284,6 +331,8 @@ func _finish_walk() -> void:
 		_pivot.position = Vector3(_walk_to.x, _ground_pivot_y(), _walk_to.z)
 	if species != Species.DUCK:
 		_pivot.rotation.z = 0.0
+	if species == Species.COW:
+		_reset_cow_gait()
 	_enter_idle()
 
 
@@ -421,6 +470,13 @@ func _apply_idle_pose(delta: float) -> void:
 		_pivot.position.y = lerpf(_pivot.position.y, py, 8.0 * delta)
 	if _head and species == Species.SHEEP:
 		_head.rotation.x = lerp_angle(_head.rotation.x, _head_base_rot_x, 4.0 * delta)
+	if species == Species.COW and _gait_visual != null and is_instance_valid(_gait_visual):
+		_gait_visual.position.y = lerpf(_gait_visual.position.y, 0.0, 8.0 * delta)
+		_gait_visual.rotation.x = lerp_angle(_gait_visual.rotation.x, 0.0, 8.0 * delta)
+		_gait_visual.rotation.z = lerp_angle(_gait_visual.rotation.z, 0.0, 8.0 * delta)
+		for leg in _legs:
+			if leg != null and is_instance_valid(leg):
+				leg.rotation.x = lerp_angle(leg.rotation.x, 0.0, 8.0 * delta)
 
 
 func _enter_idle() -> void:
