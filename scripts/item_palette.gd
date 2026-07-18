@@ -12,6 +12,12 @@ enum Tool { SELECT, HOE, HARVEST, ROD }
 const SELECT_TOOL := -1
 const ICON_SIZE := Vector2(48, 48)
 const CHILD_BTN_SIZE := Vector2(120, 34)
+const CHILD_BTN_SIZE_TOUCH := Vector2(140, 48)
+## Extra inset so content clears phone rounded corners / notch.
+const SAFE_INSET_LEFT := 28.0
+const SAFE_INSET_TOP := 52.0
+const SCROLL_BAR_WIDTH := 32.0
+const SCROLL_GUTTER := 8.0
 
 var _buttons: Dictionary = {}
 var _select_btn: Button
@@ -32,12 +38,30 @@ var _panel_width: float = 156.0
 var _dock_left: float = 12.0
 var _dock_top: float = 12.0
 var _toggle_size := Vector2(30, 56)
+var _touch_layout: bool = false
+var _header_min_size := Vector2(140, 58)
+var _child_btn_size := CHILD_BTN_SIZE
+var _header_font_size: int = 16
+var _child_font_size: int = 14
 
 
 func _ready() -> void:
+	_touch_layout = _prefer_touch_layout()
+	if _touch_layout:
+		_panel_width = 220.0
+		_toggle_size = Vector2(48, 96)
+		_header_min_size = Vector2(150, 70)
+		_child_btn_size = CHILD_BTN_SIZE_TOUCH
+		_header_font_size = 18
+		_child_font_size = 16
 	_install_dock_and_handle()
 	_build_palette()
 	activate_select_tool()
+
+
+func _prefer_touch_layout() -> bool:
+	# Farm UI is sized for phones; keep the larger layout everywhere.
+	return true
 
 
 func _install_dock_and_handle() -> void:
@@ -46,10 +70,18 @@ func _install_dock_and_handle() -> void:
 	var ui := get_parent()
 	if ui == null:
 		return
-	_panel_width = maxf(offset_right - offset_left, 156.0)
+	var base_w := maxf(offset_right - offset_left, 156.0)
+	if _touch_layout:
+		_panel_width = maxf(base_w, 220.0)
+	else:
+		_panel_width = base_w
 	var panel_h := maxf(offset_bottom - offset_top, 400.0)
-	_dock_left = offset_left
-	_dock_top = offset_top
+	# Always inset from the top-left corner (rounded phone bezels).
+	_dock_left = offset_left + SAFE_INSET_LEFT
+	_dock_top = offset_top + SAFE_INSET_TOP
+	if _touch_layout:
+		# Shorter so bottom home-indicator / rounded corners don't clip the list.
+		panel_h = mini(panel_h, 560.0)
 
 	_dock = Control.new()
 	_dock.name = "ItemPaletteDock"
@@ -79,9 +111,10 @@ func _install_dock_and_handle() -> void:
 	_toggle_btn.size = _toggle_size
 	_toggle_btn.position = Vector2(_panel_width + 4.0, panel_h * 0.5 - _toggle_size.y * 0.5)
 	_toggle_btn.z_index = 20
+	_toggle_btn.add_theme_font_size_override("font_size", 28 if _touch_layout else 18)
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.32, 0.26, 0.18, 0.98)
-	style.set_corner_radius_all(8)
+	style.set_corner_radius_all(10 if _touch_layout else 8)
 	style.set_border_width_all(2)
 	style.border_color = Color(0.85, 0.7, 0.4, 1.0)
 	_toggle_btn.add_theme_stylebox_override("normal", style)
@@ -94,22 +127,33 @@ func _install_dock_and_handle() -> void:
 
 func _build_palette() -> void:
 	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 8)
-	margin.add_theme_constant_override("margin_right", 8)
-	margin.add_theme_constant_override("margin_top", 8)
-	margin.add_theme_constant_override("margin_bottom", 8)
+	var m := 10 if _touch_layout else 8
+	margin.add_theme_constant_override("margin_left", m)
+	margin.add_theme_constant_override("margin_right", m)
+	margin.add_theme_constant_override("margin_top", m)
+	margin.add_theme_constant_override("margin_bottom", m)
 	add_child(margin)
 
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.custom_minimum_size = Vector2(150, 480)
+	scroll.custom_minimum_size = Vector2(_panel_width - float(m * 2), 480.0 if not _touch_layout else 420.0)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	margin.add_child(scroll)
+	if _touch_layout:
+		_thicken_scroll_bar(scroll)
+
+	# Inset rows so the thick scrollbar sits to their right instead of covering text.
+	var content_pad := MarginContainer.new()
+	content_pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var gutter := int(SCROLL_BAR_WIDTH + SCROLL_GUTTER) if _touch_layout else 0
+	content_pad.add_theme_constant_override("margin_right", gutter)
+	scroll.add_child(content_pad)
 
 	var outer := VBoxContainer.new()
 	outer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	outer.add_theme_constant_override("separation", 10)
-	scroll.add_child(outer)
+	outer.add_theme_constant_override("separation", 12 if _touch_layout else 10)
+	content_pad.add_child(outer)
 
 	# Always-available Select (pointer).
 	_select_btn = _make_labeled_header("Select", _icon_select(), Color(0.35, 0.55, 0.85))
@@ -119,7 +163,7 @@ func _build_palette() -> void:
 
 	# Tools accordion: hammer -> hoe / harvest / rod
 	var tools_body := VBoxContainer.new()
-	tools_body.add_theme_constant_override("separation", 4)
+	tools_body.add_theme_constant_override("separation", 6 if _touch_layout else 4)
 	_hoe_btn = _make_child_button("Hoe")
 	_hoe_btn.pressed.connect(_on_hoe_tool_pressed)
 	tools_body.add_child(_hoe_btn)
@@ -143,7 +187,7 @@ func _build_palette() -> void:
 	for category in ItemData.CATEGORIES:
 		var meta: Dictionary = cat_meta[category]
 		var body := VBoxContainer.new()
-		body.add_theme_constant_override("separation", 4)
+		body.add_theme_constant_override("separation", 6 if _touch_layout else 4)
 		for item_type in ItemData.get_items_by_category(category):
 			# Text-only item rows — icons belong on category headers only.
 			var btn := _make_child_button(ItemData.get_display_name(item_type))
@@ -159,6 +203,31 @@ func _build_palette() -> void:
 			meta["color"],
 			body
 		)
+
+
+func _thicken_scroll_bar(scroll: ScrollContainer) -> void:
+	## Wider vertical scrollbar / grabber for finger scrolling.
+	await get_tree().process_frame
+	if not is_instance_valid(scroll):
+		return
+	var bar := scroll.get_v_scroll_bar()
+	if bar == null:
+		return
+	bar.custom_minimum_size.x = SCROLL_BAR_WIDTH
+	var grabber := StyleBoxFlat.new()
+	grabber.bg_color = Color(0.85, 0.7, 0.4, 0.95)
+	grabber.set_corner_radius_all(8)
+	grabber.content_margin_left = 4
+	grabber.content_margin_right = 4
+	bar.add_theme_stylebox_override("grabber", grabber)
+	var grabber_hl := grabber.duplicate() as StyleBoxFlat
+	grabber_hl.bg_color = Color(0.95, 0.82, 0.5, 1.0)
+	bar.add_theme_stylebox_override("grabber_highlight", grabber_hl)
+	bar.add_theme_stylebox_override("grabber_pressed", grabber_hl)
+	var track := StyleBoxFlat.new()
+	track.bg_color = Color(0.2, 0.16, 0.12, 0.55)
+	track.set_corner_radius_all(8)
+	bar.add_theme_stylebox_override("scroll", track)
 
 
 func _toggle_slide() -> void:
@@ -206,13 +275,13 @@ func _make_labeled_header(title: String, icon: Texture2D, tint: Color) -> Button
 	btn.icon = icon
 	btn.expand_icon = true
 	btn.focus_mode = Control.FOCUS_NONE
-	btn.custom_minimum_size = Vector2(140, 58)
+	btn.custom_minimum_size = _header_min_size
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	btn.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	btn.add_theme_font_size_override("font_size", 16)
+	btn.add_theme_font_size_override("font_size", _header_font_size)
 	btn.add_theme_constant_override("h_separation", 10)
-	btn.add_theme_constant_override("icon_max_width", 40)
+	btn.add_theme_constant_override("icon_max_width", 48 if _touch_layout else 40)
 	btn.add_theme_color_override("font_color", Color(1.0, 0.98, 0.92))
 	btn.add_theme_color_override("font_hover_color", Color(1.0, 1.0, 0.95))
 	btn.add_theme_color_override("font_pressed_color", Color(1.0, 0.95, 0.85))
@@ -223,8 +292,8 @@ func _make_labeled_header(title: String, icon: Texture2D, tint: Color) -> Button
 	style.border_color = Color(1, 1, 1, 0.45)
 	style.content_margin_left = 8
 	style.content_margin_right = 8
-	style.content_margin_top = 6
-	style.content_margin_bottom = 6
+	style.content_margin_top = 8 if _touch_layout else 6
+	style.content_margin_bottom = 8 if _touch_layout else 6
 	btn.add_theme_stylebox_override("normal", style)
 	var hover := style.duplicate() as StyleBoxFlat
 	hover.bg_color = tint.lightened(0.12)
@@ -238,10 +307,11 @@ func _make_labeled_header(title: String, icon: Texture2D, tint: Color) -> Button
 func _make_child_button(text: String) -> Button:
 	var btn := Button.new()
 	btn.text = text
-	btn.custom_minimum_size = CHILD_BTN_SIZE
+	btn.custom_minimum_size = _child_btn_size
 	btn.toggle_mode = true
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.add_theme_font_size_override("font_size", _child_font_size)
 	return btn
 
 

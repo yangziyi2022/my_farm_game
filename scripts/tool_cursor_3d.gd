@@ -14,11 +14,16 @@ const SICKLE_EXTRA_SCALE: float = 0.45
 
 const FOLLOW_DEPTH: float = 3.2
 const CURSOR_SCREEN_OFFSET := Vector2(28, 36)
+const CELL_HOVER_HEIGHT: float = 0.85
 
 enum ActiveTool { NONE, HOE, ROD, SICKLE }
+enum AnchorMode { FOLLOW_POINTER, FOLLOW_CELL }
 
 var camera: Camera3D
 var _active_tool: ActiveTool = ActiveTool.NONE
+var _anchor_mode: AnchorMode = AnchorMode.FOLLOW_POINTER
+var _cell_anchor: Vector3 = Vector3.ZERO
+var _has_cell_anchor: bool = false
 var _swing_pivot: Node3D
 var _hoe_root: Node3D
 var _rod_root: Node3D
@@ -38,6 +43,28 @@ var _rest_rot_z: float = -10.0
 
 func setup(p_camera: Camera3D) -> void:
 	camera = p_camera
+	_refresh_anchor_mode()
+
+
+func _refresh_anchor_mode() -> void:
+	if PointerInput != null and PointerInput.is_touch_ui():
+		_anchor_mode = AnchorMode.FOLLOW_CELL
+	else:
+		_anchor_mode = AnchorMode.FOLLOW_POINTER
+
+
+func set_cell_anchor(world_pos: Vector3, valid: bool) -> void:
+	## Touch: float the tool above the highlighted cell (tap-to-use), not on the finger.
+	_has_cell_anchor = valid
+	if valid:
+		_cell_anchor = world_pos + Vector3(0.0, CELL_HOVER_HEIGHT, 0.0)
+
+
+func _apply_mouse_mode() -> void:
+	if _anchor_mode == AnchorMode.FOLLOW_CELL:
+		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	else:
+		Input.set_mouse_mode(Input.MOUSE_MODE_HIDDEN)
 
 
 func show_hoe() -> void:
@@ -47,7 +74,8 @@ func show_hoe() -> void:
 	_show_only(ActiveTool.HOE)
 	_active_tool = ActiveTool.HOE
 	visible = true
-	Input.set_mouse_mode(Input.MOUSE_MODE_HIDDEN)
+	_refresh_anchor_mode()
+	_apply_mouse_mode()
 	_reset_swing(Vector3(0.0, 0.0, _rest_rot_z))
 
 
@@ -58,7 +86,8 @@ func show_rod() -> void:
 	_show_only(ActiveTool.ROD)
 	_active_tool = ActiveTool.ROD
 	visible = true
-	Input.set_mouse_mode(Input.MOUSE_MODE_HIDDEN)
+	_refresh_anchor_mode()
+	_apply_mouse_mode()
 	_reset_swing(Vector3(0.0, 0.0, 12.0))
 
 
@@ -69,7 +98,8 @@ func show_sickle() -> void:
 	_show_only(ActiveTool.SICKLE)
 	_active_tool = ActiveTool.SICKLE
 	visible = true
-	Input.set_mouse_mode(Input.MOUSE_MODE_HIDDEN)
+	_refresh_anchor_mode()
+	_apply_mouse_mode()
 	_reset_swing(Vector3(0.0, 0.0, 0.0))
 
 
@@ -78,6 +108,7 @@ func hide_tool() -> void:
 	_clear_line()
 	_animating = false
 	_active_tool = ActiveTool.NONE
+	_has_cell_anchor = false
 	visible = false
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 
@@ -337,11 +368,18 @@ func _process(delta: float) -> void:
 	if _active_tool == ActiveTool.NONE or camera == null:
 		return
 
-	# Rod (and other tools) keep following the cursor — even while the line is cast.
-	var screen := get_viewport().get_mouse_position() + CURSOR_SCREEN_OFFSET
-	global_position = camera.project_position(screen, FOLLOW_DEPTH)
-	look_at(camera.global_position, Vector3.UP)
-	rotate_object_local(Vector3.UP, PI)
+	_refresh_anchor_mode()
+	if _anchor_mode == AnchorMode.FOLLOW_CELL and _has_cell_anchor:
+		# Touch-friendly: hover over the target tile, face the camera.
+		global_position = _cell_anchor
+		look_at(camera.global_position, Vector3.UP)
+		rotate_object_local(Vector3.UP, PI)
+	else:
+		# Desktop: follow mouse / primary pointer.
+		var screen := PointerInput.get_position() + CURSOR_SCREEN_OFFSET
+		global_position = camera.project_position(screen, FOLLOW_DEPTH)
+		look_at(camera.global_position, Vector3.UP)
+		rotate_object_local(Vector3.UP, PI)
 
 	if _line_active:
 		if _bite_shake and _swing_pivot:

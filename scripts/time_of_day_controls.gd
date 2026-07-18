@@ -12,12 +12,13 @@ var _grid_manager: GridManager
 func setup(day_night: DayNightCycle, grid_manager: GridManager = null) -> void:
 	_grid_manager = grid_manager
 	set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	offset_left = -72.0
-	offset_top = 64.0
-	offset_right = -12.0
-	offset_bottom = 250.0
+	# Clear rounded corner / status-bar overlap; sit below Undo/Save/Load.
+	offset_left = -84.0
+	offset_top = 112.0
+	offset_right = -28.0
+	offset_bottom = 320.0
 	grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	add_theme_constant_override("separation", 10)
+	add_theme_constant_override("separation", 12)
 
 	var sun_btn := _make_icon_button(_icon_sun(), "Morning — jump to sunrise")
 	sun_btn.pressed.connect(func() -> void:
@@ -65,7 +66,7 @@ func _refresh_expand_enabled() -> void:
 
 func _make_icon_button(icon: Texture2D, tip: String) -> Button:
 	var btn := Button.new()
-	btn.custom_minimum_size = Vector2(52, 52)
+	btn.custom_minimum_size = Vector2(56, 56)
 	btn.icon = icon
 	btn.expand_icon = true
 	btn.tooltip_text = tip

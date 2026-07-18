@@ -219,6 +219,21 @@ func perform_undo() -> void:
 
 
 func _process(_delta: float) -> void:
+	# Capture primary while placing/dragging so CameraController won't steal one-finger orbit.
+	PointerInput.gameplay_captures_primary = (
+		_dragging
+		or _group_dragging
+		or _place_drag
+		or _marquee_active
+		or _menu_move_active
+		or (_drag_object != null and PointerInput.primary_down)
+	)
+	# Second finger = camera; abort in-progress one-finger place/marquee.
+	if PointerInput.touch_count() >= 2:
+		if _place_drag:
+			_place_drag = false
+		if _marquee_active:
+			_cancel_marquee()
 	if mode == Mode.PLACE and _ghost:
 		_update_ghost_position()
 	if mode == Mode.HOE or mode == Mode.HARVEST or mode == Mode.FISH:
@@ -232,10 +247,14 @@ func _process(_delta: float) -> void:
 	if _group_dragging and not _menu_move_active:
 		_update_group_drag_follow()
 	if _marquee_active:
-		_update_marquee_visual(get_viewport().get_mouse_position())
+		_update_marquee_visual(PointerInput.get_position())
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	# Two-finger gestures belong to the camera — don't treat as clicks.
+	if PointerInput.touch_count() >= 2:
+		return
+
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_Z and event.ctrl_pressed:
 			perform_undo()
@@ -257,6 +276,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if PointerInput.touch_count() >= 2:
+		return
 	# Catch Delete even if a UI control has focus after box-select.
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_DELETE or event.keycode == KEY_BACKSPACE:
@@ -340,7 +361,9 @@ func _on_left_press(screen_pos: Vector2) -> void:
 			if not _selected_group.is_empty():
 				_clear_selected_group()
 				status_message.emit("Deselected")
-			_begin_marquee(screen_pos)
+			# Touch: skip marquee (use multi-select later); leave gesture free for camera.
+			if not PointerInput.is_touch_ui():
+				_begin_marquee(screen_pos)
 		return
 
 	# Fishing uses ground cell + session state (cast → wait → reel).
@@ -688,7 +711,7 @@ func _end_group_drag() -> void:
 func _update_group_drag_follow() -> void:
 	if _selected_group.is_empty():
 		return
-	var mouse_pos := get_viewport().get_mouse_position()
+	var mouse_pos := PointerInput.get_position()
 	var target := _raycast_ground_cell(mouse_pos)
 	if not _is_valid_cell(target):
 		return
@@ -827,7 +850,7 @@ func _set_drag_pickable(enabled: bool) -> void:
 
 
 func _update_drag_follow() -> void:
-	var mouse_pos := get_viewport().get_mouse_position()
+	var mouse_pos := PointerInput.get_position()
 	var target := _raycast_ground_cell(mouse_pos)
 	if not _is_valid_cell(target):
 		return
@@ -1185,13 +1208,22 @@ func _tool_cell_valid(cell: Vector2i) -> bool:
 func _update_tool_footprint() -> void:
 	if _tool_footprint == null or not is_instance_valid(_tool_footprint):
 		return
-	var cell := _raycast_ground_cell(get_viewport().get_mouse_position())
+	# While pinching/panning with two fingers, freeze the highlight.
+	if PointerInput.touch_count() >= 2:
+		return
+	var cell := _raycast_ground_cell(PointerInput.get_position())
 	if not _is_valid_cell(cell):
 		_tool_footprint.visible = false
+		if tool_cursor:
+			tool_cursor.set_cell_anchor(Vector3.ZERO, false)
 		return
 	_tool_footprint.visible = true
-	_tool_footprint.position = grid_manager.grid_to_world(cell)
-	_tool_footprint.set_valid(_tool_cell_valid(cell))
+	var world := grid_manager.grid_to_world(cell)
+	_tool_footprint.position = world
+	var valid := _tool_cell_valid(cell)
+	_tool_footprint.set_valid(valid)
+	if tool_cursor:
+		tool_cursor.set_cell_anchor(world, true)
 
 
 func _remove_tool_footprint() -> void:
@@ -1435,7 +1467,7 @@ func _remove_ghost() -> void:
 func _update_ghost_position() -> void:
 	if not _ghost:
 		return
-	var mouse_pos := get_viewport().get_mouse_position()
+	var mouse_pos := PointerInput.get_position()
 	var grid_pos := _raycast_ground_cell(mouse_pos)
 	# While placing: keep the press-cell until the mouse really moves (avoids click jitter).
 	if _place_drag:

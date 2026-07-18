@@ -82,9 +82,9 @@ script = ExtResource("12_toolcursor")
 [node name="UI" type="CanvasLayer" parent="."]
 
 [node name="ItemPalette" type="PanelContainer" parent="UI"]
-offset_left = 12.0
-offset_top = 12.0
-offset_right = 168.0
+offset_left = 20.0
+offset_top = 20.0
+offset_right = 240.0
 offset_bottom = 620.0
 script = ExtResource("4_palette")
 
@@ -107,26 +107,32 @@ script = ExtResource("10_cursor")
 anchors_preset = 1
 anchor_left = 1.0
 anchor_right = 1.0
-offset_left = -300.0
-offset_top = 12.0
-offset_right = -12.0
-offset_bottom = 52.0
+offset_left = -340.0
+offset_top = 48.0
+offset_right = -28.0
+offset_bottom = 100.0
 grow_horizontal = 0
-theme_override_constants/separation = 8
+theme_override_constants/separation = 10
 
 [node name="UndoBtn" type="Button" parent="UI/Toolbar"]
 layout_mode = 2
 size_flags_horizontal = 3
+custom_minimum_size = Vector2(0, 48)
+theme_override_font_sizes/font_size = 18
 text = "Undo"
 
 [node name="SaveBtn" type="Button" parent="UI/Toolbar"]
 layout_mode = 2
 size_flags_horizontal = 3
+custom_minimum_size = Vector2(0, 48)
+theme_override_font_sizes/font_size = 18
 text = "Save"
 
 [node name="LoadBtn" type="Button" parent="UI/Toolbar"]
 layout_mode = 2
 size_flags_horizontal = 3
+custom_minimum_size = Vector2(0, 48)
+theme_override_font_sizes/font_size = 18
 text = "Load"
 
 [node name="StatusBar" type="PanelContainer" parent="UI"]
@@ -136,9 +142,9 @@ anchor_top = 1.0
 anchor_right = 0.5
 anchor_bottom = 1.0
 offset_left = -300.0
-offset_top = -48.0
+offset_top = -72.0
 offset_right = 300.0
-offset_bottom = -12.0
+offset_bottom = -28.0
 grow_horizontal = 2
 grow_vertical = 0
 

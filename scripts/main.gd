@@ -61,7 +61,7 @@ func _ready() -> void:
 	grid_manager.repair_content_registry()
 
 	_on_undo_stack_changed(undo_manager.can_undo())
-	_on_status_message("Island view: right-drag orbit, middle-drag pan, scroll zoom. Expand (right) grows the floor.")
+	_on_status_message("Touch: tap to play · 2-finger pan/pinch/twist camera. Desktop: right-drag orbit, middle pan, scroll zoom.")
 
 
 func _on_day_night_phase_changed(phase: String) -> void:

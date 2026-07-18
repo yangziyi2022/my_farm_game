@@ -45,4 +45,4 @@ func hide_overlay() -> void:
 func _process(_delta: float) -> void:
 	if not _visible_active:
 		return
-	global_position = get_viewport().get_mouse_position() + Vector2(18, 18)
+	global_position = PointerInput.get_position() + Vector2(18, 18)

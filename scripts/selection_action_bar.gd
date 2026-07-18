@@ -7,7 +7,7 @@ signal move_pressed
 signal rotate_pressed
 signal delete_pressed
 
-const BTN_SIZE := Vector2(40, 40)
+const BTN_SIZE := Vector2(52, 52)
 
 var camera: Camera3D
 var _row: HBoxContainer

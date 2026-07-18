@@ -37,14 +37,18 @@ func _build_ui() -> void:
 
 	_backpack_btn = Button.new()
 	_backpack_btn.tooltip_text = "Open backpack"
-	_backpack_btn.custom_minimum_size = Vector2(64, 64)
+	var pack_size := 76.0
+	_backpack_btn.custom_minimum_size = Vector2(pack_size, pack_size)
 	_backpack_btn.icon = _make_backpack_icon()
 	_backpack_btn.expand_icon = true
 	_backpack_btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	_backpack_btn.offset_left = -84.0
-	_backpack_btn.offset_top = -100.0
-	_backpack_btn.offset_right = -16.0
-	_backpack_btn.offset_bottom = -36.0
+	# Inset from rounded corners / home indicator.
+	var inset_r := 28.0
+	var inset_b := 48.0
+	_backpack_btn.offset_left = -(pack_size + inset_r + 4.0)
+	_backpack_btn.offset_top = -(pack_size + inset_b)
+	_backpack_btn.offset_right = -inset_r
+	_backpack_btn.offset_bottom = -inset_b
 	_backpack_btn.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	_backpack_btn.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_backpack_btn.pressed.connect(_toggle_panel)
