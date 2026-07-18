@@ -2,20 +2,21 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://x022sqbwriq1"
+uid="uid://by7pgofg4si74"
 path.s3tc="res://.godot/imported/fence_wooden+fence+3d+model_basecolor.jpg-8ba094d7fd4b4abe2be50d13c6a1f307.s3tc.ctex"
+path.etc2="res://.godot/imported/fence_wooden+fence+3d+model_basecolor.jpg-8ba094d7fd4b4abe2be50d13c6a1f307.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
-"md5": "6052122e0d60a6a799bc6155173475a3"
+"md5": "1fd96abb7dfa7c50bf4672e9ab56ca5d"
 }
 
 [deps]
 
 source_file="res://assets/models/decorations/fence_wooden+fence+3d+model_basecolor.jpg"
-dest_files=["res://.godot/imported/fence_wooden+fence+3d+model_basecolor.jpg-8ba094d7fd4b4abe2be50d13c6a1f307.s3tc.ctex"]
+dest_files=["res://.godot/imported/fence_wooden+fence+3d+model_basecolor.jpg-8ba094d7fd4b4abe2be50d13c6a1f307.s3tc.ctex", "res://.godot/imported/fence_wooden+fence+3d+model_basecolor.jpg-8ba094d7fd4b4abe2be50d13c6a1f307.etc2.ctex"]
 
 [params]
 

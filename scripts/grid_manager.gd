@@ -604,7 +604,7 @@ func repair_content_registry() -> void:
 			obj,
 			obj.get_meta("grid_pos"),
 			get_object_footprint(obj),
-			get_object_rotation(obj)
+			get_occupancy_rotation(obj)
 		)
 		refresh_tile_collider(obj)
 		apply_placeable_yaw(obj, get_object_rotation(obj), get_object_footprint(obj))
@@ -721,7 +721,8 @@ func footprint_center_world(anchor: Vector2i, footprint: Vector2i, rotation: int
 
 func _cells_for_object(obj: Node3D) -> Array[Vector2i]:
 	var anchor: Vector2i = obj.get_meta("grid_pos")
-	return get_footprint_cells(anchor, get_object_footprint(obj), get_object_rotation(obj))
+	# Occupancy may lag visual yaw after a blocked rotate (red footprint state).
+	return get_footprint_cells(anchor, get_object_footprint(obj), get_occupancy_rotation(obj))
 
 
 func get_cells_for_object(obj: Node3D) -> Array[Vector2i]:
@@ -989,6 +990,8 @@ func _spawn_object(
 	var footprint := ItemData.get_footprint(item_type)
 	obj.set_meta("growth_stage", growth_stage)
 	obj.set_meta("footprint", footprint)
+	obj.set_meta("occupancy_rotation", rotation)
+	obj.set_meta("placement_invalid", false)
 	obj.position = grid_to_world(grid_pos)
 	objects_container.add_child(obj)
 
@@ -1329,6 +1332,8 @@ func move_object(from: Vector2i, to: Vector2i) -> bool:
 		var rotation := get_object_rotation(obj)
 		_unregister_content_object(obj)
 		obj.set_meta("grid_pos", to)
+		obj.set_meta("occupancy_rotation", rotation)
+		obj.set_meta("placement_invalid", false)
 		_register_content_cells(obj, to, footprint, rotation)
 		obj.position = grid_to_world(to)
 		if undo_manager and not undo_manager.is_applying_undo():
@@ -1423,6 +1428,8 @@ func move_content_group(moves: Array) -> bool:
 			var rotation := get_object_rotation(obj)
 			obj.set_meta("grid_pos", to)
 			obj.set_meta("footprint", footprint)
+			obj.set_meta("occupancy_rotation", rotation)
+			obj.set_meta("placement_invalid", false)
 			_register_content_cells(obj, to, footprint, rotation)
 			obj.position = grid_to_world(to)
 		if undo_manager and not undo_manager.is_applying_undo():
@@ -1444,6 +1451,8 @@ func move_object_silent(from: Vector2i, to: Vector2i) -> bool:
 		var rotation := get_object_rotation(obj)
 		_unregister_content_object(obj)
 		obj.set_meta("grid_pos", to)
+		obj.set_meta("occupancy_rotation", rotation)
+		obj.set_meta("placement_invalid", false)
 		_register_content_cells(obj, to, footprint, rotation)
 		obj.position = grid_to_world(to)
 		object_moved.emit(from, to)
@@ -1464,33 +1473,42 @@ func move_object_silent(from: Vector2i, to: Vector2i) -> bool:
 	return false
 
 
-func rotate_object(grid_pos: Vector2i, steps: int = 1) -> void:
+func rotate_object(grid_pos: Vector2i, steps: int = 1) -> bool:
+	## Always applies visual yaw. Returns true when occupancy matches the new facing.
+	## If the swung footprint is blocked, keeps old cells and marks placement invalid (red UI).
 	var obj := get_object_at(grid_pos)
 	if obj == null:
-		return
+		return false
 	var item_type: ItemData.ItemType = obj.get_meta("item_type")
 	if not ItemData.is_rotatable(item_type):
-		return
+		return false
 	var old_rot: int = obj.get_meta("rotation", 0)
 	var new_rot: int = (old_rot + steps) % 4
 	var footprint := get_object_footprint(obj)
 	var anchor: Vector2i = obj.get_meta("grid_pos")
-	# Non-square footprints change occupied cells; square ones only spin the mesh.
-	if not is_square_footprint(footprint) or maxi(footprint.x, 1) <= 1:
-		for cell in get_footprint_cells(anchor, footprint, new_rot):
-			if not is_in_bounds(cell):
-				return
-			if has_content(cell) and _objects[cell] != obj:
-				return
-		_unregister_content_object(obj)
-		if not is_terrain_object(obj):
-			_register_content_cells(obj, anchor, footprint, new_rot)
 
 	obj.set_meta("rotation", new_rot)
 	apply_placeable_yaw(obj, new_rot, footprint)
 
+	var valid := true
+	# Non-square footprints change occupied cells; square multi-cell only spins the mesh.
+	if not is_square_footprint(footprint):
+		if _can_occupy_footprint(obj, anchor, footprint, new_rot):
+			_unregister_content_object(obj)
+			_register_content_cells(obj, anchor, footprint, new_rot)
+			obj.set_meta("occupancy_rotation", new_rot)
+			obj.set_meta("placement_invalid", false)
+		else:
+			# Visual turned; gameplay cells stay on the last valid facing.
+			obj.set_meta("placement_invalid", true)
+			valid = false
+	else:
+		obj.set_meta("occupancy_rotation", new_rot)
+		obj.set_meta("placement_invalid", false)
+
 	if undo_manager and not undo_manager.is_applying_undo():
-		undo_manager.record_rotate(grid_pos, old_rot, new_rot)
+		undo_manager.record_rotate(anchor, old_rot, new_rot)
+	return valid
 
 
 func set_rotation_silent(grid_pos: Vector2i, rotation: int) -> void:
@@ -1499,12 +1517,46 @@ func set_rotation_silent(grid_pos: Vector2i, rotation: int) -> void:
 		return
 	var footprint := get_object_footprint(obj)
 	var anchor: Vector2i = obj.get_meta("grid_pos")
-	if not is_square_footprint(footprint) or maxi(footprint.x, 1) <= 1:
+	if not is_square_footprint(footprint):
 		_unregister_content_object(obj)
 		if not is_terrain_object(obj):
 			_register_content_cells(obj, anchor, footprint, rotation)
 	obj.set_meta("rotation", rotation)
+	obj.set_meta("occupancy_rotation", rotation)
+	obj.set_meta("placement_invalid", false)
 	apply_placeable_yaw(obj, rotation, footprint)
+
+
+func _can_occupy_footprint(obj: Node3D, anchor: Vector2i, footprint: Vector2i, rotation: int) -> bool:
+	for cell in get_footprint_cells(anchor, footprint, rotation):
+		if not is_in_bounds(cell):
+			return false
+		if has_content(cell) and _objects[cell] != obj:
+			return false
+	return true
+
+
+func is_object_orientation_valid(obj: Node3D) -> bool:
+	## True when the visual facing can occupy its footprint cells (green footprint).
+	if obj == null or not is_instance_valid(obj) or not obj.has_meta("grid_pos"):
+		return false
+	if obj.get_meta("placement_invalid", false):
+		return false
+	var footprint := get_object_footprint(obj)
+	if is_square_footprint(footprint):
+		return true
+	return _can_occupy_footprint(
+		obj,
+		obj.get_meta("grid_pos"),
+		footprint,
+		get_object_rotation(obj)
+	)
+
+
+func get_occupancy_rotation(obj: Node3D) -> int:
+	if obj and obj.has_meta("occupancy_rotation"):
+		return int(obj.get_meta("occupancy_rotation"))
+	return get_object_rotation(obj)
 
 
 func get_all_objects_data() -> Array:
@@ -1619,8 +1671,7 @@ func animal_can_step_to(animal: Node3D, to: Vector2i) -> bool:
 	var item_type: ItemData.ItemType = animal.get_meta("item_type")
 	if is_water_cell(to) and not ItemData.can_live_on_water(item_type):
 		return false
-	# Orthogonal steps only — diagonal lets animals slip through fence-corner gaps
-	# (common with 3×1 fence segments that leave the corner cell empty).
+	# Orthogonal steps only — diagonal lets animals slip through fence-corner gaps.
 	var from: Vector2i = animal.get_meta("grid_pos")
 	var delta := to - from
 	if absi(delta.x) + absi(delta.y) != 1:

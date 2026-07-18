@@ -9,11 +9,10 @@ id = "fence"
 display_name = "Fence"
 visual_scene = ExtResource("2_fence")
 category = 4
-## Auto-fit long axis to 2-cell footprint; overscale so chained ends overlap.
 visual_scale = 1.0
 visual_y_offset = 0.0
-footprint_size = Vector2i(2, 1)
-fit_long_axis_to_footprint = true
-## Extra length so rails overlap at straight joins AND 90° corners.
-footprint_overscale = 1.66
+## One cell for the post; mesh spans to the next cell center for seamless joins.
+footprint_size = Vector2i(1, 1)
+fit_long_axis_to_footprint = false
+footprint_overscale = 1.0
 rotatable = true

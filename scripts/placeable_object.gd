@@ -50,17 +50,13 @@ func _attach_visual(item_type: ItemData.ItemType, growth_stage: int = 0) -> void
 		# Measure at scale 1, then fit or apply visual_scale.
 		visual.scale = Vector3.ONE
 		add_child(visual)
-		if fit_xz:
+		if item_type == ItemData.ItemType.FENCE:
+			# 1-cell post; rail reaches the next cell's center so segments join.
+			_layout_fence_span(visual)
+		elif fit_xz:
 			_fit_visual_xz_to_footprint(visual, footprint, overscale)
 		elif fit_long:
 			_fit_visual_long_axis_to_footprint(visual, footprint, overscale)
-			# Fence rails (橫木) need extra length for 90° corners.
-			if item_type == ItemData.ItemType.FENCE:
-				var aabb := _collect_local_aabb(visual)
-				if aabb.size.x >= aabb.size.z:
-					visual.scale.x *= 1.28
-				else:
-					visual.scale.z *= 1.28
 		else:
 			visual.scale = Vector3(s, sy, s)
 		return
@@ -616,6 +612,28 @@ static func _fit_crop_model_to_dirt_tile(model: Node3D, tile_fill: float, cover_
 	model.position.x += -center.x
 	model.position.z += -center.z
 	model.position.y += DIRT_TOP_Y - aabb.position.y
+
+
+static func _layout_fence_span(visual: Node3D) -> void:
+	## Occupies one cell (post). Mesh length spans cell-center → next-cell-center.
+	var aabb := _collect_local_aabb(visual)
+	if aabb.size.length_squared() < 0.000001:
+		return
+	var mesh_len := maxf(aabb.size.x, aabb.size.z)
+	if mesh_len < 0.0001:
+		return
+	var target_len := GridManager.TILE_WIDTH
+	var factor := target_len / mesh_len
+	visual.scale = Vector3.ONE * factor
+	var along_x := aabb.size.x >= aabb.size.z
+	# Align the near end to the cell center so the far end sits on the next center.
+	if along_x:
+		visual.position.x = -aabb.position.x * factor
+		visual.position.z = -aabb.get_center().z * factor
+	else:
+		visual.position.z = -aabb.position.z * factor
+		visual.position.x = -aabb.get_center().x * factor
+	visual.position.y -= aabb.position.y * factor
 
 
 static func _fit_visual_long_axis_to_footprint(visual: Node3D, footprint: Vector2i, overscale: float) -> void:

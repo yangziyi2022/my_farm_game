@@ -110,7 +110,7 @@ const ITEMS: Dictionary = {
 		"category": Category.DECOR,
 		"def_path": "res://data/placeable_items/fence.tres",
 		"color": Color(0.6, 0.45, 0.25),
-		"size": Vector3(0.9, 0.5, 0.15),
+		"size": Vector3(0.5, 0.5, 0.15),
 		"offset_y": 0.25,
 		"rotatable": true,
 	},

@@ -2,20 +2,21 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dkwf76xd7j7s0"
+uid="uid://b70ikrtxajhnt"
 path.s3tc="res://.godot/imported/fence_wooden+fence+3d+model_normal.jpg-baf286dcb47663e4ba650634f6b91ef5.s3tc.ctex"
+path.etc2="res://.godot/imported/fence_wooden+fence+3d+model_normal.jpg-baf286dcb47663e4ba650634f6b91ef5.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
-"md5": "9fbf7410d664e7a96a88afb325c227b8"
+"md5": "fc3a1fcabed2ea9d98f511b142e05e02"
 }
 
 [deps]
 
 source_file="res://assets/models/decorations/fence_wooden+fence+3d+model_normal.jpg"
-dest_files=["res://.godot/imported/fence_wooden+fence+3d+model_normal.jpg-baf286dcb47663e4ba650634f6b91ef5.s3tc.ctex"]
+dest_files=["res://.godot/imported/fence_wooden+fence+3d+model_normal.jpg-baf286dcb47663e4ba650634f6b91ef5.s3tc.ctex", "res://.godot/imported/fence_wooden+fence+3d+model_normal.jpg-baf286dcb47663e4ba650634f6b91ef5.etc2.ctex"]
 
 [params]
 
@@ -29,8 +30,8 @@ compress/normal_map=1
 compress/channel_pack=0
 mipmaps/generate=true
 mipmaps/limit=-1
-roughness/mode=1
-roughness/src_normal="res://assets/models/decorations/fence_wooden+fence+3d+model_normal.jpg"
+roughness/mode=0
+roughness/src_normal=""
 process/channel_remap/red=0
 process/channel_remap/green=1
 process/channel_remap/blue=2

@@ -646,7 +646,7 @@ func _on_selection_changed(obj: Node3D) -> void:
 	var item_type: ItemData.ItemType = obj.get_meta("item_type")
 	_selection_footprint = FootprintOverlay.create_for_item(item_type, grid_manager)
 	_selection_footprint.name = "SelectionFootprint"
-	_selection_footprint.set_valid(true)
+	_selection_footprint.set_valid(grid_manager.is_object_orientation_valid(obj))
 	obj.add_child(_selection_footprint)
 
 
@@ -725,10 +725,19 @@ func _refresh_group_footprints() -> void:
 		var item_type: ItemData.ItemType = obj.get_meta("item_type")
 		var fp := FootprintOverlay.create_for_item(item_type, grid_manager)
 		fp.name = "SelectionFootprint"
-		fp.set_valid(true)
+		fp.set_valid(grid_manager.is_object_orientation_valid(obj))
 		obj.add_child(fp)
 	if _selected_group.size() == 1:
 		_selection_footprint = _selected_group[0].get_node_or_null("SelectionFootprint") as FootprintOverlay
+
+
+func _refresh_selection_validity() -> void:
+	for obj in _selected_group:
+		if not is_instance_valid(obj):
+			continue
+		var fp := obj.get_node_or_null("SelectionFootprint") as FootprintOverlay
+		if fp:
+			fp.set_valid(grid_manager.is_object_orientation_valid(obj))
 
 
 func _begin_marquee(screen_pos: Vector2) -> void:
@@ -1222,8 +1231,13 @@ func _on_right_click(screen_pos: Vector2) -> void:
 	var hit_obj: Node3D = hit.get("object")
 
 	if hit_obj:
-		grid_manager.rotate_object(grid_pos, 1)
-		status_message.emit("Rotated %s" % ItemData.get_item_name(hit_obj.get_meta("item_type")))
+		var ok := grid_manager.rotate_object(grid_pos, 1)
+		if _selected_group.has(hit_obj):
+			_refresh_group_footprints()
+		if ok:
+			status_message.emit("Rotated %s" % ItemData.get_item_name(hit_obj.get_meta("item_type")))
+		else:
+			status_message.emit("Rotated — red means blocked, move or rotate again")
 
 
 func _rotate_place_preview() -> void:
@@ -1248,28 +1262,39 @@ func _rotate_selected() -> void:
 		if batching:
 			undo_manager.begin_batch()
 		var rotated := 0
+		var any_blocked := false
 		for obj in _selected_group:
 			if not is_instance_valid(obj) or not obj.has_meta("grid_pos"):
 				continue
 			var item_type: ItemData.ItemType = obj.get_meta("item_type")
 			if not ItemData.is_rotatable(item_type):
 				continue
-			grid_manager.rotate_object(obj.get_meta("grid_pos"), 1)
+			var ok := grid_manager.rotate_object(obj.get_meta("grid_pos"), 1)
 			rotated += 1
+			if not ok:
+				any_blocked = true
 		if batching:
 			undo_manager.end_batch()
 		if rotated > 0:
-			status_message.emit("Rotated %d item(s)" % rotated)
+			_refresh_group_footprints()
 			_show_selection_actions()
+			if any_blocked:
+				status_message.emit("Rotated — red means blocked, move or rotate again")
+			else:
+				status_message.emit("Rotated %d item(s)" % rotated)
 		else:
 			status_message.emit("This item can't rotate")
 		return
 	var selected := grid_manager.get_selected()
 	if selected:
 		var grid_pos: Vector2i = selected.get_meta("grid_pos")
-		grid_manager.rotate_object(grid_pos, 1)
-		status_message.emit("Rotated object")
+		var ok := grid_manager.rotate_object(grid_pos, 1)
+		_refresh_group_footprints()
 		_show_selection_actions()
+		if ok:
+			status_message.emit("Rotated object")
+		else:
+			status_message.emit("Rotated — red means blocked, move or rotate again")
 
 
 func _delete_selected() -> void:
