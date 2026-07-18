@@ -1,11 +1,13 @@
 class_name TimeOfDayControls
 extends VBoxContainer
 
-## Right-side sun / moon / expand island buttons.
+## Right-side sun / moon; island expand/shrink sit bottom-center (clear of iPhone home bar).
 
 signal expand_done(message: String)
 
 var _expand_btn: Button
+var _shrink_btn: Button
+var _island_bar: HBoxContainer
 var _grid_manager: GridManager
 
 
@@ -16,7 +18,7 @@ func setup(day_night: DayNightCycle, grid_manager: GridManager = null) -> void:
 	offset_left = -84.0
 	offset_top = 112.0
 	offset_right = -28.0
-	offset_bottom = 320.0
+	offset_bottom = 240.0
 	grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	add_theme_constant_override("separation", 12)
 
@@ -35,11 +37,38 @@ func setup(day_night: DayNightCycle, grid_manager: GridManager = null) -> void:
 	add_child(moon_btn)
 
 	if grid_manager:
-		_expand_btn = _make_icon_button(_icon_expand(), "Expand island — grow playable floor (Undo shrinks)")
-		_expand_btn.pressed.connect(_on_expand_pressed)
-		add_child(_expand_btn)
+		_install_island_size_bar()
 		grid_manager.play_radius_changed.connect(_on_play_radius_changed)
-		_refresh_expand_enabled()
+		_refresh_island_buttons()
+
+
+func _install_island_size_bar() -> void:
+	## Bottom-center expand / shrink — above status bar, clear of home indicator.
+	var ui := get_parent()
+	if ui == null:
+		return
+
+	_island_bar = HBoxContainer.new()
+	_island_bar.name = "IslandSizeBar"
+	_island_bar.add_theme_constant_override("separation", 14)
+	_island_bar.mouse_filter = Control.MOUSE_FILTER_STOP
+	_island_bar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_island_bar.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_island_bar.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	# Centered pair above the status line / home indicator.
+	_island_bar.offset_left = -70.0
+	_island_bar.offset_right = 70.0
+	_island_bar.offset_top = -148.0
+	_island_bar.offset_bottom = -84.0
+	ui.add_child(_island_bar)
+
+	_shrink_btn = _make_icon_button(_icon_shrink(), "Shrink island — toward original size")
+	_shrink_btn.pressed.connect(_on_shrink_pressed)
+	_island_bar.add_child(_shrink_btn)
+
+	_expand_btn = _make_icon_button(_icon_expand(), "Expand island — grow playable floor")
+	_expand_btn.pressed.connect(_on_expand_pressed)
+	_island_bar.add_child(_expand_btn)
 
 
 func _on_expand_pressed() -> void:
@@ -49,19 +78,39 @@ func _on_expand_pressed() -> void:
 	if _grid_manager.expand_island():
 		var new_r := _grid_manager.get_play_radius()
 		expand_done.emit(
-			"Island expanded %.1f → %.1f (+%.1f). Undo to shrink." % [old_r, new_r, new_r - old_r]
+			"Island expanded %.1f → %.1f (+%.1f)" % [old_r, new_r, new_r - old_r]
 		)
 	else:
 		expand_done.emit("Island is already at max size.")
 
 
+func _on_shrink_pressed() -> void:
+	if _grid_manager == null:
+		return
+	if _grid_manager.shrink_blocked_by_content():
+		expand_done.emit("Can't shrink — move or remove items near the edge first")
+		return
+	var old_r := _grid_manager.get_play_radius()
+	if _grid_manager.shrink_island():
+		var new_r := _grid_manager.get_play_radius()
+		expand_done.emit(
+			"Island shrunk %.1f → %.1f (−%.1f)" % [old_r, new_r, old_r - new_r]
+		)
+	else:
+		expand_done.emit("Island is already at original size.")
+
+
 func _on_play_radius_changed(_new_radius: float) -> void:
-	_refresh_expand_enabled()
+	_refresh_island_buttons()
 
 
-func _refresh_expand_enabled() -> void:
-	if _expand_btn and _grid_manager:
+func _refresh_island_buttons() -> void:
+	if _grid_manager == null:
+		return
+	if _expand_btn:
 		_expand_btn.disabled = not _grid_manager.can_expand()
+	if _shrink_btn:
+		_shrink_btn.disabled = not _grid_manager.can_shrink()
 
 
 func _make_icon_button(icon: Texture2D, tip: String) -> Button:
@@ -170,6 +219,38 @@ func _icon_expand() -> Texture2D:
 	_draw_thick_line(img, Vector2i(48, 32), Vector2i(60, 32), arrow)
 	_draw_thick_line(img, Vector2i(56, 28), Vector2i(60, 32), arrow)
 	_draw_thick_line(img, Vector2i(56, 36), Vector2i(60, 32), arrow)
+	return ImageTexture.create_from_image(img)
+
+
+func _icon_shrink() -> Texture2D:
+	## Island disc with four inward arrows (toward original size).
+	var img := Image.create(64, 64, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var land := Color(0.42, 0.62, 0.28)
+	var rim := Color(0.95, 0.88, 0.45)
+	var arrow := Color(0.95, 0.92, 0.8)
+	for y in range(64):
+		for x in range(64):
+			var dx := x - 32
+			var dy := y - 32
+			var d2 := dx * dx + dy * dy
+			if d2 <= 121:
+				img.set_pixel(x, y, land)
+			elif d2 <= 169:
+				img.set_pixel(x, y, rim)
+	# Inward N / S / W / E
+	_draw_thick_line(img, Vector2i(32, 6), Vector2i(32, 18), arrow)
+	_draw_thick_line(img, Vector2i(28, 14), Vector2i(32, 18), arrow)
+	_draw_thick_line(img, Vector2i(36, 14), Vector2i(32, 18), arrow)
+	_draw_thick_line(img, Vector2i(32, 58), Vector2i(32, 46), arrow)
+	_draw_thick_line(img, Vector2i(28, 50), Vector2i(32, 46), arrow)
+	_draw_thick_line(img, Vector2i(36, 50), Vector2i(32, 46), arrow)
+	_draw_thick_line(img, Vector2i(6, 32), Vector2i(18, 32), arrow)
+	_draw_thick_line(img, Vector2i(14, 28), Vector2i(18, 32), arrow)
+	_draw_thick_line(img, Vector2i(14, 36), Vector2i(18, 32), arrow)
+	_draw_thick_line(img, Vector2i(58, 32), Vector2i(46, 32), arrow)
+	_draw_thick_line(img, Vector2i(50, 28), Vector2i(46, 32), arrow)
+	_draw_thick_line(img, Vector2i(50, 36), Vector2i(46, 32), arrow)
 	return ImageTexture.create_from_image(img)
 
 

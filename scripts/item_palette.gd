@@ -3,11 +3,12 @@ extends PanelContainer
 
 signal item_selected(item_type: ItemData.ItemType)
 signal select_tool_activated
+signal multiselect_tool_activated
 signal hoe_tool_activated
 signal harvest_tool_activated
 signal rod_tool_activated
 
-enum Tool { SELECT, HOE, HARVEST, ROD }
+enum Tool { SELECT, MULTISELECT, HOE, HARVEST, ROD }
 
 const SELECT_TOOL := -1
 const ICON_SIZE := Vector2(48, 48)
@@ -21,6 +22,7 @@ const SCROLL_GUTTER := 8.0
 
 var _buttons: Dictionary = {}
 var _select_btn: Button
+var _multiselect_btn: Button
 var _hoe_btn: Button
 var _harvest_btn: Button
 var _rod_btn: Button
@@ -160,6 +162,11 @@ func _build_palette() -> void:
 	_select_btn.toggle_mode = true
 	_select_btn.pressed.connect(_on_select_tool_pressed)
 	outer.add_child(_select_btn)
+
+	_multiselect_btn = _make_labeled_header("Multiselect", _icon_multiselect(), Color(0.4, 0.7, 0.75))
+	_multiselect_btn.toggle_mode = true
+	_multiselect_btn.pressed.connect(_on_multiselect_tool_pressed)
+	outer.add_child(_multiselect_btn)
 
 	# Tools accordion: hammer -> hoe / harvest / rod
 	var tools_body := VBoxContainer.new()
@@ -337,6 +344,11 @@ func _on_select_tool_pressed() -> void:
 	select_tool_activated.emit()
 
 
+func _on_multiselect_tool_pressed() -> void:
+	activate_multiselect_tool()
+	multiselect_tool_activated.emit()
+
+
 func _on_hoe_tool_pressed() -> void:
 	activate_hoe_tool()
 	hoe_tool_activated.emit()
@@ -363,6 +375,12 @@ func _on_item_pressed(item_type: ItemData.ItemType) -> void:
 
 func activate_select_tool() -> void:
 	_active_tool = Tool.SELECT
+	_active_type = SELECT_TOOL
+	_update_button_styles()
+
+
+func activate_multiselect_tool() -> void:
+	_active_tool = Tool.MULTISELECT
 	_active_type = SELECT_TOOL
 	_update_button_styles()
 
@@ -409,6 +427,9 @@ func _update_button_styles() -> void:
 	if _select_btn:
 		_select_btn.button_pressed = _active_tool == Tool.SELECT and _active_type == SELECT_TOOL
 		_select_btn.modulate = Color(1.2, 1.15, 0.85) if _select_btn.button_pressed else Color.WHITE
+	if _multiselect_btn:
+		_multiselect_btn.button_pressed = _active_tool == Tool.MULTISELECT
+		_multiselect_btn.modulate = Color(1.2, 1.15, 0.85) if _multiselect_btn.button_pressed else Color.WHITE
 	if _hoe_btn:
 		_hoe_btn.button_pressed = _active_tool == Tool.HOE
 	if _harvest_btn:
@@ -439,6 +460,30 @@ func _icon_select() -> Texture2D:
 			img.set_pixel(x, y, c)
 	_fill_rect(img, 18, 40, 28, 54, c)
 	return ImageTexture.create_from_image(img)
+
+
+func _icon_multiselect() -> Texture2D:
+	## Two dashed selection boxes.
+	var img := Image.create(64, 64, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var c := Color(1, 1, 1, 1)
+	_stroke_rect_dashed(img, 8, 10, 36, 38, c)
+	_stroke_rect_dashed(img, 24, 24, 54, 54, c)
+	return ImageTexture.create_from_image(img)
+
+
+func _stroke_rect_dashed(img: Image, x0: int, y0: int, x1: int, y1: int, c: Color) -> void:
+	var dash := 3
+	var gap := 2
+	var period := dash + gap
+	for x in range(x0, x1 + 1):
+		if (x - x0) % period < dash:
+			img.set_pixel(x, y0, c)
+			img.set_pixel(x, y1, c)
+	for y in range(y0, y1 + 1):
+		if (y - y0) % period < dash:
+			img.set_pixel(x0, y, c)
+			img.set_pixel(x1, y, c)
 
 
 func _icon_hammer() -> Texture2D:

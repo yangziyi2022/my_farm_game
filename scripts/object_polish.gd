@@ -16,7 +16,7 @@ static func setup(
 	if animate_placement and not ItemData.is_terrain(item_type):
 		PlacementAnimation.play(obj)
 
-	if ItemData.should_sway(item_type):
+	if ItemData.should_sway(item_type) and not OS.has_feature("mobile"):
 		_attach_sway(obj, item_type)
 
 	if ItemData.is_animal(item_type):
@@ -152,6 +152,9 @@ static func _on_plant_stage_changed(
 	grid_manager: GridManager,
 	stage: int
 ) -> void:
+	# Rebuild mesh pick shapes for the newly visible growth stage.
+	if grid_manager and is_instance_valid(obj):
+		grid_manager.refresh_tile_collider(obj)
 	if stage < CropGrowth.STAGE_COUNT - 1:
 		return
 	_on_plant_mature(obj, item_type, grid_manager)

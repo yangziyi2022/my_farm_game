@@ -2,17 +2,22 @@ class_name SelectionActionBar
 extends Control
 
 ## Floating Move / Rotate / Delete buttons above the current selection.
+## Can also pin to the top of the screen for multi-select groups.
 
 signal move_pressed
 signal rotate_pressed
 signal delete_pressed
 
 const BTN_SIZE := Vector2(52, 52)
+const BTN_SIZE_TOP := Vector2(64, 64)
+const TOP_INSET := 56.0
 
 var camera: Camera3D
 var _row: HBoxContainer
 var _world_anchor: Vector3 = Vector3.ZERO
 var _follow: bool = false
+var _pin_top: bool = false
+var _top_mode: bool = false
 
 
 func setup(p_camera: Camera3D) -> void:
@@ -60,18 +65,51 @@ func _make_action_button(tip: String, icon: Texture2D, tint: Color, on_press: Ca
 func show_at_world(world_pos: Vector3) -> void:
 	_world_anchor = world_pos
 	_follow = true
+	_pin_top = false
+	_set_button_sizes(false)
 	visible = true
 	_update_screen_pos()
 
 
+func show_at_top() -> void:
+	_follow = false
+	_pin_top = true
+	_set_button_sizes(true)
+	visible = true
+	_row.visible = true
+	_layout_top()
+
+
 func hide_bar() -> void:
 	_follow = false
+	_pin_top = false
 	visible = false
 
 
+func _set_button_sizes(top: bool) -> void:
+	if _top_mode == top:
+		return
+	_top_mode = top
+	var size := BTN_SIZE_TOP if top else BTN_SIZE
+	_row.add_theme_constant_override("separation", 12 if top else 8)
+	for child in _row.get_children():
+		if child is Button:
+			(child as Button).custom_minimum_size = size
+
+
 func _process(_delta: float) -> void:
-	if _follow and visible:
+	if not visible:
+		return
+	if _pin_top:
+		_layout_top()
+	elif _follow:
 		_update_screen_pos()
+
+
+func _layout_top() -> void:
+	var vp := get_viewport().get_visible_rect().size
+	var size: Vector2 = _row.get_combined_minimum_size()
+	_row.position = Vector2((vp.x - size.x) * 0.5, TOP_INSET)
 
 
 func _update_screen_pos() -> void:

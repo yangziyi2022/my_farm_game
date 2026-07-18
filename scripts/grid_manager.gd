@@ -29,6 +29,7 @@ const ISLAND_GRASS_COLOR := Color(0.30, 0.40, 0.03)
 const ISLAND_GRASS_TUFT_COLOR := Color(0.34, 0.45, 0.04)
 ## Low-poly tuft Multimesh (tiny tris) — safe to place on most cells.
 const GRASS_CELL_STEP: int = 2
+const GRASS_CELL_STEP_MOBILE: int = 3
 const GRASS_XZ_SCALE: float = 0.55
 const GRASS_Y_SCALE: float = 0.7
 const DRAW_GRID_LINES: bool = false
@@ -150,9 +151,10 @@ func _build_island() -> void:
 
 func _build_default_grass() -> void:
 	## Low-poly Multimesh tufts on a solid grass deck. ~20 tris/tuft, not Grass Patch.glb.
+	var step := GRASS_CELL_STEP_MOBILE if OS.has_feature("mobile") else GRASS_CELL_STEP
 	var cells: Array[Vector2i] = []
-	for x in range(0, GRID_WIDTH, GRASS_CELL_STEP):
-		for y in range(0, GRID_HEIGHT, GRASS_CELL_STEP):
+	for x in range(0, GRID_WIDTH, step):
+		for y in range(0, GRID_HEIGHT, step):
 			var cell := Vector2i(x, y)
 			if is_in_bounds(cell):
 				cells.append(cell)
@@ -199,6 +201,14 @@ func _build_default_grass() -> void:
 	_sync_grass_visibility()
 
 
+func _grass_home_for(cell: Vector2i) -> Vector2i:
+	var step := GRASS_CELL_STEP_MOBILE if OS.has_feature("mobile") else GRASS_CELL_STEP
+	return Vector2i(
+		int(floor(float(cell.x) / float(step))) * step,
+		int(floor(float(cell.y) / float(step))) * step
+	)
+
+
 func _make_lowpoly_grass_tuft_mesh() -> ArrayMesh:
 	## Three crossed blade cards (~18 tris). Cheap enough for dense Multimesh.
 	var st := SurfaceTool.new()
@@ -234,20 +244,14 @@ func _make_lowpoly_grass_tuft_mesh() -> ArrayMesh:
 	return st.commit()
 
 
-func _grass_home_for(cell: Vector2i) -> Vector2i:
-	return Vector2i(
-		int(floor(float(cell.x) / float(GRASS_CELL_STEP))) * GRASS_CELL_STEP,
-		int(floor(float(cell.y) / float(GRASS_CELL_STEP))) * GRASS_CELL_STEP
-	)
-
-
 func _refresh_grass_around(cell: Vector2i) -> void:
 	var home := _grass_home_for(cell)
 	if not _grass_cell_index.has(home):
 		return
+	var step := GRASS_CELL_STEP_MOBILE if OS.has_feature("mobile") else GRASS_CELL_STEP
 	var show := true
-	for ox in range(GRASS_CELL_STEP):
-		for oy in range(GRASS_CELL_STEP):
+	for ox in range(step):
+		for oy in range(step):
 			var c := home + Vector2i(ox, oy)
 			if not has_terrain(c):
 				continue
@@ -369,6 +373,10 @@ func can_expand() -> bool:
 	return play_radius + 0.001 < MAX_PLAY_RADIUS
 
 
+func can_shrink() -> bool:
+	return play_radius > DEFAULT_PLAY_RADIUS + 0.001
+
+
 func expand_island(record_undo: bool = true) -> bool:
 	## Grow the playable disc; grid coords of existing objects stay put.
 	if not can_expand():
@@ -379,6 +387,46 @@ func expand_island(record_undo: bool = true) -> bool:
 	if record_undo and undo_manager and not undo_manager.is_applying_undo():
 		undo_manager.record_expand(old_radius, new_radius)
 	return true
+
+
+func shrink_island(record_undo: bool = true) -> bool:
+	## Shrink one step toward the original size. Refuses if anything would fall outside.
+	if not can_shrink():
+		return false
+	var old_radius := play_radius
+	var new_radius := maxf(play_radius - EXPAND_STEP, DEFAULT_PLAY_RADIUS)
+	if _has_content_outside_radius(new_radius):
+		return false
+	_apply_play_radius(new_radius)
+	if record_undo and undo_manager and not undo_manager.is_applying_undo():
+		undo_manager.record_expand(old_radius, new_radius)
+	return true
+
+
+func shrink_blocked_by_content() -> bool:
+	## True when radius can decrease but objects sit in the rim that would be removed.
+	if not can_shrink():
+		return false
+	var new_radius := maxf(play_radius - EXPAND_STEP, DEFAULT_PLAY_RADIUS)
+	return _has_content_outside_radius(new_radius)
+
+
+func _has_content_outside_radius(radius: float) -> bool:
+	var center := get_map_center()
+	var r2 := radius * radius
+	for pos in _objects.keys():
+		var world := grid_to_world(pos as Vector2i)
+		var dx := world.x - center.x
+		var dz := world.z - center.z
+		if dx * dx + dz * dz > r2 + 0.001:
+			return true
+	for pos in _terrain.keys():
+		var world := grid_to_world(pos as Vector2i)
+		var dx := world.x - center.x
+		var dz := world.z - center.z
+		if dx * dx + dz * dz > r2 + 0.001:
+			return true
+	return false
 
 
 func set_play_radius_silent(radius: float) -> void:
@@ -951,8 +999,14 @@ func _spawn_object(
 		_register_content_cells(obj, grid_pos, footprint, rotation)
 
 	# Polish first (AnimalPivot / reparent Visual) so mesh colliders match what you see.
-	ObjectPolish.setup(obj, item_type, animate_placement, self)
-	_add_tile_collider(obj, item_type)
+	var animate := animate_placement and not OS.has_feature("mobile")
+	ObjectPolish.setup(obj, item_type, animate, self)
+	if OS.has_feature("mobile"):
+		_disable_shadow_casting(obj)
+		# Build pick shape next frame so place/delete feel instant on iPad.
+		call_deferred("_add_tile_collider", obj, item_type)
+	else:
+		_add_tile_collider(obj, item_type)
 
 	if record_undo and undo_manager and not undo_manager.is_applying_undo():
 		undo_manager.record_place(grid_pos, item_type, rotation, growth_stage)
@@ -961,19 +1015,27 @@ func _spawn_object(
 	return obj
 
 
+func _disable_shadow_casting(root: Node) -> void:
+	if root == null or not is_instance_valid(root):
+		return
+	if root is GeometryInstance3D:
+		(root as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	for child in root.get_children():
+		_disable_shadow_casting(child)
+
+
 func _add_tile_collider(obj: Node3D, item_type: ItemData.ItemType) -> void:
+	if obj == null or not is_instance_valid(obj):
+		return
+	_clear_pick_bodies(obj)
 	_disable_nested_pick_bodies(obj)
 
-	var existing := find_tile_collider(obj)
-	if existing:
-		existing.free()
-
-	var body := StaticBody3D.new()
-	body.name = "TileCollider"
-	body.collision_layer = 1
-	body.collision_mask = 0
-
 	if ItemData.is_terrain(item_type):
+		var body := StaticBody3D.new()
+		body.name = "TileCollider"
+		body.set_meta("mesh_pick", true)
+		body.collision_layer = 1
+		body.collision_mask = 0
 		var col := CollisionShape3D.new()
 		var box := BoxShape3D.new()
 		box.size = Vector3(TILE_WIDTH * 0.98, 0.08, TILE_HEIGHT * 0.98)
@@ -983,8 +1045,49 @@ func _add_tile_collider(obj: Node3D, item_type: ItemData.ItemType) -> void:
 		obj.add_child(body)
 		return
 
-	# Stable footprint boxes only — mesh convex hulls (esp. windmill blades)
-	# caused "click here, select something far away" and broke after in-place yaw.
+	# One cheap AABB / footprint box — never generate convex/trimesh (too slow on place/delete).
+	var body := StaticBody3D.new()
+	body.name = "TileCollider"
+	body.set_meta("mesh_pick", true)
+	body.collision_layer = 1
+	body.collision_mask = 0
+	var col := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	var aabb_info := _compute_pick_aabb(obj, item_type)
+	box.size = aabb_info["size"]
+	col.position = aabb_info["center"]
+	col.shape = box
+	body.add_child(col)
+	obj.add_child(body)
+
+
+func _compute_pick_aabb(obj: Node3D, item_type: ItemData.ItemType) -> Dictionary:
+	## Prefer visible mesh bounds in object-local space; footprint fallback.
+	var meshes: Array[MeshInstance3D] = []
+	_gather_pick_meshes(obj, meshes)
+	var has_bounds := false
+	var merged := AABB()
+	for mi in meshes:
+		if not is_instance_valid(mi) or mi.mesh == null or not mi.is_visible_in_tree():
+			continue
+		var local_xf := obj.global_transform.affine_inverse() * mi.global_transform
+		var mesh_aabb := local_xf * mi.mesh.get_aabb()
+		if not has_bounds:
+			merged = mesh_aabb
+			has_bounds = true
+		else:
+			merged = merged.merge(mesh_aabb)
+	if has_bounds and merged.size.length_squared() > 0.0001:
+		var padded := merged.grow(0.04)
+		return {
+			"size": Vector3(
+				maxf(padded.size.x, 0.2),
+				maxf(padded.size.y, 0.2),
+				maxf(padded.size.z, 0.2)
+			),
+			"center": padded.get_center(),
+		}
+
 	var footprint := ItemData.get_footprint(item_type)
 	var fw: float = float(maxi(footprint.x, 1))
 	var fh: float = float(maxi(footprint.y, 1))
@@ -997,16 +1100,37 @@ func _add_tile_collider(obj: Node3D, item_type: ItemData.ItemType) -> void:
 		height = 2.8
 	elif item_type == ItemData.ItemType.FENCE:
 		height = 0.75
+	var fp_center := footprint_center_world(Vector2i.ZERO, footprint, 0)
+	return {
+		"size": Vector3(TILE_WIDTH * fw * 0.92, height, TILE_HEIGHT * fh * 0.92),
+		"center": Vector3(fp_center.x, height * 0.5, fp_center.z),
+	}
 
-	var col := CollisionShape3D.new()
-	var box := BoxShape3D.new()
-	box.size = Vector3(TILE_WIDTH * fw * 0.92, height, TILE_HEIGHT * fh * 0.92)
-	# Local +X/+Z from anchor. Non-square roots yaw with the object; squares stay put.
-	var center := footprint_center_world(Vector2i.ZERO, footprint, 0)
-	col.position = Vector3(center.x, height * 0.5, center.z)
-	col.shape = box
-	body.add_child(col)
-	obj.add_child(body)
+
+func _gather_pick_meshes(node: Node, out: Array[MeshInstance3D]) -> void:
+	if node == null or not is_instance_valid(node):
+		return
+	if _is_excluded_pick_branch(node):
+		return
+	if node is MeshInstance3D:
+		out.append(node as MeshInstance3D)
+	for child in node.get_children():
+		_gather_pick_meshes(child, out)
+
+
+func _is_excluded_pick_branch(node: Node) -> bool:
+	## Spinning blades / FX shouldn't own huge or moving pick volumes.
+	var n: Node = node
+	while n != null:
+		var nm := str(n.name)
+		if nm in [
+			"BladePivot", "SpinningBlades", "FountainSplash", "FountainSway",
+			"LampGlow", "LampLight", "SelectionFootprint", "FootprintOverlay",
+			"Ghost", "CropGrowth",
+		]:
+			return true
+		n = n.get_parent()
+	return false
 
 
 func refresh_tile_collider(obj: Node3D) -> void:
@@ -1015,25 +1139,63 @@ func refresh_tile_collider(obj: Node3D) -> void:
 	_add_tile_collider(obj, obj.get_meta("item_type"))
 
 
+func _clear_pick_bodies(root: Node) -> void:
+	if root == null or not is_instance_valid(root):
+		return
+	var to_free: Array[Node] = []
+	_collect_pick_bodies(root, to_free)
+	for body in to_free:
+		if is_instance_valid(body):
+			body.free()
+
+
+func _collect_pick_bodies(node: Node, out: Array[Node]) -> void:
+	if node == null or not is_instance_valid(node):
+		return
+	if node is CollisionObject3D and (
+		node.name == "TileCollider" or node.name == "MeshPick" or node.has_meta("mesh_pick")
+	):
+		out.append(node)
+		return
+	for child in node.get_children():
+		_collect_pick_bodies(child, out)
+
+
+func set_object_pickable(obj: Node3D, enabled: bool) -> void:
+	if obj == null or not is_instance_valid(obj):
+		return
+	var bodies: Array[Node] = []
+	_collect_pick_bodies(obj, bodies)
+	var layer := 1 if enabled else 0
+	for body in bodies:
+		if body is CollisionObject3D and is_instance_valid(body):
+			(body as CollisionObject3D).collision_layer = layer
+
+
 func _disable_nested_pick_bodies(root: Node) -> void:
-	## Scene wrappers may ship tiny/wrong StaticBodies; only TileCollider should be pickable.
+	## Scene wrappers may ship tiny/wrong StaticBodies; only our MeshPick / TileCollider should hit.
 	if root == null or not is_instance_valid(root):
 		return
 	for child in root.get_children():
 		if not is_instance_valid(child):
 			continue
 		_disable_nested_pick_bodies(child)
-		if child is CollisionObject3D and child.name != "TileCollider":
+		if child is CollisionObject3D:
+			if child.name == "TileCollider" or child.name == "MeshPick" or child.has_meta("mesh_pick"):
+				continue
 			(child as CollisionObject3D).collision_layer = 0
 
 
 func find_tile_collider(obj: Node3D) -> CollisionObject3D:
+	## First pick body (legacy helper). Prefer set_object_pickable for enable/disable.
 	if obj == null:
 		return null
-	var direct := obj.get_node_or_null("TileCollider") as CollisionObject3D
-	if direct:
-		return direct
-	return obj.find_child("TileCollider", true, false) as CollisionObject3D
+	var bodies: Array[Node] = []
+	_collect_pick_bodies(obj, bodies)
+	for body in bodies:
+		if body is CollisionObject3D and is_instance_valid(body):
+			return body as CollisionObject3D
+	return null
 
 
 func remove_object(grid_pos: Vector2i) -> void:
@@ -1246,6 +1408,9 @@ func move_content_group(moves: Array) -> bool:
 		else:
 			_unregister_content_object(obj)
 
+	var batching := undo_manager != null and not undo_manager.is_applying_undo() and moves.size() > 1
+	if batching:
+		undo_manager.begin_batch()
 	for entry in moves:
 		var to: Vector2i = entry["to"]
 		var obj: Node3D = entry["obj"]
@@ -1263,25 +1428,40 @@ func move_content_group(moves: Array) -> bool:
 		if undo_manager and not undo_manager.is_applying_undo():
 			undo_manager.record_move(entry["from"], to)
 		object_moved.emit(entry["from"], to)
+	if batching:
+		undo_manager.end_batch()
 	_sync_grass_visibility()
 	return true
 
 
 func move_object_silent(from: Vector2i, to: Vector2i) -> bool:
-	if not _objects.has(from):
-		return false
-	var obj: Node3D = _objects[from]
-	from = obj.get_meta("grid_pos")
-	if not can_move_content_to(obj, to):
-		return false
-	var footprint := get_object_footprint(obj)
-	var rotation := get_object_rotation(obj)
-	_unregister_content_object(obj)
-	obj.set_meta("grid_pos", to)
-	_register_content_cells(obj, to, footprint, rotation)
-	obj.position = grid_to_world(to)
-	object_moved.emit(from, to)
-	return true
+	if _objects.has(from):
+		var obj: Node3D = _objects[from]
+		from = obj.get_meta("grid_pos")
+		if not can_move_content_to(obj, to):
+			return false
+		var footprint := get_object_footprint(obj)
+		var rotation := get_object_rotation(obj)
+		_unregister_content_object(obj)
+		obj.set_meta("grid_pos", to)
+		_register_content_cells(obj, to, footprint, rotation)
+		obj.position = grid_to_world(to)
+		object_moved.emit(from, to)
+		return true
+	# Terrain (dirt/path/water) — needed so group move / hoe-adjacent undos work.
+	if _terrain.has(from):
+		if has_terrain(to) and _terrain[to] != _terrain[from]:
+			return false
+		var terrain: Node3D = _terrain[from]
+		_terrain.erase(from)
+		_terrain[to] = terrain
+		terrain.set_meta("grid_pos", to)
+		terrain.position = grid_to_world(to)
+		_refresh_grass_around(from)
+		_refresh_grass_around(to)
+		object_moved.emit(from, to)
+		return true
+	return false
 
 
 func rotate_object(grid_pos: Vector2i, steps: int = 1) -> void:

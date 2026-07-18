@@ -27,6 +27,9 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	# Half-rate on mobile — sway is cosmetic.
+	if OS.has_feature("mobile") and (Engine.get_process_frames() % 2) != 0:
+		return
 	if _pivot == null:
 		return
 

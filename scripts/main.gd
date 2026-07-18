@@ -25,6 +25,7 @@ const ToolCursor3D = preload("res://scripts/tool_cursor_3d.gd")
 
 
 func _ready() -> void:
+	_apply_mobile_performance()
 	weather_controller.setup(world_environment, sun_light, fill_light)
 	var map_center := grid_manager.get_map_center()
 	day_night_cycle.setup(world_environment, sun_light, fill_light, map_center, moon_light)
@@ -36,6 +37,7 @@ func _ready() -> void:
 
 	item_palette.item_selected.connect(placement_controller.set_selected_item)
 	item_palette.select_tool_activated.connect(_on_select_tool_activated)
+	item_palette.multiselect_tool_activated.connect(_on_multiselect_tool_activated)
 	item_palette.hoe_tool_activated.connect(_on_hoe_tool_activated)
 	item_palette.harvest_tool_activated.connect(_on_harvest_tool_activated)
 	item_palette.rod_tool_activated.connect(_on_rod_tool_activated)
@@ -61,7 +63,30 @@ func _ready() -> void:
 	grid_manager.repair_content_registry()
 
 	_on_undo_stack_changed(undo_manager.can_undo())
-	_on_status_message("Touch: tap to play · 2-finger pan/pinch/twist camera. Desktop: right-drag orbit, middle pan, scroll zoom.")
+	_on_status_message("Touch: tap to place · 2-finger camera · Move: drag then tap to drop")
+
+
+func _apply_mobile_performance() -> void:
+	## iPad/iPhone: lower 3D resolution + cheaper shadows to keep FPS up.
+	if not (OS.has_feature("mobile") or OS.has_feature("web_ios") or OS.has_feature("web_android")):
+		return
+	var vp := get_viewport()
+	vp.scaling_3d_scale = 0.65
+	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
+	if sun_light:
+		sun_light.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+		sun_light.directional_shadow_max_distance = 40.0
+		sun_light.shadow_blur = 0.35
+		# Harder cut: many iPads struggle more with shadows than resolution.
+		sun_light.shadow_enabled = false
+	if moon_light:
+		moon_light.shadow_enabled = false
+	if fill_light:
+		fill_light.light_energy = 0.18
+		fill_light.omni_range = 32.0
+	RenderingServer.directional_soft_shadow_filter_set_quality(
+		RenderingServer.SHADOW_QUALITY_SOFT_VERY_LOW
+	)
 
 
 func _on_day_night_phase_changed(phase: String) -> void:
@@ -80,6 +105,10 @@ func _on_day_night_phase_changed(phase: String) -> void:
 
 func _on_select_tool_activated() -> void:
 	placement_controller.enter_select_mode()
+
+
+func _on_multiselect_tool_activated() -> void:
+	placement_controller.enter_multiselect_mode()
 
 
 func _on_hoe_tool_activated() -> void:

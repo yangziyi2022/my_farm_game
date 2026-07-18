@@ -3,8 +3,8 @@ extends Node3D
 
 ## Parabolic water arcs from the fountain tip into the basin.
 
-const STREAM_COUNT: int = 8
-const DROPS_PER_STREAM: int = 7
+const STREAM_COUNT: int = 5
+const DROPS_PER_STREAM: int = 4
 const CYCLE: float = 0.85
 ## Speeds are in Visual-local units (stone fountain Visual is scaled ~2.4).
 const OUT_SPEED: float = 0.52
@@ -67,8 +67,12 @@ func setup(water_color: Color = Color(0.45, 0.72, 0.95, 0.75)) -> void:
 
 
 func _process(delta: float) -> void:
+	# Fountain spray is cosmetic — update less often on mobile GPUs.
+	if OS.has_feature("mobile") and (Engine.get_process_frames() % 2) != 0:
+		return
+	var step := delta if not OS.has_feature("mobile") else delta * 2.0
 	for i in range(_drops.size()):
-		_phases[i] = fmod(_phases[i] + delta / CYCLE, 1.0)
+		_phases[i] = fmod(_phases[i] + step / CYCLE, 1.0)
 		var t: float = _phases[i] * FLIGHT
 		var s: int = _stream_of[i]
 		var angle := TAU * float(s) / float(STREAM_COUNT)

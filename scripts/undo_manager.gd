@@ -13,10 +13,13 @@ enum ActionType {
 	MOVE,
 	ROTATE,
 	EXPAND,
+	BATCH,
 }
 
 var _stack: Array[Dictionary] = []
 var _applying_undo: bool = false
+var _batch_depth: int = 0
+var _pending_batch: Array = []
 
 
 func can_undo() -> bool:
@@ -25,11 +28,41 @@ func can_undo() -> bool:
 
 func clear() -> void:
 	_stack.clear()
+	_pending_batch.clear()
+	_batch_depth = 0
 	stack_changed.emit(false)
 
 
 func is_applying_undo() -> bool:
 	return _applying_undo
+
+
+func begin_batch() -> void:
+	if _applying_undo:
+		return
+	_batch_depth += 1
+	if _batch_depth == 1:
+		_pending_batch.clear()
+
+
+func end_batch() -> void:
+	if _applying_undo:
+		return
+	if _batch_depth <= 0:
+		return
+	_batch_depth -= 1
+	if _batch_depth > 0:
+		return
+	if _pending_batch.is_empty():
+		return
+	if _pending_batch.size() == 1:
+		_stack.append(_pending_batch[0])
+	else:
+		_stack.append({"type": ActionType.BATCH, "actions": _pending_batch.duplicate()})
+	_pending_batch.clear()
+	while _stack.size() > MAX_STACK_SIZE:
+		_stack.pop_front()
+	stack_changed.emit(true)
 
 
 func record_place(grid_pos: Vector2i, item_type: ItemData.ItemType, rotation: int, growth_stage: int = 0) -> void:
@@ -104,10 +137,21 @@ func undo(grid_manager: GridManager) -> bool:
 
 	var action: Dictionary = _stack.pop_back()
 	_applying_undo = true
+	_apply_action(action, grid_manager)
+	_applying_undo = false
+	stack_changed.emit(can_undo())
+	undo_applied.emit(_describe_action(action))
+	return true
 
+
+func _apply_action(action: Dictionary, grid_manager: GridManager) -> void:
 	match action["type"]:
 		ActionType.PLACE:
-			grid_manager.remove_object_silent(action["grid_pos"])
+			# Dirt/path/water live on the terrain layer — content remove alone can't undo hoe.
+			if ItemData.is_terrain(action["item_type"]):
+				grid_manager.restore_default_grass_at(action["grid_pos"])
+			else:
+				grid_manager.remove_object_silent(action["grid_pos"])
 		ActionType.REMOVE:
 			grid_manager.place_object_silent(
 				action["item_type"],
@@ -128,15 +172,17 @@ func undo(grid_manager: GridManager) -> bool:
 			grid_manager.set_rotation_silent(action["grid_pos"], action["old_rotation"])
 		ActionType.EXPAND:
 			grid_manager.set_play_radius_silent(float(action["old_radius"]))
-
-	_applying_undo = false
-	stack_changed.emit(can_undo())
-	undo_applied.emit(_describe_action(action))
-	return true
+		ActionType.BATCH:
+			var actions: Array = action.get("actions", [])
+			for i in range(actions.size() - 1, -1, -1):
+				_apply_action(actions[i], grid_manager)
 
 
 func _push(action: Dictionary) -> void:
 	if _applying_undo:
+		return
+	if _batch_depth > 0:
+		_pending_batch.append(action)
 		return
 	_stack.append(action)
 	while _stack.size() > MAX_STACK_SIZE:
@@ -157,8 +203,12 @@ func _describe_action(action: Dictionary) -> String:
 		ActionType.ROTATE:
 			return "Undid rotate"
 		ActionType.EXPAND:
-			return "Undid expand (%.1f → %.1f)" % [
-				float(action["new_radius"]),
-				float(action["old_radius"]),
-			]
+			var old_r := float(action["old_radius"])
+			var new_r := float(action["new_radius"])
+			if new_r < old_r:
+				return "Undid shrink (%.1f → %.1f)" % [new_r, old_r]
+			return "Undid expand (%.1f → %.1f)" % [new_r, old_r]
+		ActionType.BATCH:
+			var n: int = action.get("actions", []).size()
+			return "Undid group action (%d)" % n
 	return "Undid action"

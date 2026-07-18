@@ -51,7 +51,7 @@ func setup(
 	_elapsed = clampf(start_normalized_time, 0.0, 0.999) * CYCLE_SECONDS
 	_ensure_environment()
 	_ensure_celestial_visuals()
-	_apply_frame(0.0)
+	_apply_frame(true)
 	set_process(true)
 
 
@@ -61,7 +61,7 @@ func set_weather_energy_multiplier(mul: float) -> void:
 
 func set_normalized_time(t: float) -> void:
 	_elapsed = clampf(t, 0.0, 0.999) * CYCLE_SECONDS
-	_apply_frame(0.0)
+	_apply_frame(true)
 
 
 func jump_to_sunrise() -> void:
@@ -100,11 +100,15 @@ func get_phase() -> String:
 
 
 func _process(delta: float) -> void:
-	_apply_frame(delta)
-
-
-func _apply_frame(delta: float) -> void:
 	_elapsed = fposmod(_elapsed + delta, CYCLE_SECONDS)
+	# Sky/fog palette is expensive — refresh less often on tablets.
+	var update_sky := true
+	if OS.has_feature("mobile"):
+		update_sky = (Engine.get_process_frames() % 3) == 0
+	_apply_frame(update_sky)
+
+
+func _apply_frame(update_sky: bool = true) -> void:
 	var t := get_normalized_time()
 	var sun_theta := t * TAU
 	# Rise from +X (right), arc over +Y, set at -X (left), then under the map.
@@ -135,8 +139,9 @@ func _apply_frame(delta: float) -> void:
 
 	_update_stars(t, sun_elevation, moon_above)
 	_update_lights(sun_pos, moon_pos, sun_above, moon_above, sun_elevation, moon_elevation, t)
-	_update_sky_and_ambient(t, sun_elevation)
-	_update_fill(t, sun_elevation)
+	if update_sky:
+		_update_sky_and_ambient(t, sun_elevation)
+		_update_fill(t, sun_elevation)
 
 	var phase := get_phase()
 	if phase != _last_phase:
@@ -167,7 +172,11 @@ func _update_lights(
 		var sun_color := Color(1.0, 0.96, 0.88).lerp(Color(1.0, 0.55, 0.28), sunset_warmth)
 		sun_light.light_color = sun_color
 		sun_light.light_energy = (0.15 + 1.25 * day_factor) * _energy_mul
-		sun_light.shadow_enabled = sun_above
+		# Soft shadows are expensive on tablets — keep them on phone/desktop day only at lower cost.
+		if OS.has_feature("mobile"):
+			sun_light.shadow_enabled = false
+		else:
+			sun_light.shadow_enabled = sun_above
 		sun_light.visible = true
 
 	if moon_light:
@@ -179,7 +188,8 @@ func _update_lights(
 		var night_factor := smoothstep(0.0, 0.2, moon_elevation)
 		moon_light.light_color = Color(0.72, 0.74, 0.78)
 		moon_light.light_energy = (0.04 + 0.28 * night_factor) * _energy_mul
-		moon_light.shadow_enabled = moon_above and not sun_above
+		# Moon shadows off on mobile — fill is enough at night.
+		moon_light.shadow_enabled = (not OS.has_feature("mobile")) and moon_above and not sun_above
 		moon_light.visible = moon_above
 
 
@@ -309,7 +319,7 @@ func _ensure_celestial_visuals() -> void:
 		_moon_visual = _make_waxing_crescent_moon("MoonCrescent", moon_disc_radius)
 		add_child(_moon_visual)
 	if _stars == null:
-		_stars = _make_starfield("NightStars", 280)
+		_stars = _make_starfield("NightStars", 120 if OS.has_feature("mobile") else 280)
 		add_child(_stars)
 
 

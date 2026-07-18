@@ -8,7 +8,7 @@ signal status_message(text: String)
 signal select_mode_requested
 signal feed_mode_cancelled
 
-enum Mode { PLACE, SELECT, HOE, HARVEST, FISH, FEED }
+enum Mode { PLACE, SELECT, MULTISELECT, HOE, HARVEST, FISH, FEED }
 
 var grid_manager: GridManager
 var camera: Camera3D
@@ -18,6 +18,11 @@ var cursor_overlay: CursorOverlay
 var tool_cursor: ToolCursor3D
 var _action_bar: Control = null
 var _menu_move_active: bool = false
+## While Move mode: press+drag repositions; short tap drops at current cell.
+var _menu_move_pressing: bool = false
+var _menu_move_dragged: bool = false
+const MENU_MOVE_LIFT: float = 0.55
+const MENU_MOVE_FADE: float = 0.5
 var _fish_phase: int = 0  # 0 idle, 1 waiting, 2 biting
 var _fish_cell: Vector2i = Vector2i(-9999, -9999)
 var _fish_water_pos: Vector3 = Vector3.ZERO
@@ -31,6 +36,9 @@ var _dragging: bool = false
 var _place_drag: bool = false
 var _place_commit_pos: Vector2i = Vector2i(-9999, -9999)
 var _ghost_grid_pos: Vector2i = Vector2i(-9999, -9999)
+var _ghost_place_valid: bool = false
+## Touch place: finger moved enough to reposition ghost (vs tap to confirm/cancel).
+var _touch_place_moved: bool = false
 var _drag_object: Node3D = null
 var _drag_origin: Vector2i = Vector2i.ZERO
 var _drag_hover: Vector2i = Vector2i.ZERO
@@ -126,6 +134,28 @@ func enter_select_mode() -> void:
 	status_message.emit("Select — drag empty ground to box-select, then drag selection to move.")
 
 
+func enter_multiselect_mode() -> void:
+	mode = Mode.MULTISELECT
+	if _dragging and _drag_object:
+		_snap_drag_home()
+	if _group_dragging:
+		_snap_group_home()
+	_end_object_drag()
+	_end_group_drag()
+	_cancel_marquee()
+	_place_drag = false
+	_reset_selection_state()
+	_remove_ghost()
+	_hide_cursor_overlay()
+	_hide_tool_cursor()
+	_remove_tool_footprint()
+	_clear_selection_footprint()
+	feed_mode_cancelled.emit()
+	grid_manager.repair_content_registry()
+	_restore_all_pickable()
+	status_message.emit("Multiselect — tap items to add/remove · use top Move / Rotate / Delete")
+
+
 func enter_hoe_mode() -> void:
 	mode = Mode.HOE
 	_dragging = false
@@ -200,6 +230,7 @@ func set_selected_item(item_type: ItemData.ItemType) -> void:
 	_place_rotation = 0
 	_dragging = false
 	_place_drag = false
+	_touch_place_moved = false
 	_group_dragging = false
 	_cancel_marquee()
 	_reset_selection_state()
@@ -208,7 +239,10 @@ func set_selected_item(item_type: ItemData.ItemType) -> void:
 	feed_mode_cancelled.emit()
 	_update_ghost()
 	_hide_cursor_overlay()
-	status_message.emit("Place %s — hold/drag/release. R to rotate preview" % ItemData.get_item_name(item_type))
+	if PointerInput.is_touch_ui():
+		status_message.emit("Place %s — tap a cell to place" % ItemData.get_item_name(item_type))
+	else:
+		status_message.emit("Place %s — hold/drag/release. R to rotate preview" % ItemData.get_item_name(item_type))
 
 
 func perform_undo() -> void:
@@ -220,27 +254,50 @@ func perform_undo() -> void:
 
 func _process(_delta: float) -> void:
 	# Capture primary while placing/dragging so CameraController won't steal one-finger orbit.
+	# Touch: selection alone does not capture — Move button starts menu-move instead of drag.
+	var selecting_held := (
+		_drag_object != null
+		and PointerInput.primary_down
+		and not PointerInput.is_touch_ui()
+	)
+	var touch_placing := (
+		mode == Mode.PLACE
+		and PointerInput.is_touch_ui()
+		and PointerInput.primary_down
+	)
 	PointerInput.gameplay_captures_primary = (
-		_dragging
-		or _group_dragging
+		_dragging and not _menu_move_active
+		or _group_dragging and not _menu_move_active
 		or _place_drag
 		or _marquee_active
-		or _menu_move_active
-		or (_drag_object != null and PointerInput.primary_down)
+		or (_menu_move_active and PointerInput.primary_down)
+		or selecting_held
+		or touch_placing
 	)
-	# Second finger = camera; abort in-progress one-finger place/marquee.
+	# Second finger = camera; abort in-progress one-finger place/marquee/move-drag.
 	if PointerInput.touch_count() >= 2:
 		if _place_drag:
 			_place_drag = false
+			_touch_place_moved = false
+		if _menu_move_pressing:
+			_menu_move_pressing = false
+			_menu_move_dragged = false
 		if _marquee_active:
 			_cancel_marquee()
 	if mode == Mode.PLACE and _ghost:
-		_update_ghost_position()
+		# Follow the finger/cursor so placement is always at the touch point.
+		if PointerInput.is_touch_ui():
+			if PointerInput.primary_down:
+				_update_ghost_from_pointer()
+			elif _is_valid_cell(_ghost_grid_pos):
+				_apply_ghost_at_cell(_ghost_grid_pos)
+		else:
+			_update_ghost_from_pointer()
 	if mode == Mode.HOE or mode == Mode.HARVEST or mode == Mode.FISH:
 		_update_tool_footprint()
 	if mode == Mode.FISH:
 		_update_fishing(_delta)
-	if _menu_move_active:
+	if _menu_move_active and _menu_move_pressing and _menu_move_dragged:
 		_update_menu_move_follow()
 	if _dragging and _drag_object and is_instance_valid(_drag_object) and not _group_dragging and not _menu_move_active:
 		_update_drag_follow()
@@ -281,18 +338,30 @@ func _input(event: InputEvent) -> void:
 	# Catch Delete even if a UI control has focus after box-select.
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_DELETE or event.keycode == KEY_BACKSPACE:
-			if mode == Mode.SELECT and not _selected_group.is_empty():
+			if (mode == Mode.SELECT or mode == Mode.MULTISELECT) and not _selected_group.is_empty():
 				_delete_selected()
 				get_viewport().set_input_as_handled()
 				return
 	if event is InputEventMouseMotion:
+		if _menu_move_active and _menu_move_pressing:
+			if event.position.distance_to(_mouse_down_pos) > DRAG_THRESHOLD:
+				_menu_move_dragged = true
+				_update_menu_move_follow()
+			return
 		if _marquee_active:
 			_update_marquee_visual(event.position)
 			return
 		if _place_drag and mode == Mode.PLACE:
 			# Only retarget after a real drag; tiny click jitter keeps the ghost cell.
 			if event.position.distance_to(_mouse_down_pos) > DRAG_THRESHOLD:
-				_place_commit_pos = _ghost_grid_pos
+				_touch_place_moved = true
+				if PointerInput.is_touch_ui():
+					_update_ghost_from_pointer()
+				else:
+					_place_commit_pos = _ghost_grid_pos
+			return
+		# Touch: move via action-bar Move only — leave one-finger drag for camera orbit.
+		if PointerInput.is_touch_ui():
 			return
 		if _selected_group.size() > 1 and _drag_object and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 			if not _group_dragging and event.position.distance_to(_mouse_down_pos) > DRAG_THRESHOLD:
@@ -327,15 +396,23 @@ func _handle_mouse_button(event: InputEventMouseButton) -> void:
 
 
 func _on_left_press(screen_pos: Vector2) -> void:
-	# Menu-move: first click commits the drop.
+	# Menu-move: press starts drag; short tap on release drops.
 	if _menu_move_active:
-		_commit_menu_move(screen_pos)
+		_menu_move_pressing = true
+		_menu_move_dragged = false
 		return
 
 	var hit := _raycast(screen_pos)
 
 	# Place mode: always commit to the ghost cell — never steal into select on nearby hits.
 	if mode == Mode.PLACE:
+		if PointerInput.is_touch_ui():
+			# Touch: place at the finger cell on release.
+			_place_drag = true
+			_touch_place_moved = false
+			_update_ghost_from_pointer()
+			_place_commit_pos = _ghost_grid_pos
+			return
 		var picked := _pick_selectable_at_screen(screen_pos)
 		var double_clicked := _register_click(picked)
 		if double_clicked and picked:
@@ -361,9 +438,23 @@ func _on_left_press(screen_pos: Vector2) -> void:
 			if not _selected_group.is_empty():
 				_clear_selected_group()
 				status_message.emit("Deselected")
-			# Touch: skip marquee (use multi-select later); leave gesture free for camera.
+			# Touch: skip marquee; Multiselect tool is for tap-to-add.
 			if not PointerInput.is_touch_ui():
 				_begin_marquee(screen_pos)
+		return
+
+	if mode == Mode.MULTISELECT:
+		var picked := _pick_selectable_at_screen(screen_pos)
+		_register_click(picked)
+		_dragging = false
+		_group_dragging = false
+		_drag_object = null
+		if picked:
+			_toggle_multiselect(picked)
+		else:
+			if not _selected_group.is_empty():
+				_clear_selected_group()
+				status_message.emit("Deselected")
 		return
 
 	# Fishing uses ground cell + session state (cast → wait → reel).
@@ -423,22 +514,20 @@ func _restore_all_pickable() -> void:
 	for obj in grid_manager.get_all_selectable_objects():
 		if not is_instance_valid(obj):
 			continue
-		var body := grid_manager.find_tile_collider(obj)
-		if body:
-			body.collision_layer = 1
+		grid_manager.set_object_pickable(obj, true)
 
 
 func _pick_selectable_at_screen(screen_pos: Vector2) -> Node3D:
-	## Grid cell under cursor wins — stops tall/wrong colliders from stealing selection.
-	var ground_cell := _raycast_ground_cell(screen_pos)
-	if _is_valid_cell(ground_cell):
-		var at_ground := grid_manager.get_object_at(ground_cell)
-		if at_ground and _is_selectable(at_ground):
-			return at_ground
-
+	## Hit whatever GLB / mesh is under the finger first (visible surface).
 	var hit := _raycast_pick_object(screen_pos)
 	if hit and _is_selectable(hit):
 		return hit
+	# Empty ground: only select terrain tiles (dirt / water / path), never steal via footprint.
+	var ground_cell := _raycast_ground_cell(screen_pos)
+	if _is_valid_cell(ground_cell):
+		var terrain := grid_manager.get_terrain_at(ground_cell)
+		if terrain and _is_selectable(terrain):
+			return terrain
 	return null
 
 
@@ -456,8 +545,8 @@ func _raycast_pick_object(screen_pos: Vector2) -> Node3D:
 
 
 func _begin_place_drag() -> void:
-	# Lock to wherever the semi-transparent ghost currently sits.
-	_update_ghost_position()
+	# Desktop: lock to wherever the semi-transparent ghost currently sits.
+	_update_ghost_from_pointer()
 	_place_commit_pos = _ghost_grid_pos
 	if not _is_valid_cell(_place_commit_pos):
 		_place_drag = false
@@ -466,6 +555,23 @@ func _begin_place_drag() -> void:
 	_place_drag = true
 	status_message.emit("Release to place at ghost cell")
 
+
+func _commit_place_at(place_pos: Vector2i) -> void:
+	if not _is_valid_cell(place_pos):
+		status_message.emit("Cancelled place")
+		return
+	if grid_manager.can_place_at(place_pos, selected_item, _place_rotation):
+		var placed := grid_manager.place_object(selected_item, place_pos, _place_rotation)
+		if selected_item == ItemData.ItemType.GRASS:
+			status_message.emit("Cleared to grass floor at (%d, %d)" % [place_pos.x, place_pos.y])
+		else:
+			status_message.emit("Placed %s at (%d, %d)" % [
+				ItemData.get_item_name(selected_item), place_pos.x, place_pos.y
+			])
+		if placed == null and selected_item != ItemData.ItemType.GRASS:
+			pass
+	else:
+		status_message.emit("Cannot place here")
 
 
 func _is_selectable(obj: Node3D) -> bool:
@@ -507,6 +613,25 @@ func _select_placed_object(obj: Node3D) -> void:
 	_drag_hover = _drag_origin
 	_drag_object.position = grid_manager.grid_to_world(_drag_origin)
 	status_message.emit("Selected 1 — hold-drag to move, or box-select more on empty ground")
+
+
+func _toggle_multiselect(obj: Node3D) -> void:
+	if obj == null or not is_instance_valid(obj):
+		return
+	var next: Array = []
+	for existing in _selected_group:
+		if is_instance_valid(existing) and existing != obj:
+			next.append(existing)
+	var removing := _selected_group.has(obj)
+	if not removing:
+		next.append(obj)
+	_set_selected_group(next)
+	if next.is_empty():
+		status_message.emit("Deselected")
+	elif removing:
+		status_message.emit("Selected %d — tap more or use top actions" % next.size())
+	else:
+		status_message.emit("Selected %d — tap more or use top actions" % next.size())
 
 
 func _on_selection_changed(obj: Node3D) -> void:
@@ -692,10 +817,22 @@ func _begin_group_drag() -> void:
 		if not is_instance_valid(obj):
 			continue
 		_group_origins[obj] = obj.get_meta("grid_pos")
-		var body := grid_manager.find_tile_collider(obj)
-		if body:
-			body.collision_layer = 0
-	_update_group_drag_follow()
+		grid_manager.set_object_pickable(obj, false)
+		if _menu_move_active:
+			_apply_menu_move_visual(obj, true)
+			var origin: Vector2i = _group_origins[obj]
+			obj.position = grid_manager.grid_to_world(origin) + Vector3(0.0, MENU_MOVE_LIFT, 0.0)
+	if _menu_move_active:
+		_drag_hover = _drag_origin
+		var valid := _can_drop_group_at(Vector2i.ZERO)
+		for obj in _selected_group:
+			if not is_instance_valid(obj):
+				continue
+			var fp := obj.get_node_or_null("SelectionFootprint") as FootprintOverlay
+			if fp:
+				fp.set_valid(valid)
+	else:
+		_update_group_drag_follow()
 
 
 func _end_group_drag() -> void:
@@ -703,9 +840,8 @@ func _end_group_drag() -> void:
 	for obj in _selected_group:
 		if not is_instance_valid(obj):
 			continue
-		var body := grid_manager.find_tile_collider(obj)
-		if body:
-			body.collision_layer = 1
+		_clear_menu_move_visual(obj)
+		grid_manager.set_object_pickable(obj, true)
 
 
 func _update_group_drag_follow() -> void:
@@ -720,11 +856,12 @@ func _update_group_drag_follow() -> void:
 	_drag_hover = target
 	var delta := target - _drag_origin
 	var valid := _can_drop_group_at(delta)
+	var lift := MENU_MOVE_LIFT if _menu_move_active else 0.0
 	for obj in _selected_group:
 		if not is_instance_valid(obj):
 			continue
 		var origin: Vector2i = _group_origins[obj]
-		obj.position = grid_manager.grid_to_world(origin + delta)
+		obj.position = grid_manager.grid_to_world(origin + delta) + Vector3(0.0, lift, 0.0)
 		var fp := obj.get_node_or_null("SelectionFootprint") as FootprintOverlay
 		if fp:
 			fp.set_valid(valid)
@@ -778,6 +915,7 @@ func _snap_group_home() -> void:
 		if not is_instance_valid(obj):
 			continue
 		var origin: Vector2i = _group_origins.get(obj, obj.get_meta("grid_pos"))
+		_clear_menu_move_visual(obj)
 		obj.position = grid_manager.grid_to_world(origin)
 		obj.set_meta("grid_pos", origin)
 		var fp := obj.get_node_or_null("SelectionFootprint") as FootprintOverlay
@@ -844,9 +982,7 @@ func _is_valid_cell(cell: Vector2i) -> bool:
 func _set_drag_pickable(enabled: bool) -> void:
 	if _drag_object == null or not is_instance_valid(_drag_object):
 		return
-	var body := grid_manager.find_tile_collider(_drag_object)
-	if body:
-		body.collision_layer = 1 if enabled else 0
+	grid_manager.set_object_pickable(_drag_object, enabled)
 
 
 func _update_drag_follow() -> void:
@@ -858,13 +994,15 @@ func _update_drag_follow() -> void:
 	if target == _drag_hover:
 		return
 	_drag_hover = target
-	_drag_object.position = grid_manager.grid_to_world(target)
+	var lift := MENU_MOVE_LIFT if _menu_move_active else 0.0
+	_drag_object.position = grid_manager.grid_to_world(target) + Vector3(0.0, lift, 0.0)
 	if _selection_footprint:
 		_selection_footprint.set_valid(_can_drop_drag_at(target))
 
 
 func _snap_drag_home() -> void:
 	if _drag_object and is_instance_valid(_drag_object):
+		_clear_menu_move_visual(_drag_object)
 		_drag_object.position = grid_manager.grid_to_world(_drag_origin)
 		_drag_object.set_meta("grid_pos", _drag_origin)
 	if _selection_footprint:
@@ -881,10 +1019,18 @@ func _begin_object_drag(obj: Node3D) -> void:
 	_drag_origin = obj.get_meta("grid_pos")
 	_drag_hover = _drag_origin
 	_set_drag_pickable(false)
-	_update_drag_follow()
+	if _menu_move_active:
+		_apply_menu_move_visual(obj, true)
+		_drag_object.position = grid_manager.grid_to_world(_drag_origin) + Vector3(0.0, MENU_MOVE_LIFT, 0.0)
+		if _selection_footprint:
+			_selection_footprint.set_valid(_can_drop_drag_at(_drag_hover))
+	else:
+		_update_drag_follow()
 
 
 func _end_object_drag() -> void:
+	if _drag_object and is_instance_valid(_drag_object):
+		_clear_menu_move_visual(_drag_object)
 	_set_drag_pickable(true)
 	_dragging = false
 
@@ -986,7 +1132,28 @@ func _on_left_release(screen_pos: Vector2) -> void:
 		_finish_marquee(screen_pos)
 		return
 
-	# New item place-drag: commit on release at the locked / dragged ghost cell.
+	# Menu-move: drag repositions floating item; tap nearby drops at current cell.
+	if _menu_move_active and _menu_move_pressing:
+		var moved := _menu_move_dragged or screen_pos.distance_to(_mouse_down_pos) > DRAG_THRESHOLD
+		_menu_move_pressing = false
+		_menu_move_dragged = false
+		if moved:
+			return
+		_commit_menu_move(screen_pos)
+		return
+
+	# Touch place: release places at the cell under the finger.
+	if mode == Mode.PLACE and PointerInput.is_touch_ui() and _place_drag:
+		_update_ghost_from_pointer()
+		_place_drag = false
+		_touch_place_moved = false
+		if _ghost_place_valid and _is_valid_cell(_ghost_grid_pos):
+			_commit_place_at(_ghost_grid_pos)
+		else:
+			status_message.emit("Cannot place here")
+		return
+
+	# Desktop place-drag: commit on release at the locked / dragged ghost cell.
 	if _place_drag:
 		_place_drag = false
 		# Prefer the cell we locked (or updated after a real drag), not a fresh raycast.
@@ -996,22 +1163,11 @@ func _on_left_release(screen_pos: Vector2) -> void:
 		if not _is_valid_cell(place_pos):
 			status_message.emit("Cancelled place")
 			return
-		if grid_manager.can_place_at(place_pos, selected_item, _place_rotation):
-			var placed := grid_manager.place_object(selected_item, place_pos, _place_rotation)
-			if selected_item == ItemData.ItemType.GRASS:
-				status_message.emit("Cleared to grass floor at (%d, %d)" % [place_pos.x, place_pos.y])
-			else:
-				status_message.emit("Placed %s at (%d, %d)" % [
-					ItemData.get_item_name(selected_item), place_pos.x, place_pos.y
-				])
-			if placed == null and selected_item != ItemData.ItemType.GRASS:
-				pass
-		else:
-			status_message.emit("Cannot place here")
+		_commit_place_at(place_pos)
 		return
 
-	# Multi-select group move.
-	if _group_dragging and not _selected_group.is_empty():
+	# Multi-select group move (desktop hold-drag, not menu-move).
+	if _group_dragging and not _selected_group.is_empty() and not _menu_move_active:
 		var target := _raycast_ground_cell(screen_pos)
 		if not _is_valid_cell(target):
 			_snap_group_home()
@@ -1023,8 +1179,8 @@ func _on_left_release(screen_pos: Vector2) -> void:
 		_show_selection_actions()
 		return
 
-	# Move existing object: follow mouse while held, commit on release.
-	if _dragging and _drag_object and is_instance_valid(_drag_object):
+	# Move existing object: follow mouse while held, commit on release (desktop, not menu-move).
+	if _dragging and _drag_object and is_instance_valid(_drag_object) and not _menu_move_active:
 		var target := _raycast_ground_cell(screen_pos)
 		if not _is_valid_cell(target):
 			_snap_drag_home()
@@ -1075,8 +1231,10 @@ func _rotate_place_preview() -> void:
 	if _ghost:
 		_ghost.set_meta("rotation", _place_rotation)
 		GridManager.apply_placeable_yaw(_ghost, _place_rotation, ItemData.get_footprint(selected_item))
+		_apply_ghost_at_cell(_ghost_grid_pos)
 	status_message.emit("Facing %d° — still placing %s" % [
-		_place_rotation * 90, ItemData.get_item_name(selected_item)
+		_place_rotation * 90,
+		ItemData.get_item_name(selected_item),
 	])
 
 
@@ -1086,6 +1244,9 @@ func _rotate_selected() -> void:
 		_rotate_place_preview()
 		return
 	if not _selected_group.is_empty():
+		var batching := undo_manager != null and _selected_group.size() > 1
+		if batching:
+			undo_manager.begin_batch()
 		var rotated := 0
 		for obj in _selected_group:
 			if not is_instance_valid(obj) or not obj.has_meta("grid_pos"):
@@ -1095,6 +1256,8 @@ func _rotate_selected() -> void:
 				continue
 			grid_manager.rotate_object(obj.get_meta("grid_pos"), 1)
 			rotated += 1
+		if batching:
+			undo_manager.end_batch()
 		if rotated > 0:
 			status_message.emit("Rotated %d item(s)" % rotated)
 			_show_selection_actions()
@@ -1115,10 +1278,15 @@ func _delete_selected() -> void:
 	if not _selected_group.is_empty():
 		var to_delete: Array[Node3D] = _selected_group.duplicate()
 		_clear_selected_group()
+		var batching := undo_manager != null and to_delete.size() > 1
+		if batching:
+			undo_manager.begin_batch()
 		var deleted := 0
 		for obj in to_delete:
 			if is_instance_valid(obj) and grid_manager.remove_node(obj):
 				deleted += 1
+		if batching:
+			undo_manager.end_batch()
 		status_message.emit("Deleted %d items" % deleted)
 		return
 	var selected := grid_manager.get_selected()
@@ -1276,10 +1444,14 @@ func _show_selection_actions() -> void:
 		return
 	if _menu_move_active or _dragging or _group_dragging or _marquee_active:
 		return
-	if mode != Mode.SELECT:
+	if mode != Mode.SELECT and mode != Mode.MULTISELECT:
 		_hide_selection_actions()
 		return
-	_action_bar.show_at_world(_selection_action_anchor())
+	# Multiselect (or Select with a group) uses a top collective action bar.
+	if mode == Mode.MULTISELECT or _selected_group.size() > 1:
+		_action_bar.show_at_top()
+	else:
+		_action_bar.show_at_world(_selection_action_anchor())
 
 
 func _hide_selection_actions() -> void:
@@ -1292,12 +1464,14 @@ func _on_selection_move_pressed() -> void:
 		return
 	_hide_selection_actions()
 	_menu_move_active = true
+	_menu_move_pressing = false
+	_menu_move_dragged = false
 	if _selected_group.size() > 1:
 		_prepare_group_drag(_selected_group[0])
 		_begin_group_drag()
 	else:
 		_begin_object_drag(_selected_group[0])
-	status_message.emit("Move — click a cell to place")
+	status_message.emit("Move — drag to position · tap nearby to drop")
 
 
 func _update_menu_move_follow() -> void:
@@ -1307,24 +1481,29 @@ func _update_menu_move_follow() -> void:
 		_update_drag_follow()
 
 
-func _commit_menu_move(screen_pos: Vector2) -> void:
+func _commit_menu_move(_screen_pos: Vector2) -> void:
+	## Drop at the cell the floating item is currently over (tap nearby to confirm).
+	var target := _drag_hover
 	if _group_dragging and not _selected_group.is_empty():
-		var target := _raycast_ground_cell(screen_pos)
 		if not _is_valid_cell(target):
 			_snap_group_home()
 			status_message.emit("Move cancelled")
+		elif not _can_drop_group_at(target - _drag_origin):
+			_snap_group_home()
+			status_message.emit("Cannot move there")
 		else:
 			_commit_group_drag(target)
 		_end_group_drag()
 		_dragging = false
 	elif _dragging and _drag_object and is_instance_valid(_drag_object):
-		var target := _raycast_ground_cell(screen_pos)
 		if not _is_valid_cell(target):
 			_snap_drag_home()
 			status_message.emit("Move cancelled")
 		elif target == _drag_origin:
 			_snap_drag_home()
+			status_message.emit("Stay put")
 		elif _can_drop_drag_at(target) and grid_manager.move_object(_drag_origin, target):
+			_clear_menu_move_visual(_drag_object)
 			_drag_origin = target
 			_drag_hover = target
 			if _group_origins.has(_drag_object):
@@ -1338,6 +1517,8 @@ func _commit_menu_move(screen_pos: Vector2) -> void:
 			_drag_origin = _drag_object.get_meta("grid_pos")
 			_drag_hover = _drag_origin
 	_menu_move_active = false
+	_menu_move_pressing = false
+	_menu_move_dragged = false
 	_show_selection_actions()
 
 
@@ -1352,6 +1533,30 @@ func _cancel_menu_move() -> void:
 		_snap_drag_home()
 		_end_object_drag()
 	_menu_move_active = false
+	_menu_move_pressing = false
+	_menu_move_dragged = false
+
+
+func _apply_menu_move_visual(obj: Node3D, active: bool) -> void:
+	## Float + fade so Move mode reads clearly on touch.
+	if obj == null or not is_instance_valid(obj):
+		return
+	_set_geometry_fade(obj, MENU_MOVE_FADE if active else 0.0)
+
+
+func _clear_menu_move_visual(obj: Node3D) -> void:
+	_apply_menu_move_visual(obj, false)
+
+
+func _set_geometry_fade(node: Node, transparency: float) -> void:
+	if node == null or not is_instance_valid(node):
+		return
+	if node is FootprintOverlay or str(node.name).begins_with("SelectionFootprint"):
+		return
+	if node is GeometryInstance3D:
+		(node as GeometryInstance3D).transparency = transparency
+	for child in node.get_children():
+		_set_geometry_fade(child, transparency)
 
 
 func _raycast(screen_pos: Vector2) -> Dictionary:
@@ -1409,6 +1614,16 @@ func _update_ghost() -> void:
 	_remove_ghost()
 	if mode != Mode.PLACE:
 		return
+	# Mobile: footprint-only preview (instantiating full GLBs for ghosts is too slow on iPad).
+	if OS.has_feature("mobile") or PointerInput.is_touch_ui():
+		_ghost = Node3D.new()
+		_ghost.name = "Ghost"
+		grid_manager.objects_container.add_child(_ghost)
+		_footprint = FootprintOverlay.create_for_item(selected_item, grid_manager)
+		_footprint.name = "GhostFootprint"
+		_ghost.add_child(_footprint)
+		_ghost.visible = false
+		return
 	_ghost = PlaceableObject.create(selected_item, Vector2i.ZERO, _place_rotation)
 	_ghost.name = "Ghost"
 	GridManager.apply_placeable_yaw(_ghost, _place_rotation, ItemData.get_footprint(selected_item))
@@ -1464,20 +1679,29 @@ func _remove_ghost() -> void:
 				child.queue_free()
 
 
-func _update_ghost_position() -> void:
+func _update_ghost_from_pointer() -> void:
 	if not _ghost:
 		return
 	var mouse_pos := PointerInput.get_position()
 	var grid_pos := _raycast_ground_cell(mouse_pos)
 	# While placing: keep the press-cell until the mouse really moves (avoids click jitter).
-	if _place_drag:
+	if _place_drag and not PointerInput.is_touch_ui():
 		if mouse_pos.distance_to(_mouse_down_pos) <= DRAG_THRESHOLD:
 			grid_pos = _place_commit_pos
 		else:
 			_place_commit_pos = grid_pos
+	elif _place_drag and PointerInput.is_touch_ui():
+		_place_commit_pos = grid_pos
+	_apply_ghost_at_cell(grid_pos)
+
+
+func _apply_ghost_at_cell(grid_pos: Vector2i) -> void:
+	if not _ghost:
+		return
 	_ghost_grid_pos = grid_pos
 	if not _is_valid_cell(grid_pos):
 		_ghost.visible = false
+		_ghost_place_valid = false
 		if _footprint:
 			_footprint.visible = false
 		return
@@ -1489,6 +1713,7 @@ func _update_ghost_position() -> void:
 		_footprint.visible = true
 
 	var valid := grid_manager.can_place_at(grid_pos, selected_item, _place_rotation)
+	_ghost_place_valid = valid
 	if _footprint:
 		_footprint.set_valid(valid)
 	_set_ghost_tint(_ghost, Color(0.45, 1.0, 0.55, 0.4) if valid else Color(1.0, 0.45, 0.45, 0.4))
