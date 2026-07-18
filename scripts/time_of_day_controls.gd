@@ -7,6 +7,7 @@ signal expand_done(message: String)
 
 var _expand_btn: Button
 var _shrink_btn: Button
+var _mute_btn: Button
 var _island_bar: HBoxContainer
 var _grid_manager: GridManager
 
@@ -36,14 +37,14 @@ func setup(day_night: DayNightCycle, grid_manager: GridManager = null) -> void:
 	)
 	add_child(moon_btn)
 
+	_install_island_size_bar()
 	if grid_manager:
-		_install_island_size_bar()
 		grid_manager.play_radius_changed.connect(_on_play_radius_changed)
 		_refresh_island_buttons()
 
 
 func _install_island_size_bar() -> void:
-	## Bottom-center expand / shrink — above status bar, clear of home indicator.
+	## Bottom-center: mute + expand / shrink — above status bar, clear of home indicator.
 	var ui := get_parent()
 	if ui == null:
 		return
@@ -55,12 +56,18 @@ func _install_island_size_bar() -> void:
 	_island_bar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	_island_bar.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_island_bar.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	# Centered pair above the status line / home indicator.
-	_island_bar.offset_left = -70.0
-	_island_bar.offset_right = 70.0
+	# Wider for mute + shrink + expand.
+	_island_bar.offset_left = -110.0
+	_island_bar.offset_right = 110.0
 	_island_bar.offset_top = -148.0
 	_island_bar.offset_bottom = -84.0
 	ui.add_child(_island_bar)
+
+	_mute_btn = _make_icon_button(_icon_speaker(not AudioManager.is_muted()), "Mute / unmute sound")
+	_mute_btn.pressed.connect(_on_mute_pressed)
+	_island_bar.add_child(_mute_btn)
+	AudioManager.mute_changed.connect(_on_mute_changed)
+	_refresh_mute_icon()
 
 	_shrink_btn = _make_icon_button(_icon_shrink(), "Shrink island — toward original size")
 	_shrink_btn.pressed.connect(_on_shrink_pressed)
@@ -69,6 +76,27 @@ func _install_island_size_bar() -> void:
 	_expand_btn = _make_icon_button(_icon_expand(), "Expand island — grow playable floor")
 	_expand_btn.pressed.connect(_on_expand_pressed)
 	_island_bar.add_child(_expand_btn)
+	if _grid_manager == null:
+		_shrink_btn.visible = false
+		_expand_btn.visible = false
+
+
+func _on_mute_pressed() -> void:
+	AudioManager.toggle_mute()
+	# Soft click only when unmuting (so mute still gives feedback once).
+	if not AudioManager.is_muted():
+		AudioManager.play("ui_click")
+
+
+func _on_mute_changed(_muted: bool) -> void:
+	_refresh_mute_icon()
+
+
+func _refresh_mute_icon() -> void:
+	if _mute_btn == null:
+		return
+	_mute_btn.icon = _icon_speaker(not AudioManager.is_muted())
+	_mute_btn.tooltip_text = "Unmute" if AudioManager.is_muted() else "Mute"
 
 
 func _on_expand_pressed() -> void:
@@ -187,6 +215,36 @@ func _icon_moon() -> Texture2D:
 			var dy := y - 30
 			if dx * dx + dy * dy <= 210:
 				img.set_pixel(x, y, Color(0, 0, 0, 0))
+	return ImageTexture.create_from_image(img)
+
+
+func _icon_speaker(on: bool) -> Texture2D:
+	## Speaker cone + waves (on) or slash (muted).
+	var img := Image.create(64, 64, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var c := Color(0.95, 0.92, 0.8)
+	# Cone body
+	_fill_rect(img, 14, 24, 28, 40, c)
+	for y in range(16, 48):
+		var t := float(y - 16) / 32.0
+		var tip := 28
+		var edge := int(lerpf(28.0, 44.0, absf(t - 0.5) * 2.0))
+		for x in range(tip, edge + 1):
+			img.set_pixel(x, y, c)
+	if on:
+		# Sound waves
+		for r in [8, 14, 20]:
+			for a in range(-40, 41):
+				var rad := deg_to_rad(float(a))
+				var x := 44 + int(cos(rad) * float(r) * 0.35 + float(r) * 0.55)
+				var y := 32 + int(sin(rad) * float(r))
+				if x >= 0 and x < 64 and y >= 0 and y < 64:
+					img.set_pixel(x, y, c)
+					if x + 1 < 64:
+						img.set_pixel(x + 1, y, c)
+	else:
+		# Mute slash
+		_draw_thick_line(img, Vector2i(18, 46), Vector2i(48, 16), c)
 	return ImageTexture.create_from_image(img)
 
 

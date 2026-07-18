@@ -20,6 +20,8 @@ static func play(plant_root: Node3D) -> void:
 		return
 	fx.name = "HarvestFX"
 	fx.visible = true
+	# AmbientSway (flowers/sunflower) overwrites position every frame — strip it.
+	_strip_runtime_nodes(fx)
 	parent.add_child(fx)
 	fx.global_transform = source.global_transform
 
@@ -28,9 +30,10 @@ static func play(plant_root: Node3D) -> void:
 
 	var start_y: float = fx.position.y
 	var start_scale: Vector3 = fx.scale
+	var rise := 1.55
 	var tween := fx.create_tween()
 	tween.set_parallel(true)
-	tween.tween_property(fx, "position:y", start_y + 1.35, 0.95) \
+	tween.tween_property(fx, "position:y", start_y + rise, 0.95) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	tween.tween_property(fx, "rotation:y", fx.rotation.y + 0.55, 0.95) \
 		.set_trans(Tween.TRANS_SINE)
@@ -41,8 +44,9 @@ static func play(plant_root: Node3D) -> void:
 
 
 static func _find_harvest_visual(plant_root: Node3D) -> Node3D:
+	## Stages may sit under SwayPivot after flower/sunflower mature polish.
 	for i in range(CropGrowth.STAGE_COUNT - 1, -1, -1):
-		var stage := plant_root.get_node_or_null("Stage%d" % i) as Node3D
+		var stage := plant_root.find_child("Stage%d" % i, true, false) as Node3D
 		if stage and stage.visible:
 			return stage
 	var sway := plant_root.get_node_or_null("SwayPivot") as Node3D
@@ -51,7 +55,25 @@ static func _find_harvest_visual(plant_root: Node3D) -> Node3D:
 	return plant_root
 
 
+static func _strip_runtime_nodes(node: Node) -> void:
+	if node == null or not is_instance_valid(node):
+		return
+	var to_free: Array[Node] = []
+	for child in node.get_children():
+		if child is AmbientSway or child.name in ["AmbientSway", "CropGrowth", "TileCollider"]:
+			to_free.append(child)
+		else:
+			_strip_runtime_nodes(child)
+	for child in to_free:
+		node.remove_child(child)
+		child.free()
+
+
 static func _make_fadeable(node: Node) -> void:
+	if node is GeometryInstance3D:
+		var gi := node as GeometryInstance3D
+		if not gi.has_meta("_harvest_prev_transparency"):
+			gi.set_meta("_harvest_prev_transparency", gi.transparency)
 	if node is MeshInstance3D:
 		var mi := node as MeshInstance3D
 		if mi.mesh:
@@ -75,6 +97,8 @@ static func _make_fadeable(node: Node) -> void:
 static func _set_fade(node: Node, alpha: float) -> void:
 	if not is_instance_valid(node):
 		return
+	if node is GeometryInstance3D:
+		(node as GeometryInstance3D).transparency = 1.0 - alpha
 	if node is MeshInstance3D:
 		var mi := node as MeshInstance3D
 		if mi.mesh:

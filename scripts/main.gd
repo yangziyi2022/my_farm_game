@@ -93,6 +93,7 @@ func _ready() -> void:
 		_on_status_message("New world \"%s\" — tap Save to keep progress" % wname)
 
 	_on_undo_stack_changed(undo_manager.can_undo())
+	AudioManager.play_music("day", true)
 
 
 func _apply_mobile_performance() -> void:

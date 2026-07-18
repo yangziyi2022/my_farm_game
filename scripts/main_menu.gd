@@ -4,7 +4,14 @@ extends Control
 
 const FARM_SCENE := "res://scenes/main.tscn"
 const LONG_PRESS_MS := 450
+## Keep content inside the parchment panel of menu.png (not the full-bleed art).
+const PANEL_WIDTH_RATIO := 0.56
+const PANEL_MAX_WIDTH := 460.0
+const PANEL_SIDE_MIN := 56.0
+const PANEL_TOP_RATIO := 0.12
+const PANEL_BOTTOM_RATIO := 0.11
 
+var _content_margin: MarginContainer
 var _worlds_list: VBoxContainer
 var _status: Label
 var _selected_id: String = ""
@@ -23,11 +30,14 @@ var _delete_target: String = ""
 
 func _ready() -> void:
 	SaveManager.ensure_ready()
+	AudioManager.play_music("day", true)
 	_build_ui()
 	_refresh_worlds()
 	var last := SaveManager.get_last_world_id()
 	if SaveManager.world_exists(last):
 		_select_world(last)
+	resized.connect(_update_content_margins)
+	_update_content_margins()
 
 
 func _build_ui() -> void:
@@ -41,23 +51,27 @@ func _build_ui() -> void:
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
 
-	# Content sits over the parchment panel in the art.
-	var root := MarginContainer.new()
-	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	root.add_theme_constant_override("margin_left", 72)
-	root.add_theme_constant_override("margin_right", 72)
-	root.add_theme_constant_override("margin_top", 88)
-	root.add_theme_constant_override("margin_bottom", 64)
-	add_child(root)
+	# Content sits over the parchment panel in the art — side margins are responsive.
+	_content_margin = MarginContainer.new()
+	_content_margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(_content_margin)
+
+	var center := CenterContainer.new()
+	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	center.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_content_margin.add_child(center)
 
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 14)
-	root.add_child(col)
+	col.name = "MenuColumn"
+	col.add_theme_constant_override("separation", 12)
+	col.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	col.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	center.add_child(col)
 
 	var brand := Label.new()
 	brand.text = "Cozy Farm"
 	brand.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	brand.add_theme_font_size_override("font_size", 48)
+	brand.add_theme_font_size_override("font_size", 42)
 	brand.add_theme_color_override("font_color", Color(0.32, 0.22, 0.12, 1.0))
 	brand.add_theme_color_override("font_shadow_color", Color(1, 1, 1, 0.35))
 	brand.add_theme_constant_override("shadow_offset_x", 1)
@@ -67,13 +81,14 @@ func _build_ui() -> void:
 	var tag := Label.new()
 	tag.text = "Build your island · grow your world"
 	tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	tag.add_theme_font_size_override("font_size", 15)
+	tag.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tag.add_theme_font_size_override("font_size", 14)
 	tag.add_theme_color_override("font_color", Color(0.42, 0.34, 0.22, 0.95))
 	col.add_child(tag)
 
 	var actions := HBoxContainer.new()
 	actions.alignment = BoxContainer.ALIGNMENT_CENTER
-	actions.add_theme_constant_override("separation", 12)
+	actions.add_theme_constant_override("separation", 10)
 	col.add_child(actions)
 
 	actions.add_child(_make_main_btn("New Game", Color(0.45, 0.62, 0.35), _on_new_game))
@@ -82,29 +97,34 @@ func _build_ui() -> void:
 
 	var worlds_header := Label.new()
 	worlds_header.text = "Worlds"
-	worlds_header.add_theme_font_size_override("font_size", 22)
+	worlds_header.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	worlds_header.add_theme_font_size_override("font_size", 20)
 	worlds_header.add_theme_color_override("font_color", Color(0.3, 0.22, 0.12, 1.0))
 	col.add_child(worlds_header)
 
 	var hint := Label.new()
 	hint.text = "Tap to select · Long-press to rename or delete"
-	hint.add_theme_font_size_override("font_size", 13)
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.add_theme_font_size_override("font_size", 12)
 	hint.add_theme_color_override("font_color", Color(0.45, 0.38, 0.28, 0.9))
 	col.add_child(hint)
 
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	col.add_child(scroll)
 
 	_worlds_list = VBoxContainer.new()
 	_worlds_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_worlds_list.add_theme_constant_override("separation", 10)
+	_worlds_list.add_theme_constant_override("separation", 8)
 	scroll.add_child(_worlds_list)
 
 	_status = Label.new()
 	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_status.add_theme_font_size_override("font_size", 14)
+	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_status.add_theme_font_size_override("font_size", 13)
 	_status.add_theme_color_override("font_color", Color(0.38, 0.3, 0.18, 0.95))
 	col.add_child(_status)
 
@@ -124,7 +144,7 @@ func _build_ui() -> void:
 	rename_wrap.add_theme_constant_override("margin_top", 8)
 	rename_wrap.add_theme_constant_override("margin_bottom", 8)
 	_rename_edit = LineEdit.new()
-	_rename_edit.custom_minimum_size = Vector2(300, 44)
+	_rename_edit.custom_minimum_size = Vector2(280, 44)
 	_rename_edit.placeholder_text = "World name"
 	rename_wrap.add_child(_rename_edit)
 	_rename_dialog.add_child(rename_wrap)
@@ -138,12 +158,30 @@ func _build_ui() -> void:
 	add_child(_delete_dialog)
 
 
+func _update_content_margins() -> void:
+	if _content_margin == null:
+		return
+	var vp := get_viewport().get_visible_rect().size
+	var panel_w := minf(vp.x * PANEL_WIDTH_RATIO, PANEL_MAX_WIDTH)
+	var side := maxf((vp.x - panel_w) * 0.5, PANEL_SIDE_MIN)
+	var top := maxf(vp.y * PANEL_TOP_RATIO, 52.0)
+	var bottom := maxf(vp.y * PANEL_BOTTOM_RATIO, 40.0)
+	_content_margin.add_theme_constant_override("margin_left", int(side))
+	_content_margin.add_theme_constant_override("margin_right", int(side))
+	_content_margin.add_theme_constant_override("margin_top", int(top))
+	_content_margin.add_theme_constant_override("margin_bottom", int(bottom))
+
+	var col := _content_margin.find_child("MenuColumn", true, false) as Control
+	if col:
+		col.custom_minimum_size = Vector2(panel_w, maxf(vp.y - top - bottom, 280.0))
+
+
 func _make_main_btn(text: String, tint: Color, cb: Callable) -> Button:
 	var btn := Button.new()
 	btn.text = text
-	btn.custom_minimum_size = Vector2(140, 52)
+	btn.custom_minimum_size = Vector2(118, 48)
 	btn.focus_mode = Control.FOCUS_NONE
-	btn.add_theme_font_size_override("font_size", 18)
+	btn.add_theme_font_size_override("font_size", 16)
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(tint.r, tint.g, tint.b, 0.95)
 	style.set_corner_radius_all(10)
@@ -168,7 +206,9 @@ func _refresh_worlds() -> void:
 	if worlds.is_empty():
 		var empty := Label.new()
 		empty.text = "No worlds yet — tap New Game to start."
-		empty.add_theme_font_size_override("font_size", 15)
+		empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		empty.add_theme_font_size_override("font_size", 14)
 		empty.add_theme_color_override("font_color", Color(0.45, 0.38, 0.28, 0.9))
 		_worlds_list.add_child(empty)
 		_selected_id = ""
@@ -383,11 +423,13 @@ func _apply_row_styles() -> void:
 
 
 func _on_new_game() -> void:
+	AudioManager.play("ui_click")
 	var id := SaveManager.create_world()
 	_enter_world(id, true)
 
 
 func _on_load_game() -> void:
+	AudioManager.play("ui_click")
 	if _selected_id.is_empty() or not SaveManager.world_exists(_selected_id):
 		var last := SaveManager.get_last_world_id()
 		if SaveManager.world_exists(last):
@@ -415,4 +457,5 @@ func _enter_world(world_id: String, is_new: bool = false) -> void:
 
 
 func _on_exit() -> void:
+	AudioManager.play("ui_click")
 	get_tree().quit()

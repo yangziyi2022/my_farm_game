@@ -507,6 +507,7 @@ func _on_left_press(screen_pos: Vector2) -> void:
 	match mode:
 		Mode.HOE:
 			if grid_manager.hoe_grass(grid_pos):
+				AudioManager.play("hoe")
 				if tool_cursor:
 					tool_cursor.play_hoe_dig()
 				status_message.emit("Hoed grass at (%d, %d)" % [grid_pos.x, grid_pos.y])
@@ -593,6 +594,8 @@ func _commit_place_at(place_pos: Vector2i) -> void:
 		return
 	if grid_manager.can_place_at(place_pos, selected_item, _place_rotation):
 		var placed := grid_manager.place_object(selected_item, place_pos, _place_rotation)
+		if placed != null or selected_item == ItemData.ItemType.GRASS:
+			AudioManager.play("place")
 		if selected_item == ItemData.ItemType.GRASS:
 			status_message.emit("Cleared to grass floor at (%d, %d)" % [place_pos.x, place_pos.y])
 		else:
@@ -1084,6 +1087,7 @@ func _try_harvest(grid_pos: Vector2i) -> void:
 	var plant := grid_manager.get_content_at(grid_pos)
 	if plant:
 		HarvestEffect.play(plant)
+		AudioManager.play("harvest")
 	var harvest_item = grid_manager.harvest_plant(grid_pos)
 	if harvest_item == null:
 		status_message.emit("Nothing ready to harvest here")
@@ -1137,6 +1141,7 @@ func _reel_in_fish() -> void:
 	if inventory_manager:
 		inventory_manager.add_item(InventoryData.Item.FISH)
 	FishCatchEffect.play(grid_manager.objects_container, _fish_water_pos)
+	AudioManager.play("fish_catch")
 	if tool_cursor:
 		tool_cursor.stop_rod_session()
 	_reset_fishing_session()
@@ -1163,6 +1168,7 @@ func _try_feed(grid_pos: Vector2i, hit_obj: Node3D) -> void:
 		enter_select_mode()
 		return
 	AnimalFeedEffect.play(hit_obj)
+	AudioManager.play("feed")
 	status_message.emit("Fed %s to %s!" % [
 		InventoryData.get_item_name(feed_item),
 		ItemData.get_item_name(hit_obj.get_meta("item_type")),
@@ -1350,11 +1356,14 @@ func _delete_selected() -> void:
 				deleted += 1
 		if batching:
 			undo_manager.end_batch()
+		if deleted > 0:
+			AudioManager.play("delete")
 		status_message.emit("Deleted %d items" % deleted)
 		return
 	var selected := grid_manager.get_selected()
 	if selected:
 		grid_manager.remove_node(selected)
+		AudioManager.play("delete")
 		status_message.emit("Deleted object")
 		enter_select_mode()
 
@@ -1716,6 +1725,8 @@ func _confirm_copy_extend() -> void:
 	if batching:
 		undo_manager.end_batch()
 
+	if placed > 0:
+		AudioManager.play("copy_confirm")
 	_restore_selection_drag_anchor()
 	if not _selected_group.is_empty():
 		_show_selection_actions()
