@@ -1,3 +1,32 @@
-# Godot 4+ specific ignores
+# macOS
+.DS_Store
+
+# Godot editor / cache (never commit)
 .godot/
+
+# Godot .import files store import settings (compression, filter, UID links).
+# KEEP them in git for shared assets. Only ignore generated ones under export/.
+# *.import
+export/**/*.import
+
+# Exported builds / local packages
+export/
+build/
+dist/
+*.ipa
+*.apk
+*.aab
+*.xcarchive
+*.dSYM
+
+# Apple / Xcode generated
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# Godot may write credentials next to presets — never commit secrets
+export_credentials.cfg
+.godot/export_credentials.cfg
+
+# Android build folder if using Godot Android export
 /android/
