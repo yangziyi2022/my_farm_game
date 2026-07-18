@@ -595,6 +595,8 @@ func repair_content_registry() -> void:
 		var obj := child as Node3D
 		if obj.name == "Ghost" or obj is MultiMeshInstance3D:
 			continue
+		if obj.has_meta("is_copy_ghost"):
+			continue
 		if not obj.has_meta("item_type") or not obj.has_meta("grid_pos"):
 			continue
 		var item_type: ItemData.ItemType = obj.get_meta("item_type")
