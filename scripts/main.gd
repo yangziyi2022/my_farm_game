@@ -1,6 +1,7 @@
 extends Node3D
 
 const ToolCursor3D = preload("res://scripts/tool_cursor_3d.gd")
+const MAIN_MENU_SCENE := "res://scenes/main_menu.tscn"
 
 @onready var grid_manager: GridManager = $GridManager
 @onready var camera: Camera3D = $Camera3D
@@ -20,11 +21,28 @@ const ToolCursor3D = preload("res://scripts/tool_cursor_3d.gd")
 @onready var tool_cursor: ToolCursor3D = $ToolCursor3D
 @onready var status_label: Label = $UI/StatusBar/StatusLabel
 @onready var save_btn: Button = $UI/Toolbar/SaveBtn
-@onready var load_btn: Button = $UI/Toolbar/LoadBtn
+@onready var worlds_btn: Button = $UI/Toolbar/WorldsBtn
 @onready var undo_btn: Button = $UI/Toolbar/UndoBtn
 
 
 func _ready() -> void:
+	SaveManager.ensure_ready()
+	var boot_id := ""
+	var boot_is_new := false
+	if get_tree().has_meta("boot_world_id"):
+		boot_id = str(get_tree().get_meta("boot_world_id"))
+		get_tree().remove_meta("boot_world_id")
+	if get_tree().has_meta("boot_is_new"):
+		boot_is_new = bool(get_tree().get_meta("boot_is_new"))
+		get_tree().remove_meta("boot_is_new")
+
+	if boot_id.is_empty():
+		boot_id = SaveManager.get_current_world_id()
+	if boot_id.is_empty() or not SaveManager.world_exists(boot_id):
+		get_tree().change_scene_to_file(MAIN_MENU_SCENE)
+		return
+	SaveManager.set_current_world_id(boot_id)
+
 	_apply_mobile_performance()
 	weather_controller.setup(world_environment, sun_light, fill_light)
 	var map_center := grid_manager.get_map_center()
@@ -48,7 +66,7 @@ func _ready() -> void:
 	inventory_bar.feed_selection_cleared.connect(_on_feed_selection_cleared)
 
 	save_btn.pressed.connect(_on_save)
-	load_btn.pressed.connect(_on_load)
+	worlds_btn.pressed.connect(_on_worlds)
 	undo_btn.pressed.connect(_on_undo)
 	undo_manager.stack_changed.connect(_on_undo_stack_changed)
 	undo_manager.undo_applied.connect(_on_status_message)
@@ -62,8 +80,19 @@ func _ready() -> void:
 	# Fix any desynced placeables from earlier rotate/select bugs.
 	grid_manager.repair_content_registry()
 
+	if not boot_is_new and SaveManager.world_has_save(boot_id):
+		if SaveManager.load_farm(grid_manager, inventory_manager):
+			var meta := SaveManager.load_meta(boot_id)
+			var wname := str(meta.get("display_name", "Farm"))
+			_on_status_message("Loaded \"%s\"" % wname)
+		else:
+			_on_status_message("Could not load world — starting empty")
+	else:
+		var meta := SaveManager.load_meta(boot_id)
+		var wname := str(meta.get("display_name", "Farm"))
+		_on_status_message("New world \"%s\" — tap Save to keep progress" % wname)
+
 	_on_undo_stack_changed(undo_manager.can_undo())
-	_on_status_message("Touch: tap to place · 2-finger camera · Move: drag then tap to drop")
 
 
 func _apply_mobile_performance() -> void:
@@ -146,13 +175,14 @@ func _on_status_message(text: String) -> void:
 
 func _on_save() -> void:
 	if SaveManager.save_farm(grid_manager, inventory_manager):
-		_on_status_message("Farm saved!")
+		var meta := SaveManager.load_meta(SaveManager.get_current_world_id())
+		var wname := str(meta.get("display_name", "Farm"))
+		_on_status_message("Saved \"%s\"" % wname)
 	else:
 		_on_status_message("Save failed!")
 
 
-func _on_load() -> void:
-	if SaveManager.load_farm(grid_manager, inventory_manager):
-		_on_status_message("Farm loaded!")
-	else:
-		_on_status_message("No save file found.")
+func _on_worlds() -> void:
+	# Autosave current progress when leaving to the menu.
+	SaveManager.save_farm(grid_manager, inventory_manager)
+	get_tree().change_scene_to_file(MAIN_MENU_SCENE)

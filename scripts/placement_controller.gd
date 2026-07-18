@@ -21,8 +21,8 @@ var _menu_move_active: bool = false
 ## While Move mode: press+drag repositions; short tap drops at current cell.
 var _menu_move_pressing: bool = false
 var _menu_move_dragged: bool = false
-const MENU_MOVE_LIFT: float = 0.55
-const MENU_MOVE_FADE: float = 0.5
+const MENU_MOVE_TRANSPARENCY: float = 0.42
+const MENU_MOVE_TINT := Color(1.0, 0.88, 0.2, 0.55)
 var _fish_phase: int = 0  # 0 idle, 1 waiting, 2 biting
 var _fish_cell: Vector2i = Vector2i(-9999, -9999)
 var _fish_water_pos: Vector3 = Vector3.ZERO
@@ -830,7 +830,7 @@ func _begin_group_drag() -> void:
 		if _menu_move_active:
 			_apply_menu_move_visual(obj, true)
 			var origin: Vector2i = _group_origins[obj]
-			obj.position = grid_manager.grid_to_world(origin) + Vector3(0.0, MENU_MOVE_LIFT, 0.0)
+			obj.position = grid_manager.grid_to_world(origin)
 	if _menu_move_active:
 		_drag_hover = _drag_origin
 		var valid := _can_drop_group_at(Vector2i.ZERO)
@@ -865,12 +865,11 @@ func _update_group_drag_follow() -> void:
 	_drag_hover = target
 	var delta := target - _drag_origin
 	var valid := _can_drop_group_at(delta)
-	var lift := MENU_MOVE_LIFT if _menu_move_active else 0.0
 	for obj in _selected_group:
 		if not is_instance_valid(obj):
 			continue
 		var origin: Vector2i = _group_origins[obj]
-		obj.position = grid_manager.grid_to_world(origin + delta) + Vector3(0.0, lift, 0.0)
+		obj.position = grid_manager.grid_to_world(origin + delta)
 		var fp := obj.get_node_or_null("SelectionFootprint") as FootprintOverlay
 		if fp:
 			fp.set_valid(valid)
@@ -1003,8 +1002,7 @@ func _update_drag_follow() -> void:
 	if target == _drag_hover:
 		return
 	_drag_hover = target
-	var lift := MENU_MOVE_LIFT if _menu_move_active else 0.0
-	_drag_object.position = grid_manager.grid_to_world(target) + Vector3(0.0, lift, 0.0)
+	_drag_object.position = grid_manager.grid_to_world(target)
 	if _selection_footprint:
 		_selection_footprint.set_valid(_can_drop_drag_at(target))
 
@@ -1030,7 +1028,7 @@ func _begin_object_drag(obj: Node3D) -> void:
 	_set_drag_pickable(false)
 	if _menu_move_active:
 		_apply_menu_move_visual(obj, true)
-		_drag_object.position = grid_manager.grid_to_world(_drag_origin) + Vector3(0.0, MENU_MOVE_LIFT, 0.0)
+		_drag_object.position = grid_manager.grid_to_world(_drag_origin)
 		if _selection_footprint:
 			_selection_footprint.set_valid(_can_drop_drag_at(_drag_hover))
 	else:
@@ -1563,17 +1561,50 @@ func _cancel_menu_move() -> void:
 
 
 func _apply_menu_move_visual(obj: Node3D, active: bool) -> void:
-	## Float + fade so Move mode reads clearly on touch.
+	## Yellow translucent ghost while Move is active — no vertical lift.
 	if obj == null or not is_instance_valid(obj):
 		return
-	_set_geometry_fade(obj, MENU_MOVE_FADE if active else 0.0)
+	_set_geometry_move_tint(obj, active)
 
 
 func _clear_menu_move_visual(obj: Node3D) -> void:
 	_apply_menu_move_visual(obj, false)
 
 
+func _set_geometry_move_tint(node: Node, active: bool) -> void:
+	if node == null or not is_instance_valid(node):
+		return
+	if node is FootprintOverlay or str(node.name).begins_with("SelectionFootprint"):
+		return
+	if node is GeometryInstance3D:
+		var gi := node as GeometryInstance3D
+		if active:
+			if not gi.has_meta("_move_prev_transparency"):
+				gi.set_meta("_move_prev_transparency", gi.transparency)
+			gi.transparency = MENU_MOVE_TRANSPARENCY
+			if not gi.has_meta("_move_overlay_on"):
+				var mat := StandardMaterial3D.new()
+				mat.albedo_color = MENU_MOVE_TINT
+				mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+				mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+				mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+				gi.material_overlay = mat
+				gi.set_meta("_move_overlay_on", true)
+		else:
+			if gi.has_meta("_move_prev_transparency"):
+				gi.transparency = float(gi.get_meta("_move_prev_transparency"))
+				gi.remove_meta("_move_prev_transparency")
+			else:
+				gi.transparency = 0.0
+			if gi.has_meta("_move_overlay_on"):
+				gi.material_overlay = null
+				gi.remove_meta("_move_overlay_on")
+	for child in node.get_children():
+		_set_geometry_move_tint(child, active)
+
+
 func _set_geometry_fade(node: Node, transparency: float) -> void:
+	## Kept for any legacy call sites; prefer _set_geometry_move_tint for Move.
 	if node == null or not is_instance_valid(node):
 		return
 	if node is FootprintOverlay or str(node.name).begins_with("SelectionFootprint"):
