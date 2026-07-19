@@ -120,7 +120,7 @@ func _sync_yaw() -> void:
 func _is_on_water() -> bool:
 	if _grid == null or _root == null:
 		return false
-	return _grid.is_water_cell(_root.get_meta("grid_pos"))
+	return _grid.is_swimmable_cell(_root.get_meta("grid_pos"))
 
 
 func _ground_pivot_y() -> float:
@@ -130,9 +130,15 @@ func _ground_pivot_y() -> float:
 func _pick_next_action() -> void:
 	if randf() < look_around_chance and _state == State.IDLE:
 		_target_angle = randf_range(0.0, TAU)
+	# Occasional ambient voice — spatial volume handled by AudioManager.
+	if randf() < 0.12:
+		_try_ambient_voice()
 
 	var roll := randf()
 	if roll < special_chance and _try_start_special():
+		# Only some quirk actions get a voice so farms stay calm.
+		if randf() < 0.32:
+			_try_ambient_voice()
 		return
 	if randf() < walk_chance:
 		if species == Species.DUCK and _try_duck_water_step():
@@ -142,6 +148,13 @@ func _pick_next_action() -> void:
 		_start_local_walk()
 	else:
 		_reset_idle_timer()
+
+
+func _try_ambient_voice() -> void:
+	var pos := Vector3.INF
+	if _root and is_instance_valid(_root):
+		pos = _root.global_position
+	AudioManager.play_animal_for_species(int(species), true, pos)
 
 
 func _try_start_special() -> bool:
@@ -193,7 +206,7 @@ func _try_step_to_adjacent_water(from: Vector2i) -> bool:
 	dirs.shuffle()
 	for dir in dirs:
 		var to: Vector2i = from + dir
-		if not _grid.is_water_cell(to):
+		if not _grid.is_swimmable_cell(to):
 			continue
 		if _begin_cross_tile_step(to):
 			return true

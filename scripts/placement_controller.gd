@@ -1262,6 +1262,11 @@ func _try_feed(grid_pos: Vector2i, hit_obj: Node3D) -> void:
 		return
 	AnimalFeedEffect.play(hit_obj)
 	AudioManager.play("feed")
+	AudioManager.play_animal_for_item(
+		hit_obj.get_meta("item_type"),
+		false,
+		hit_obj.global_position
+	)
 	status_message.emit("Fed %s to %s!" % [
 		InventoryData.get_item_name(feed_item),
 		ItemData.get_item_name(hit_obj.get_meta("item_type")),

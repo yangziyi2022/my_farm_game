@@ -22,12 +22,36 @@ const KNOWN_SFX := [
 	"feed",
 	"fish_catch",
 	"fishing_drop",
+	"chick",
+	"moo",
+	"pig",
+	"quack",
+	"sheep",
+	"rabbit",
 ]
 
 ## Filename typos / alternate names → canonical id.
 const SFX_ALIASES := {
 	"copy_confirm": ["copy_comfirm"],
 }
+
+## ItemData.ItemType → sfx id.
+const ANIMAL_SFX_BY_ITEM := {
+	ItemData.ItemType.CHICKEN: "chick",
+	ItemData.ItemType.COW: "moo",
+	ItemData.ItemType.PIG: "pig",
+	ItemData.ItemType.DUCK: "quack",
+	ItemData.ItemType.SHEEP: "sheep",
+	ItemData.ItemType.RABBIT: "rabbit",
+}
+
+## Ortho zoom range (matches CameraController).
+const CAM_ZOOM_NEAR := 8.0
+const CAM_ZOOM_FAR := 90.0
+## Ambient voices stay quiet until fairly zoomed in.
+const ANIMAL_ZOOM_SOFT := 42.0
+const ANIMAL_HEAR_NEAR := 10.0
+const ANIMAL_HEAR_FAR := 55.0
 
 signal mute_changed(muted: bool)
 
@@ -37,6 +61,8 @@ var _music_player: AudioStreamPlayer
 var _muted: bool = false
 var master_sfx_db: float = SFX_DB
 var master_music_db: float = MUSIC_DB
+## Soft throttle so many animals don't all shout at once.
+var _ambient_animal_cooldown: float = 0.0
 
 
 func _ready() -> void:
@@ -47,6 +73,11 @@ func _ready() -> void:
 	_load_settings()
 	_reload_known()
 	_apply_mute_volumes()
+
+
+func _process(delta: float) -> void:
+	if _ambient_animal_cooldown > 0.0:
+		_ambient_animal_cooldown = maxf(0.0, _ambient_animal_cooldown - delta)
 
 
 func is_muted() -> bool:
@@ -67,7 +98,7 @@ func toggle_mute() -> bool:
 	return _muted
 
 
-func play(id: String, pitch_variance: float = 0.04) -> void:
+func play(id: String, pitch_variance: float = 0.04, volume_db: float = INF) -> void:
 	if id.is_empty() or _muted:
 		return
 	var stream := _ensure_stream(id)
@@ -81,12 +112,103 @@ func play(id: String, pitch_variance: float = 0.04) -> void:
 		add_child(player)
 		_players[id] = player
 	player.stream = stream
-	player.volume_db = master_sfx_db
+	player.volume_db = master_sfx_db if volume_db == INF else volume_db
 	if pitch_variance > 0.0:
 		player.pitch_scale = randf_range(1.0 - pitch_variance, 1.0 + pitch_variance)
 	else:
 		player.pitch_scale = 1.0
 	player.play()
+
+
+func play_animal_for_item(
+	item_type: ItemData.ItemType,
+	ambient: bool = false,
+	world_pos: Vector3 = Vector3.INF
+) -> void:
+	if not ANIMAL_SFX_BY_ITEM.has(item_type):
+		return
+	_play_animal_id(str(ANIMAL_SFX_BY_ITEM[item_type]), ambient, world_pos)
+
+
+func play_animal_for_species(
+	species: int,
+	ambient: bool = false,
+	world_pos: Vector3 = Vector3.INF
+) -> void:
+	## AnimalController.Species → clip.
+	var id := ""
+	match species:
+		AnimalController.Species.CHICKEN:
+			id = "chick"
+		AnimalController.Species.SHEEP:
+			id = "sheep"
+		AnimalController.Species.PIG:
+			id = "pig"
+		AnimalController.Species.DUCK:
+			id = "quack"
+		AnimalController.Species.COW:
+			id = "moo"
+		AnimalController.Species.RABBIT:
+			id = "rabbit"
+		_:
+			return
+	_play_animal_id(id, ambient, world_pos)
+
+
+func _play_animal_id(id: String, ambient: bool, world_pos: Vector3) -> void:
+	if ambient:
+		if _ambient_animal_cooldown > 0.0:
+			return
+	var vol := _animal_volume_db(world_pos, ambient)
+	# Too quiet to bother (far + zoomed out).
+	if ambient and vol < -38.0:
+		return
+	if ambient:
+		_ambient_animal_cooldown = 2.8
+		play(id, 0.08, vol)
+	else:
+		# Feed / focus cues stay a bit clearer but still respect distance.
+		play(id, 0.05, maxf(vol, -18.0))
+
+
+func _animal_volume_db(world_pos: Vector3, ambient: bool) -> float:
+	## Quiet when zoomed out; when zoomed in, nearer animals are louder.
+	var cam := get_viewport().get_camera_3d() if get_viewport() else null
+	if cam == null:
+		return master_sfx_db - (8.0 if ambient else 0.0)
+
+	var zoom_size := cam.size if cam.projection == Camera3D.PROJECTION_ORTHOGONAL else CAM_ZOOM_FAR
+	# 0 = fully zoomed out, 1 = fully zoomed in.
+	var zoom_t := 1.0 - clampf(
+		(zoom_size - CAM_ZOOM_NEAR) / maxf(CAM_ZOOM_FAR - CAM_ZOOM_NEAR, 0.001),
+		0.0,
+		1.0
+	)
+	# Soft gate: barely audible until past mid zoom.
+	var zoom_gate := clampf(
+		(ANIMAL_ZOOM_SOFT - zoom_size) / maxf(ANIMAL_ZOOM_SOFT - CAM_ZOOM_NEAR, 0.001),
+		0.0,
+		1.0
+	)
+	zoom_gate = zoom_gate * zoom_gate
+
+	var dist_t := 0.55
+	if world_pos.x < 900000.0:
+		var dist := cam.global_position.distance_to(world_pos)
+		var hear := lerpf(ANIMAL_HEAR_FAR, ANIMAL_HEAR_NEAR, zoom_t)
+		dist_t = 1.0 - clampf(dist / maxf(hear, 1.0), 0.0, 1.0)
+		dist_t = dist_t * dist_t
+
+	var linear := zoom_gate * lerpf(0.08, 1.0, dist_t)
+	if ambient:
+		linear *= 0.85
+	else:
+		# Feeding: keep a usable floor so the cue isn't lost.
+		linear = maxf(linear, 0.22)
+	linear = clampf(linear, 0.0, 1.0)
+	if linear <= 0.001:
+		return -80.0
+	return master_sfx_db + linear_to_db(linear)
 
 
 func play_music(id: String = DEFAULT_MUSIC_ID, fade_in: bool = false) -> void:

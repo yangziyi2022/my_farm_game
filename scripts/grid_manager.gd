@@ -41,8 +41,10 @@ var play_radius: float = DEFAULT_PLAY_RADIUS
 ## Two layers per cell:
 ## - _terrain: dirt / water / stone_path (explicit ground). Missing terrain = default grass.
 ## - _objects: animals, buildings, plants, decor (the selectable "content")
+## - _swimmers: ducks (etc.) sharing a pond cell without replacing the pond prop
 var _terrain: Dictionary = {}  # Vector2i -> Node3D
 var _objects: Dictionary = {}  # Vector2i -> Node3D
+var _swimmers: Dictionary = {}  # Vector2i -> Node3D
 var _selected: Node3D = null
 var _grid_visual: Node3D
 var _water_fish_manager: WaterFishManager
@@ -530,6 +532,12 @@ func get_object_at(grid_pos: Vector2i) -> Node3D:
 
 
 func get_content_at(grid_pos: Vector2i) -> Node3D:
+	## Prefer a swimming animal on a pond cell so pick/select hits the duck.
+	if _swimmers.has(grid_pos):
+		var swimmer = _swimmers[grid_pos]
+		if swimmer != null and is_instance_valid(swimmer):
+			return swimmer
+		_swimmers.erase(grid_pos)
 	if not _objects.has(grid_pos):
 		return null
 	var obj = _objects[grid_pos]
@@ -613,15 +621,24 @@ func repair_content_registry() -> void:
 
 
 func get_all_selectable_objects() -> Array[Node3D]:
-	## Content + terrain (dirt / water / stone path). Used by marquee select.
+	## Content + swimmers + terrain (dirt / water / stone path). Used by marquee select.
 	var result: Array[Node3D] = []
 	var seen: Dictionary = {}
 	var stale_content: Array[Vector2i] = []
+	var stale_swimmers: Array[Vector2i] = []
 	var stale_terrain: Array[Vector2i] = []
 	for cell in _objects.keys():
 		var obj = _objects[cell]
 		if obj == null or not is_instance_valid(obj):
 			stale_content.append(cell)
+			continue
+		if obj is Node3D and not seen.has(obj):
+			seen[obj] = true
+			result.append(obj)
+	for cell in _swimmers.keys():
+		var obj = _swimmers[cell]
+		if obj == null or not is_instance_valid(obj):
+			stale_swimmers.append(cell)
 			continue
 		if obj is Node3D and not seen.has(obj):
 			seen[obj] = true
@@ -636,6 +653,8 @@ func get_all_selectable_objects() -> Array[Node3D]:
 			result.append(obj)
 	for cell in stale_content:
 		_objects.erase(cell)
+	for cell in stale_swimmers:
+		_swimmers.erase(cell)
 	for cell in stale_terrain:
 		_terrain.erase(cell)
 	return result
@@ -745,6 +764,19 @@ func _unregister_content_object(obj: Node3D) -> void:
 			to_erase.append(cell)
 	for cell in to_erase:
 		_objects.erase(cell)
+	# Eject any ducks that were swimming on this prop (e.g. pond removed).
+	var stranded: Array[Node3D] = []
+	for cell in to_erase:
+		if _swimmers.has(cell) and is_instance_valid(_swimmers[cell]):
+			var duck: Node3D = _swimmers[cell]
+			if not stranded.has(duck):
+				stranded.append(duck)
+			_swimmers.erase(cell)
+	for duck in stranded:
+		if not is_instance_valid(duck) or not duck.has_meta("grid_pos"):
+			continue
+		var cell: Vector2i = duck.get_meta("grid_pos")
+		_register_content_cells(duck, cell, get_object_footprint(duck), get_object_rotation(duck))
 
 
 func is_terrain_object(obj: Node3D) -> bool:
@@ -1234,10 +1266,20 @@ func remove_object(grid_pos: Vector2i) -> void:
 
 
 func remove_node(obj: Node3D) -> bool:
-	## Remove this exact node (content or terrain), used by multi-select delete.
+	## Remove this exact node (content, swimmer, or terrain), used by multi-select delete.
 	if obj == null or not is_instance_valid(obj) or not obj.has_meta("grid_pos"):
 		return false
 	var grid_pos: Vector2i = obj.get_meta("grid_pos")
+	if _swimmers.get(grid_pos) == obj:
+		if undo_manager and not undo_manager.is_applying_undo():
+			undo_manager.record_remove(
+				grid_pos,
+				obj.get_meta("item_type"),
+				obj.get_meta("rotation", 0),
+				obj.get_meta("growth_stage", 0)
+			)
+		_remove_swimmer_silent(grid_pos)
+		return true
 	if _objects.get(grid_pos) == obj:
 		if undo_manager and not undo_manager.is_applying_undo():
 			undo_manager.record_remove(
@@ -1262,6 +1304,10 @@ func remove_node(obj: Node3D) -> bool:
 
 
 func remove_object_silent(grid_pos: Vector2i) -> void:
+	## Prefer removing a swimming animal on this cell (duck over pond).
+	if _swimmers.has(grid_pos):
+		_remove_swimmer_silent(grid_pos)
+		return
 	if not _objects.has(grid_pos):
 		return
 	var obj = _objects[grid_pos]
@@ -1271,6 +1317,21 @@ func remove_object_silent(grid_pos: Vector2i) -> void:
 	if _selected == obj:
 		_deselect()
 	_unregister_content_object(obj)
+	SelectionFlash.reset(obj)
+	obj.queue_free()
+	object_removed.emit(grid_pos)
+
+
+func _remove_swimmer_silent(grid_pos: Vector2i) -> void:
+	if not _swimmers.has(grid_pos):
+		return
+	var obj = _swimmers[grid_pos]
+	if obj == null or not is_instance_valid(obj):
+		_swimmers.erase(grid_pos)
+		return
+	if _selected == obj:
+		_deselect()
+	_clear_animal_cell(obj)
 	SelectionFlash.reset(obj)
 	obj.queue_free()
 	object_removed.emit(grid_pos)
@@ -1665,13 +1726,25 @@ func animal_can_step_to(animal: Node3D, to: Vector2i) -> bool:
 		return false
 	if not is_in_bounds(to):
 		return false
-	# Occupied cells (fence, buildings, plants, other animals…) are impassable.
+	var item_type: ItemData.ItemType = animal.get_meta("item_type")
+	# Occupied cells are impassable, except water-source props (pond) for swimming animals.
 	if has_content(to):
 		var occupant: Node3D = _objects[to]
-		if occupant != animal:
-			return false
-	var item_type: ItemData.ItemType = animal.get_meta("item_type")
-	if is_water_cell(to) and not ItemData.can_live_on_water(item_type):
+		if occupant != null and is_instance_valid(occupant) and occupant != animal:
+			var occ_type: ItemData.ItemType = occupant.get_meta("item_type")
+			var pond_ok := (
+				ItemData.can_live_on_water(item_type)
+				and ItemData.is_water_source(occ_type)
+				and not ItemData.is_terrain(occ_type)
+			)
+			if not pond_ok:
+				return false
+		# Another swimmer already on this pond cell.
+		if _swimmers.has(to):
+			var other = _swimmers[to]
+			if other != null and is_instance_valid(other) and other != animal:
+				return false
+	if is_swimmable_cell(to) and not ItemData.can_live_on_water(item_type):
 		return false
 	# Orthogonal steps only — diagonal lets animals slip through fence-corner gaps.
 	var from: Vector2i = animal.get_meta("grid_pos")
@@ -1682,11 +1755,25 @@ func animal_can_step_to(animal: Node3D, to: Vector2i) -> bool:
 
 
 func is_water_cell(grid_pos: Vector2i) -> bool:
+	## Terrain water only (legacy name). Prefer is_swimmable_cell for animals.
 	return get_terrain_type_at(grid_pos) == ItemData.ItemType.WATER
 
 
+func is_swimmable_cell(grid_pos: Vector2i) -> bool:
+	## Terrain water or a pond (content water-source) tile.
+	if is_water_cell(grid_pos):
+		return true
+	if not _objects.has(grid_pos):
+		return false
+	var obj = _objects[grid_pos]
+	if obj == null or not is_instance_valid(obj) or not obj.has_meta("item_type"):
+		return false
+	var t: ItemData.ItemType = obj.get_meta("item_type")
+	return ItemData.is_water_source(t) and not ItemData.is_terrain(t)
+
+
 func find_water_within(anchor: Vector2i, radius: int) -> Array[Vector2i]:
-	## Chebyshev neighborhood (square) of free water tiles, nearest first.
+	## Chebyshev neighborhood of swimmable tiles ducks can enter, nearest first.
 	var found: Array[Vector2i] = []
 	for dist in range(1, radius + 1):
 		for dx in range(-dist, dist + 1):
@@ -1696,10 +1783,16 @@ func find_water_within(anchor: Vector2i, radius: int) -> Array[Vector2i]:
 				var cell := anchor + Vector2i(dx, dy)
 				if not is_in_bounds(cell):
 					continue
-				if not is_water_cell(cell):
+				if not is_swimmable_cell(cell):
 					continue
-				if has_content(cell):
-					continue
+				# Empty water terrain, or pond cells (occupied by the pond prop).
+				if is_water_cell(cell):
+					if has_content(cell):
+						continue
+				else:
+					# Pond: only if no other swimmer already there.
+					if _swimmers.has(cell) and is_instance_valid(_swimmers[cell]):
+						continue
 				found.append(cell)
 	return found
 
@@ -1710,10 +1803,42 @@ func move_animal_to(animal: Node3D, to: Vector2i) -> bool:
 		return false
 	var footprint := get_object_footprint(animal)
 	var rotation := get_object_rotation(animal)
-	_unregister_content_object(animal)
+	_clear_animal_cell(animal)
 	animal.set_meta("grid_pos", to)
-	_register_content_cells(animal, to, footprint, rotation)
+	_place_animal_on_cell(animal, to, footprint, rotation)
 	return true
+
+
+func _clear_animal_cell(animal: Node3D) -> void:
+	var swim_cells: Array[Vector2i] = []
+	for cell: Vector2i in _swimmers:
+		if _swimmers[cell] == animal:
+			swim_cells.append(cell)
+	for cell in swim_cells:
+		_swimmers.erase(cell)
+	_unregister_content_object(animal)
+
+
+func _place_animal_on_cell(
+	animal: Node3D,
+	to: Vector2i,
+	footprint: Vector2i,
+	rotation: int
+) -> void:
+	## Share pond cells via _swimmers; otherwise normal content occupancy.
+	if _objects.has(to):
+		var occ = _objects[to]
+		if (
+			occ != null
+			and is_instance_valid(occ)
+			and occ != animal
+			and occ.has_meta("item_type")
+			and ItemData.is_water_source(occ.get_meta("item_type"))
+			and not ItemData.is_terrain(occ.get_meta("item_type"))
+		):
+			_swimmers[to] = animal
+			return
+	_register_content_cells(animal, to, footprint, rotation)
 
 
 func begin_animal_mud(grid_pos: Vector2i) -> Dictionary:

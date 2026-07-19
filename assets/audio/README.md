@@ -2,7 +2,7 @@
 
 ## Folders
 
-- `sfx/` — short one-shots (place, harvest, UI). Prefer **OGG** or **WAV**.
+- `sfx/` — short one-shots (place, harvest, UI, animals). Prefer **OGG** or **WAV**.
 - `music/` — loops (`day.mp3` is the default BGM).
 
 ## Naming (matches `AudioManager`)
@@ -18,12 +18,21 @@
 | `feed.ogg` | Feed animal |
 | `fish_catch.ogg` | Catch fish |
 | `fishing_drop.ogg` | Cast line into water |
+| `chick.ogg` | Chicken |
+| `moo.ogg` | Cow |
+| `pig.ogg` | Pig |
+| `quack.ogg` | Duck |
+| `sheep.ogg` | Sheep |
+| `rabbit.ogg` | Rabbit |
 | `music/day.mp3` | Looping BGM (−14 dB under SFX) |
 
-Mute (music + SFX) is toggled from the bottom-center speaker button in-game; preference saved to `user://audio_settings.cfg`.
+Animal voices are spatial: quiet when zoomed out; louder when zoomed in and closer to that animal. Ambient calls are rare and throttled; feed always plays a clearer cue.
+
+Mute (music + SFX) is toggled from the bottom bar speaker button; preference saved to `user://audio_settings.cfg`.
 
 ```gdscript
 AudioManager.play("harvest")
+AudioManager.play_animal_for_item(ItemData.ItemType.COW)
 AudioManager.play_music("day")
 AudioManager.toggle_mute()
 ```
