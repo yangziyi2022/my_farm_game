@@ -52,13 +52,21 @@ const CAM_ZOOM_FAR := 90.0
 const ANIMAL_ZOOM_SOFT := 42.0
 const ANIMAL_HEAR_NEAR := 10.0
 const ANIMAL_HEAR_FAR := 55.0
+## Extra gain for soft source clips (dB added after spatial falloff).
+const ANIMAL_GAIN_DB := {
+	"moo": 7.0,
+}
 
 signal mute_changed(muted: bool)
+signal music_mute_changed(music_muted: bool)
 
 var _players: Dictionary = {}  # id -> AudioStreamPlayer
 var _streams: Dictionary = {}  # id -> AudioStream
 var _music_player: AudioStreamPlayer
+## Mute everything (SFX + music).
 var _muted: bool = false
+## Mute background music only (SFX still play).
+var _music_muted: bool = false
 var master_sfx_db: float = SFX_DB
 var master_music_db: float = MUSIC_DB
 ## Soft throttle so many animals don't all shout at once.
@@ -84,6 +92,10 @@ func is_muted() -> bool:
 	return _muted
 
 
+func is_music_muted() -> bool:
+	return _music_muted
+
+
 func set_muted(muted: bool) -> void:
 	if _muted == muted:
 		return
@@ -93,9 +105,23 @@ func set_muted(muted: bool) -> void:
 	mute_changed.emit(_muted)
 
 
+func set_music_muted(music_muted: bool) -> void:
+	if _music_muted == music_muted:
+		return
+	_music_muted = music_muted
+	_apply_mute_volumes()
+	_save_settings()
+	music_mute_changed.emit(_music_muted)
+
+
 func toggle_mute() -> bool:
 	set_muted(not _muted)
 	return _muted
+
+
+func toggle_music_mute() -> bool:
+	set_music_muted(not _music_muted)
+	return _music_muted
 
 
 func play(id: String, pitch_variance: float = 0.04, volume_db: float = INF) -> void:
@@ -159,7 +185,7 @@ func _play_animal_id(id: String, ambient: bool, world_pos: Vector3) -> void:
 	if ambient:
 		if _ambient_animal_cooldown > 0.0:
 			return
-	var vol := _animal_volume_db(world_pos, ambient)
+	var vol := _animal_volume_db(id, world_pos, ambient)
 	# Too quiet to bother (far + zoomed out).
 	if ambient and vol < -38.0:
 		return
@@ -168,14 +194,15 @@ func _play_animal_id(id: String, ambient: bool, world_pos: Vector3) -> void:
 		play(id, 0.08, vol)
 	else:
 		# Feed / focus cues stay a bit clearer but still respect distance.
-		play(id, 0.05, maxf(vol, -18.0))
+		play(id, 0.05, maxf(vol, -18.0 + float(ANIMAL_GAIN_DB.get(id, 0.0))))
 
 
-func _animal_volume_db(world_pos: Vector3, ambient: bool) -> float:
+func _animal_volume_db(id: String, world_pos: Vector3, ambient: bool) -> float:
 	## Quiet when zoomed out; when zoomed in, nearer animals are louder.
+	var gain := float(ANIMAL_GAIN_DB.get(id, 0.0))
 	var cam := get_viewport().get_camera_3d() if get_viewport() else null
 	if cam == null:
-		return master_sfx_db - (8.0 if ambient else 0.0)
+		return master_sfx_db - (8.0 if ambient else 0.0) + gain
 
 	var zoom_size := cam.size if cam.projection == Camera3D.PROJECTION_ORTHOGONAL else CAM_ZOOM_FAR
 	# 0 = fully zoomed out, 1 = fully zoomed in.
@@ -208,7 +235,7 @@ func _animal_volume_db(world_pos: Vector3, ambient: bool) -> float:
 	linear = clampf(linear, 0.0, 1.0)
 	if linear <= 0.001:
 		return -80.0
-	return master_sfx_db + linear_to_db(linear)
+	return master_sfx_db + linear_to_db(linear) + gain
 
 
 func play_music(id: String = DEFAULT_MUSIC_ID, fade_in: bool = false) -> void:
@@ -224,7 +251,7 @@ func play_music(id: String = DEFAULT_MUSIC_ID, fade_in: bool = false) -> void:
 	_music_player.stream = stream
 	_music_player.volume_db = -80.0 if fade_in else _effective_music_db()
 	_music_player.play()
-	if fade_in and not _muted:
+	if fade_in and not _is_music_silenced():
 		var tw := create_tween()
 		tw.tween_property(_music_player, "volume_db", _effective_music_db(), 1.2)
 
@@ -238,15 +265,19 @@ func has_sfx(id: String) -> bool:
 	return _ensure_stream(id) != null
 
 
+func _is_music_silenced() -> bool:
+	return _muted or _music_muted
+
+
 func _effective_music_db() -> float:
-	return -80.0 if _muted else master_music_db
+	return -80.0 if _is_music_silenced() else master_music_db
 
 
 func _apply_mute_volumes() -> void:
 	if _music_player:
 		_music_player.volume_db = _effective_music_db()
 		# Keep looping silently while muted so unmute resumes instantly.
-		if _muted and _music_player.stream and not _music_player.playing:
+		if _is_music_silenced() and _music_player.stream and not _music_player.playing:
 			_music_player.play()
 	for id in _players:
 		var p: AudioStreamPlayer = _players[id]
@@ -297,10 +328,12 @@ func _load_settings() -> void:
 	if cfg.load(SETTINGS_PATH) != OK:
 		return
 	_muted = bool(cfg.get_value("audio", "muted", false))
+	_music_muted = bool(cfg.get_value("audio", "music_muted", false))
 
 
 func _save_settings() -> void:
 	var cfg := ConfigFile.new()
 	cfg.load(SETTINGS_PATH)
 	cfg.set_value("audio", "muted", _muted)
+	cfg.set_value("audio", "music_muted", _music_muted)
 	cfg.save(SETTINGS_PATH)

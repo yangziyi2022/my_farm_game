@@ -725,6 +725,10 @@ func _strip_object_footprints(obj: Variant) -> void:
 
 
 func _set_selected_group(objs: Array) -> void:
+	var previously_selected: Dictionary = {}
+	for prev in _selected_group:
+		if is_instance_valid(prev):
+			previously_selected[prev] = true
 	_clear_selection_footprint()
 	_cancel_menu_move()
 	for prev in _selected_group:
@@ -744,6 +748,8 @@ func _set_selected_group(objs: Array) -> void:
 		_group_origins[obj] = obj.get_meta("grid_pos")
 		grid_manager.set_object_highlighted(obj, true)
 		SelectionFlash.play(obj)
+		if not previously_selected.has(obj):
+			_play_select_animal_sfx(obj)
 	if _selected_group.is_empty():
 		_drag_object = null
 		_dragging = false
@@ -755,6 +761,15 @@ func _set_selected_group(objs: Array) -> void:
 			grid_manager.select_object(_selected_group[0])
 		_refresh_group_footprints()
 		_show_selection_actions()
+
+
+func _play_select_animal_sfx(obj: Node3D) -> void:
+	if obj == null or not is_instance_valid(obj) or not obj.has_meta("item_type"):
+		return
+	var item_type: ItemData.ItemType = obj.get_meta("item_type")
+	if not ItemData.is_animal(item_type):
+		return
+	AudioManager.play_animal_for_item(item_type, false, obj.global_position)
 
 
 func _clear_selected_group() -> void:

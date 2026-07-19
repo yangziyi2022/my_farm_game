@@ -1,13 +1,22 @@
 class_name TimeOfDayControls
 extends VBoxContainer
 
-## Right-side sun / moon; island expand/shrink sit bottom-center (clear of iPhone home bar).
+## Right-side sun / moon; bottom bar: Select · Multi · Mute · Music · Shrink · Expand · Undo · Save
 
 signal expand_done(message: String)
+signal select_pressed
+signal multiselect_pressed
+signal undo_pressed
+signal save_pressed
 
 var _expand_btn: Button
 var _shrink_btn: Button
 var _mute_btn: Button
+var _music_btn: Button
+var _select_btn: Button
+var _multiselect_btn: Button
+var _undo_btn: Button
+var _save_btn: Button
 var _island_bar: HBoxContainer
 var _grid_manager: GridManager
 
@@ -15,7 +24,7 @@ var _grid_manager: GridManager
 func setup(day_night: DayNightCycle, grid_manager: GridManager = null) -> void:
 	_grid_manager = grid_manager
 	set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	# Clear rounded corner / status-bar overlap; sit below Undo/Save/Load.
+	# Sit below Worlds button.
 	offset_left = -84.0
 	offset_top = 112.0
 	offset_right = -28.0
@@ -44,30 +53,51 @@ func setup(day_night: DayNightCycle, grid_manager: GridManager = null) -> void:
 
 
 func _install_island_size_bar() -> void:
-	## Bottom-center: mute + expand / shrink — above status bar, clear of home indicator.
+	## Bottom-center action strip above status / home indicator.
 	var ui := get_parent()
 	if ui == null:
 		return
 
 	_island_bar = HBoxContainer.new()
 	_island_bar.name = "IslandSizeBar"
-	_island_bar.add_theme_constant_override("separation", 14)
+	_island_bar.add_theme_constant_override("separation", 10)
+	_island_bar.alignment = BoxContainer.ALIGNMENT_CENTER
 	_island_bar.mouse_filter = Control.MOUSE_FILTER_STOP
 	_island_bar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	_island_bar.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_island_bar.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	# Wider for mute + shrink + expand.
-	_island_bar.offset_left = -110.0
-	_island_bar.offset_right = 110.0
+	# Shift right so the strip sits optically centered beside the left palette.
+	_island_bar.offset_left = -250.0
+	_island_bar.offset_right = 430.0
 	_island_bar.offset_top = -148.0
 	_island_bar.offset_bottom = -84.0
 	ui.add_child(_island_bar)
 
-	_mute_btn = _make_icon_button(_icon_speaker(not AudioManager.is_muted()), "Mute / unmute sound")
+	# Select · Multi · Mute · Music · Shrink · Expand · Undo · Save
+	_select_btn = _make_text_button("Select", Color(0.35, 0.55, 0.85))
+	_select_btn.toggle_mode = true
+	_select_btn.pressed.connect(func() -> void: select_pressed.emit())
+	_island_bar.add_child(_select_btn)
+
+	_multiselect_btn = _make_text_button("Multi", Color(0.4, 0.7, 0.75))
+	_multiselect_btn.toggle_mode = true
+	_multiselect_btn.pressed.connect(func() -> void: multiselect_pressed.emit())
+	_island_bar.add_child(_multiselect_btn)
+
+	_mute_btn = _make_icon_button(_icon_speaker(not AudioManager.is_muted()), "Mute all sound")
 	_mute_btn.pressed.connect(_on_mute_pressed)
 	_island_bar.add_child(_mute_btn)
 	AudioManager.mute_changed.connect(_on_mute_changed)
 	_refresh_mute_icon()
+
+	_music_btn = _make_icon_button(
+		_icon_music_note(not AudioManager.is_music_muted()),
+		"Mute / unmute background music"
+	)
+	_music_btn.pressed.connect(_on_music_mute_pressed)
+	_island_bar.add_child(_music_btn)
+	AudioManager.music_mute_changed.connect(_on_music_mute_changed)
+	_refresh_music_icon()
 
 	_shrink_btn = _make_icon_button(_icon_shrink(), "Shrink island — toward original size")
 	_shrink_btn.pressed.connect(_on_shrink_pressed)
@@ -80,6 +110,28 @@ func _install_island_size_bar() -> void:
 		_shrink_btn.visible = false
 		_expand_btn.visible = false
 
+	_undo_btn = _make_text_button("Undo", Color(0.78, 0.28, 0.28))
+	_undo_btn.pressed.connect(func() -> void: undo_pressed.emit())
+	_island_bar.add_child(_undo_btn)
+
+	_save_btn = _make_text_button("Save", Color(0.18, 0.48, 0.28))
+	_save_btn.pressed.connect(func() -> void: save_pressed.emit())
+	_island_bar.add_child(_save_btn)
+
+
+func set_undo_enabled(enabled: bool) -> void:
+	if _undo_btn:
+		_undo_btn.disabled = not enabled
+
+
+func set_select_highlight(select_on: bool, multi_on: bool) -> void:
+	if _select_btn:
+		_select_btn.button_pressed = select_on
+		_select_btn.modulate = Color(1.15, 1.12, 0.9) if select_on else Color.WHITE
+	if _multiselect_btn:
+		_multiselect_btn.button_pressed = multi_on
+		_multiselect_btn.modulate = Color(1.15, 1.12, 0.9) if multi_on else Color.WHITE
+
 
 func _on_mute_pressed() -> void:
 	AudioManager.toggle_mute()
@@ -88,15 +140,33 @@ func _on_mute_pressed() -> void:
 		AudioManager.play("ui_click")
 
 
+func _on_music_mute_pressed() -> void:
+	AudioManager.toggle_music_mute()
+	if not AudioManager.is_muted():
+		AudioManager.play("ui_click")
+
+
 func _on_mute_changed(_muted: bool) -> void:
 	_refresh_mute_icon()
+
+
+func _on_music_mute_changed(_music_muted: bool) -> void:
+	_refresh_music_icon()
 
 
 func _refresh_mute_icon() -> void:
 	if _mute_btn == null:
 		return
 	_mute_btn.icon = _icon_speaker(not AudioManager.is_muted())
-	_mute_btn.tooltip_text = "Unmute" if AudioManager.is_muted() else "Mute"
+	_mute_btn.tooltip_text = "Unmute all" if AudioManager.is_muted() else "Mute all"
+
+
+func _refresh_music_icon() -> void:
+	if _music_btn == null:
+		return
+	var on := not AudioManager.is_music_muted()
+	_music_btn.icon = _icon_music_note(on)
+	_music_btn.tooltip_text = "Unmute music" if AudioManager.is_music_muted() else "Mute music only"
 
 
 func _on_expand_pressed() -> void:
@@ -163,6 +233,35 @@ func _make_icon_button(icon: Texture2D, tip: String) -> Button:
 	var disabled := style.duplicate() as StyleBoxFlat
 	disabled.bg_color = Color(0.12, 0.11, 0.14, 0.55)
 	disabled.border_color = Color(0.45, 0.42, 0.38, 0.5)
+	btn.add_theme_stylebox_override("disabled", disabled)
+	return btn
+
+
+func _make_text_button(text: String, tint: Color) -> Button:
+	var btn := Button.new()
+	btn.text = text
+	btn.custom_minimum_size = Vector2(72, 56)
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.add_theme_font_size_override("font_size", 16)
+	btn.add_theme_color_override("font_color", Color(1, 0.98, 0.94))
+	btn.add_theme_color_override("font_hover_color", Color(1, 1, 0.96))
+	btn.add_theme_color_override("font_pressed_color", Color(1, 0.95, 0.88))
+	btn.add_theme_color_override("font_disabled_color", Color(1, 1, 1, 0.45))
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(tint.r, tint.g, tint.b, 0.95)
+	style.set_corner_radius_all(12)
+	style.set_border_width_all(2)
+	style.border_color = Color(1, 1, 1, 0.35)
+	btn.add_theme_stylebox_override("normal", style)
+	var hover := style.duplicate() as StyleBoxFlat
+	hover.bg_color = tint.lightened(0.12)
+	btn.add_theme_stylebox_override("hover", hover)
+	var pressed := style.duplicate() as StyleBoxFlat
+	pressed.bg_color = tint.darkened(0.12)
+	btn.add_theme_stylebox_override("pressed", pressed)
+	var disabled := style.duplicate() as StyleBoxFlat
+	disabled.bg_color = Color(tint.r, tint.g, tint.b, 0.4)
+	disabled.border_color = Color(1, 1, 1, 0.15)
 	btn.add_theme_stylebox_override("disabled", disabled)
 	return btn
 
@@ -245,6 +344,32 @@ func _icon_speaker(on: bool) -> Texture2D:
 	else:
 		# Mute slash
 		_draw_thick_line(img, Vector2i(18, 46), Vector2i(48, 16), c)
+	return ImageTexture.create_from_image(img)
+
+
+func _icon_music_note(on: bool) -> Texture2D:
+	## Eighth note; muted state draws a slash.
+	var img := Image.create(64, 64, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var c := Color(0.95, 0.92, 0.8)
+	# Note head (ellipse)
+	for y in range(36, 52):
+		for x in range(18, 36):
+			var dx := (float(x) - 27.0) / 8.0
+			var dy := (float(y) - 44.0) / 6.0
+			if dx * dx + dy * dy <= 1.0:
+				img.set_pixel(x, y, c)
+	# Stem
+	_fill_rect(img, 32, 14, 36, 44, c)
+	# Flag
+	for y in range(14, 30):
+		var t := float(y - 14) / 16.0
+		var x0 := 36
+		var x1 := 36 + int(lerpf(2.0, 16.0, t))
+		for x in range(x0, mini(x1 + 1, 64)):
+			img.set_pixel(x, y, c)
+	if not on:
+		_draw_thick_line(img, Vector2i(14, 50), Vector2i(50, 14), c)
 	return ImageTexture.create_from_image(img)
 
 

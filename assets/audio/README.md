@@ -28,11 +28,12 @@
 
 Animal voices are spatial: quiet when zoomed out; louder when zoomed in and closer to that animal. Ambient calls are rare and throttled; feed always plays a clearer cue.
 
-Mute (music + SFX) is toggled from the bottom bar speaker button; preference saved to `user://audio_settings.cfg`.
+Bottom bar: speaker mutes **all** audio; music-note mutes **BGM only**. Both preferences save to `user://audio_settings.cfg`.
 
 ```gdscript
 AudioManager.play("harvest")
 AudioManager.play_animal_for_item(ItemData.ItemType.COW)
 AudioManager.play_music("day")
 AudioManager.toggle_mute()
+AudioManager.toggle_music_mute()
 ```
