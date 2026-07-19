@@ -66,9 +66,9 @@ func _install_island_size_bar() -> void:
 	_island_bar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	_island_bar.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_island_bar.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	# Shift right so the strip sits optically centered beside the left palette.
-	_island_bar.offset_left = -250.0
-	_island_bar.offset_right = 430.0
+	# Symmetric offsets — buttons center via alignment inside this strip.
+	_island_bar.offset_left = -400.0
+	_island_bar.offset_right = 400.0
 	_island_bar.offset_top = -148.0
 	_island_bar.offset_bottom = -84.0
 	ui.add_child(_island_bar)

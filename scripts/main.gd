@@ -20,9 +20,10 @@ const MAIN_MENU_SCENE := "res://scenes/main_menu.tscn"
 @onready var cursor_overlay: CursorOverlay = $UI/CursorOverlay
 @onready var tool_cursor: ToolCursor3D = $ToolCursor3D
 @onready var status_label: Label = $UI/StatusBar/StatusLabel
-@onready var save_btn: Button = $UI/Toolbar/SaveBtn
 @onready var worlds_btn: Button = $UI/Toolbar/WorldsBtn
-@onready var undo_btn: Button = $UI/Toolbar/UndoBtn
+
+var _time_controls: TimeOfDayControls
+var _walk_mode: WalkModeController
 
 
 func _ready() -> void:
@@ -52,6 +53,13 @@ func _ready() -> void:
 	grid_manager.undo_manager = undo_manager
 	placement_controller.setup(grid_manager, camera, undo_manager, inventory_manager, cursor_overlay, tool_cursor)
 	inventory_bar.setup(inventory_manager)
+	inventory_bar.walk_mode_pressed.connect(_on_walk_mode_pressed)
+
+	_walk_mode = WalkModeController.new()
+	_walk_mode.name = "WalkModeController"
+	add_child(_walk_mode)
+	_walk_mode.setup(grid_manager, camera, camera_controller, placement_controller)
+	_walk_mode.status_message.connect(_on_status_message)
 
 	item_palette.item_selected.connect(placement_controller.set_selected_item)
 	item_palette.select_tool_activated.connect(_on_select_tool_activated)
@@ -59,23 +67,27 @@ func _ready() -> void:
 	item_palette.hoe_tool_activated.connect(_on_hoe_tool_activated)
 	item_palette.harvest_tool_activated.connect(_on_harvest_tool_activated)
 	item_palette.rod_tool_activated.connect(_on_rod_tool_activated)
+	item_palette.tool_highlight_changed.connect(_on_palette_tool_highlight)
 	placement_controller.select_mode_requested.connect(item_palette.activate_select_tool)
 	placement_controller.feed_mode_cancelled.connect(inventory_bar.clear_feed_selection)
 	placement_controller.status_message.connect(_on_status_message)
 	inventory_bar.feed_item_selected.connect(_on_feed_item_selected)
 	inventory_bar.feed_selection_cleared.connect(_on_feed_selection_cleared)
 
-	save_btn.pressed.connect(_on_save)
+	_style_worlds_button()
 	worlds_btn.pressed.connect(_on_worlds)
-	undo_btn.pressed.connect(_on_undo)
 	undo_manager.stack_changed.connect(_on_undo_stack_changed)
 	undo_manager.undo_applied.connect(_on_status_message)
 
-	var time_controls := TimeOfDayControls.new()
-	time_controls.name = "TimeOfDayControls"
-	$UI.add_child(time_controls)
-	time_controls.setup(day_night_cycle, grid_manager)
-	time_controls.expand_done.connect(_on_status_message)
+	_time_controls = TimeOfDayControls.new()
+	_time_controls.name = "TimeOfDayControls"
+	$UI.add_child(_time_controls)
+	_time_controls.setup(day_night_cycle, grid_manager)
+	_time_controls.expand_done.connect(_on_status_message)
+	_time_controls.select_pressed.connect(_on_select_pressed)
+	_time_controls.multiselect_pressed.connect(_on_multiselect_pressed)
+	_time_controls.undo_pressed.connect(_on_undo)
+	_time_controls.save_pressed.connect(_on_save)
 
 	# Fix any desynced placeables from earlier rotate/select bugs.
 	grid_manager.repair_content_registry()
@@ -93,6 +105,7 @@ func _ready() -> void:
 		_on_status_message("New world \"%s\" — tap Save to keep progress" % wname)
 
 	_on_undo_stack_changed(undo_manager.can_undo())
+	item_palette.activate_select_tool()
 	AudioManager.play_music("day", true)
 
 
@@ -133,6 +146,55 @@ func _on_day_night_phase_changed(phase: String) -> void:
 	_on_status_message("%s — 5 min day / 5 min night cycle" % label)
 
 
+func _style_worlds_button() -> void:
+	_apply_btn_colors(worlds_btn, Color(0.45, 0.4, 0.32))
+	worlds_btn.focus_mode = Control.FOCUS_NONE
+
+
+func _apply_btn_colors(btn: Button, tint: Color) -> void:
+	if btn == null:
+		return
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(tint.r, tint.g, tint.b, 0.95)
+	style.set_corner_radius_all(10)
+	style.set_border_width_all(2)
+	style.border_color = Color(1, 1, 1, 0.35)
+	btn.add_theme_stylebox_override("normal", style)
+	var hover := style.duplicate() as StyleBoxFlat
+	hover.bg_color = tint.lightened(0.12)
+	btn.add_theme_stylebox_override("hover", hover)
+	var pressed := style.duplicate() as StyleBoxFlat
+	pressed.bg_color = tint.darkened(0.12)
+	btn.add_theme_stylebox_override("pressed", pressed)
+	var disabled := style.duplicate() as StyleBoxFlat
+	disabled.bg_color = Color(tint.r, tint.g, tint.b, 0.4)
+	disabled.border_color = Color(1, 1, 1, 0.15)
+	btn.add_theme_stylebox_override("disabled", disabled)
+	btn.add_theme_color_override("font_color", Color(1, 0.98, 0.94))
+	btn.add_theme_color_override("font_hover_color", Color(1, 1, 0.96))
+	btn.add_theme_color_override("font_pressed_color", Color(1, 0.95, 0.88))
+	btn.add_theme_color_override("font_disabled_color", Color(1, 1, 1, 0.45))
+
+
+func _on_select_pressed() -> void:
+	AudioManager.play("ui_click")
+	item_palette.activate_select_tool()
+	_on_select_tool_activated()
+
+
+func _on_multiselect_pressed() -> void:
+	AudioManager.play("ui_click")
+	item_palette.activate_multiselect_tool()
+	_on_multiselect_tool_activated()
+
+
+func _on_palette_tool_highlight(tool: int, item_type: int) -> void:
+	var select_on := tool == int(ItemPalette.Tool.SELECT) and item_type == ItemPalette.SELECT_TOOL
+	var multi_on := tool == int(ItemPalette.Tool.MULTISELECT)
+	if _time_controls:
+		_time_controls.set_select_highlight(select_on, multi_on)
+
+
 func _on_select_tool_activated() -> void:
 	placement_controller.enter_select_mode()
 
@@ -153,6 +215,12 @@ func _on_rod_tool_activated() -> void:
 	placement_controller.enter_fish_mode()
 
 
+func _on_walk_mode_pressed() -> void:
+	AudioManager.play("ui_click")
+	if _walk_mode:
+		_walk_mode.begin_place_avatar()
+
+
 func _on_feed_item_selected(item: InventoryData.Item) -> void:
 	placement_controller.enter_feed_mode(item)
 
@@ -163,11 +231,13 @@ func _on_feed_selection_cleared() -> void:
 
 
 func _on_undo() -> void:
+	AudioManager.play("ui_click")
 	placement_controller.perform_undo()
 
 
 func _on_undo_stack_changed(can_undo: bool) -> void:
-	undo_btn.disabled = not can_undo
+	if _time_controls:
+		_time_controls.set_undo_enabled(can_undo)
 
 
 func _on_status_message(text: String) -> void:
@@ -175,6 +245,7 @@ func _on_status_message(text: String) -> void:
 
 
 func _on_save() -> void:
+	AudioManager.play("ui_click")
 	if SaveManager.save_farm(grid_manager, inventory_manager):
 		var meta := SaveManager.load_meta(SaveManager.get_current_world_id())
 		var wname := str(meta.get("display_name", "Farm"))
@@ -184,6 +255,30 @@ func _on_save() -> void:
 
 
 func _on_worlds() -> void:
-	# Autosave current progress when leaving to the menu.
-	SaveManager.save_farm(grid_manager, inventory_manager)
+	AudioManager.play("ui_click")
+	var dlg := ConfirmationDialog.new()
+	dlg.title = "Leave World"
+	dlg.dialog_text = "Save your farm before returning to Worlds?"
+	dlg.ok_button_text = "Save"
+	dlg.cancel_button_text = "Cancel"
+	dlg.add_button("Don't Save", true, "nosave")
+	dlg.confirmed.connect(func() -> void:
+		SaveManager.save_farm(grid_manager, inventory_manager)
+		dlg.queue_free()
+		_go_to_worlds_menu()
+	)
+	dlg.custom_action.connect(func(action: StringName) -> void:
+		if str(action) == "nosave":
+			dlg.hide()
+			dlg.queue_free()
+			_go_to_worlds_menu()
+	)
+	dlg.canceled.connect(func() -> void:
+		dlg.queue_free()
+	)
+	add_child(dlg)
+	dlg.popup_centered()
+
+
+func _go_to_worlds_menu() -> void:
 	get_tree().change_scene_to_file(MAIN_MENU_SCENE)

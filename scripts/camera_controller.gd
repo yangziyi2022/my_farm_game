@@ -49,6 +49,8 @@ var _touch_orbit_tracking: bool = false
 var _touch_orbit_active: bool = false
 var _touch_orbit_start: Vector2 = Vector2.ZERO
 var _touch_orbit_last: Vector2 = Vector2.ZERO
+## When false, walk-mode owns the camera (no island orbit / pan).
+var _build_orbit_enabled: bool = true
 
 
 func setup(p_camera: Camera3D, focus: Vector3 = Vector3(0.0, 0.0, 25.0)) -> void:
@@ -64,7 +66,34 @@ func setup(p_camera: Camera3D, focus: Vector3 = Vector3(0.0, 0.0, 25.0)) -> void
 	_apply_transform()
 
 
+func set_build_orbit_enabled(enabled: bool) -> void:
+	_build_orbit_enabled = enabled
+	set_process(enabled)
+	if not enabled:
+		_panning = false
+		_orbiting = false
+		_reset_touch_orbit()
+		_pinch_active = false
+
+
+func refresh_from_camera() -> void:
+	## Re-sync orbit state after an external controller restores the build camera.
+	if camera == null:
+		return
+	_zoom = camera.size
+	var focus := _focus + _pan_offset
+	var to_cam := camera.global_position - focus
+	if to_cam.length() > 0.1:
+		_distance = clampf(to_cam.length(), DISTANCE_MIN, DISTANCE_MAX)
+		_yaw = atan2(to_cam.x, to_cam.z)
+		_pitch = asin(clampf(to_cam.y / maxf(_distance, 0.001), -1.0, 1.0))
+		_pitch = clampf(_pitch, PITCH_MIN, PITCH_MAX)
+	_apply_transform()
+
+
 func _unhandled_input(event: InputEvent) -> void:
+	if not _build_orbit_enabled:
+		return
 	# --- Touch camera ---
 	if event is InputEventScreenTouch or event is InputEventScreenDrag:
 		_handle_touch_camera(event)
@@ -207,6 +236,8 @@ func _zoom_by(amount: float) -> void:
 
 
 func _process(delta: float) -> void:
+	if not _build_orbit_enabled:
+		return
 	var input_dir := Vector2.ZERO
 	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP):
 		input_dir.y -= 1.0

@@ -367,6 +367,22 @@ func is_in_bounds(grid_pos: Vector2i) -> bool:
 	return dx * dx + dz * dz <= play_radius * play_radius
 
 
+func player_can_stand_at(grid_pos: Vector2i) -> bool:
+	## Walk mode: stay on the island disc; no water / fences / buildings / ponds.
+	if not is_in_bounds(grid_pos):
+		return false
+	if is_water_cell(grid_pos):
+		return false
+	if not has_content(grid_pos):
+		return true
+	var t: ItemData.ItemType = get_item_type_at(grid_pos)
+	if ItemData.blocks_animal(t):
+		return false
+	if ItemData.is_water_source(t):
+		return false
+	return true
+
+
 func get_play_radius() -> float:
 	return play_radius
 

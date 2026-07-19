@@ -24,6 +24,8 @@ var _menu_move_dragged: bool = false
 const MENU_MOVE_TRANSPARENCY: float = 0.42
 const MENU_MOVE_TINT := Color(1.0, 0.88, 0.2, 0.55)
 var _copy_extend_active: bool = false
+## Multi-select stamp copy (whole selection as a rigid pattern).
+var _group_copy_active: bool = false
 ## True only while primary is held after a world press — not while tapping ✓/✕.
 var _copy_dragging: bool = false
 var _copy_source: Node3D = null
@@ -34,6 +36,10 @@ var _copy_preview_rotation: int = -1
 var _copy_cells: Array[Vector2i] = []
 var _copy_all_valid: bool = false
 var _copy_ghosts: Array[Node3D] = []
+## Group-copy blueprint: {type, origin, rotation, growth}
+var _group_copy_entries: Array[Dictionary] = []
+var _group_copy_anchor: Vector2i = Vector2i.ZERO
+var _group_copy_delta: Vector2i = Vector2i.ZERO
 var _fish_phase: int = 0  # 0 idle, 1 waiting, 2 biting
 var _fish_cell: Vector2i = Vector2i(-9999, -9999)
 var _fish_water_pos: Vector3 = Vector3.ZERO
@@ -78,6 +84,8 @@ var _marquee_border: Panel = null
 const DRAG_THRESHOLD: float = 4.0
 const DOUBLE_CLICK_MS: int = 400
 const MARQUEE_THRESHOLD: float = 8.0
+## Walk / explore mode owns world input — placement stays idle.
+var _walk_mode_blocked: bool = false
 
 
 func setup(
@@ -99,6 +107,13 @@ func setup(
 	grid_manager.selection_changed.connect(_on_selection_changed)
 	_ensure_marquee_ui()
 	_ensure_action_bar()
+
+
+func set_walk_mode_blocked(blocked: bool) -> void:
+	_walk_mode_blocked = blocked
+	if blocked:
+		_cancel_action()
+		PointerInput.gameplay_captures_primary = false
 
 
 func _ensure_marquee_ui() -> void:
@@ -269,6 +284,9 @@ func perform_undo() -> void:
 
 
 func _process(_delta: float) -> void:
+	if _walk_mode_blocked:
+		PointerInput.gameplay_captures_primary = false
+		return
 	# Capture primary while placing/dragging so CameraController won't steal one-finger orbit.
 	# Touch: selection alone does not capture — Move button starts menu-move instead of drag.
 	var selecting_held := (
@@ -287,7 +305,7 @@ func _process(_delta: float) -> void:
 		or _place_drag
 		or _marquee_active
 		or (_menu_move_active and PointerInput.primary_down)
-		or (_copy_extend_active and _copy_dragging)
+		or (_is_any_copy_active() and PointerInput.primary_down)
 		or (_harvest_swiping and PointerInput.primary_down)
 		or selecting_held
 		or touch_placing
@@ -321,6 +339,8 @@ func _process(_delta: float) -> void:
 		_update_harvest_swipe()
 	if _copy_extend_active and _copy_dragging and PointerInput.primary_down:
 		_update_copy_extend_from_pointer()
+	if _group_copy_active and _copy_dragging and PointerInput.primary_down:
+		_update_group_copy_from_pointer()
 	if _menu_move_active and _menu_move_pressing and _menu_move_dragged:
 		_update_menu_move_follow()
 	if _dragging and _drag_object and is_instance_valid(_drag_object) and not _group_dragging and not _menu_move_active:
@@ -332,6 +352,8 @@ func _process(_delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if _walk_mode_blocked:
+		return
 	# Two-finger gestures belong to the camera — don't treat as clicks.
 	if PointerInput.touch_count() >= 2:
 		return
@@ -357,6 +379,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if _walk_mode_blocked:
+		return
 	if PointerInput.touch_count() >= 2:
 		return
 	# Catch Delete even if a UI control has focus after box-select.
@@ -370,6 +394,10 @@ func _input(event: InputEvent) -> void:
 		if _copy_extend_active:
 			if _copy_dragging and PointerInput.primary_down:
 				_update_copy_extend_from_pointer()
+			return
+		if _group_copy_active:
+			if _copy_dragging and PointerInput.primary_down:
+				_update_group_copy_from_pointer()
 			return
 		if _menu_move_active and _menu_move_pressing:
 			if event.position.distance_to(_mouse_down_pos) > DRAG_THRESHOLD:
@@ -424,10 +452,14 @@ func _handle_mouse_button(event: InputEventMouseButton) -> void:
 
 
 func _on_left_press(screen_pos: Vector2) -> void:
-	# Copy-extend: only world presses start a drag that updates the preview line.
+	# Copy modes: only world presses start a drag that updates the preview.
 	if _copy_extend_active:
 		_copy_dragging = true
 		_update_copy_extend_from_pointer()
+		return
+	if _group_copy_active:
+		_copy_dragging = true
+		_update_group_copy_from_pointer()
 		return
 
 	# Menu-move: press starts drag; short tap on release drops.
@@ -541,6 +573,12 @@ func _reset_selection_state() -> void:
 		_copy_dragging = false
 		_copy_source = null
 		_copy_cells.clear()
+		_copy_all_valid = false
+	if _group_copy_active:
+		_clear_copy_ghosts()
+		_group_copy_active = false
+		_copy_dragging = false
+		_group_copy_entries.clear()
 		_copy_all_valid = false
 	_cancel_menu_move()
 	_hide_selection_actions()
@@ -880,7 +918,7 @@ func _prepare_group_drag(anchor_obj: Node3D) -> void:
 
 
 func _begin_group_drag() -> void:
-	if _copy_extend_active:
+	if _is_any_copy_active():
 		return
 	_hide_selection_actions()
 	_group_dragging = true
@@ -1083,7 +1121,7 @@ func _snap_drag_home() -> void:
 
 
 func _begin_object_drag(obj: Node3D) -> void:
-	if _copy_extend_active:
+	if _is_any_copy_active():
 		return
 	_hide_selection_actions()
 	_dragging = true
@@ -1297,8 +1335,8 @@ func _on_left_release(screen_pos: Vector2) -> void:
 		_end_harvest_swipe()
 		return
 
-	# Copy-extend: release freezes the preview so ✓/✕ can be pressed without re-aiming.
-	if _copy_extend_active:
+	# Copy modes: release freezes the preview so ✓/✕ can be pressed without re-aiming.
+	if _copy_extend_active or _group_copy_active:
 		_copy_dragging = false
 		return
 
@@ -1492,6 +1530,8 @@ func _cancel_action() -> void:
 		_end_harvest_swipe()
 	if _copy_extend_active:
 		_cancel_copy_extend()
+	if _group_copy_active:
+		_cancel_group_copy()
 	if _menu_move_active:
 		_cancel_menu_move()
 	_reset_fishing_session()
@@ -1608,8 +1648,8 @@ func _ensure_action_bar() -> void:
 	_action_bar.copy_pressed.connect(_on_selection_copy_pressed)
 	_action_bar.rotate_pressed.connect(_rotate_selected)
 	_action_bar.delete_pressed.connect(_delete_selected)
-	_action_bar.confirm_pressed.connect(_confirm_copy_extend)
-	_action_bar.cancel_pressed.connect(_cancel_copy_extend)
+	_action_bar.confirm_pressed.connect(_on_copy_confirm_pressed)
+	_action_bar.cancel_pressed.connect(_on_copy_cancel_pressed)
 
 
 func _selection_action_anchor() -> Vector3:
@@ -1638,7 +1678,7 @@ func _show_selection_actions() -> void:
 		_ensure_action_bar()
 	if _action_bar == null or _selected_group.is_empty():
 		return
-	if _menu_move_active or _dragging or _group_dragging or _marquee_active or _copy_extend_active:
+	if _menu_move_active or _dragging or _group_dragging or _marquee_active or _is_any_copy_active():
 		return
 	if mode != Mode.SELECT and mode != Mode.MULTISELECT:
 		_hide_selection_actions()
@@ -1673,14 +1713,32 @@ func _on_selection_move_pressed() -> void:
 func _on_selection_copy_pressed() -> void:
 	if _selected_group.is_empty():
 		return
-	if _selected_group.size() != 1:
-		status_message.emit("Copy works on one item at a time")
-		return
-	var src: Node3D = _selected_group[0]
-	if not is_instance_valid(src) or not src.has_meta("item_type"):
-		return
 	_cancel_menu_move()
-	_start_copy_extend(src)
+	if _selected_group.size() == 1:
+		var src: Node3D = _selected_group[0]
+		if not is_instance_valid(src) or not src.has_meta("item_type"):
+			return
+		_start_copy_extend(src)
+	else:
+		_start_group_copy()
+
+
+func _is_any_copy_active() -> bool:
+	return _copy_extend_active or _group_copy_active
+
+
+func _on_copy_confirm_pressed() -> void:
+	if _group_copy_active:
+		_confirm_group_copy()
+	else:
+		_confirm_copy_extend()
+
+
+func _on_copy_cancel_pressed() -> void:
+	if _group_copy_active:
+		_cancel_group_copy()
+	else:
+		_cancel_copy_extend()
 
 
 func _start_copy_extend(src: Node3D) -> void:
@@ -1861,6 +1919,161 @@ func _cancel_copy_extend() -> void:
 	_copy_dragging = false
 	_copy_source = null
 	_copy_cells.clear()
+	_copy_all_valid = false
+	_hide_selection_actions()
+	_restore_selection_drag_anchor()
+	if not _selected_group.is_empty():
+		_show_selection_actions()
+	status_message.emit("Copy cancelled")
+
+
+func _start_group_copy() -> void:
+	_clear_copy_ghosts()
+	_group_copy_entries.clear()
+	_group_copy_active = true
+	_copy_extend_active = false
+	_copy_dragging = false
+	_copy_all_valid = false
+	_group_copy_delta = Vector2i.ZERO
+	if _dragging or _group_dragging:
+		_snap_drag_home()
+		_end_object_drag()
+		_end_group_drag()
+	_dragging = false
+	_group_dragging = false
+	_drag_object = null
+
+	var anchor_set := false
+	for obj in _selected_group:
+		if obj == null or not is_instance_valid(obj) or not obj.has_meta("item_type"):
+			continue
+		var origin: Vector2i = obj.get_meta("grid_pos")
+		if not anchor_set:
+			_group_copy_anchor = origin
+			anchor_set = true
+		_group_copy_entries.append({
+			"type": obj.get_meta("item_type"),
+			"origin": origin,
+			"rotation": int(obj.get_meta("rotation", 0)),
+			"growth": int(obj.get_meta("growth_stage", 0)),
+		})
+	if _group_copy_entries.is_empty():
+		_group_copy_active = false
+		status_message.emit("Nothing to copy")
+		return
+
+	_hide_selection_actions()
+	_ensure_action_bar()
+	_rebuild_group_copy_ghosts()
+	_refresh_group_copy_confirm_state()
+	_action_bar.show_confirm_at_top(_copy_all_valid)
+	status_message.emit("Copy group — drag to place · green ✓ to confirm · ✕ to cancel")
+
+
+func _update_group_copy_from_pointer() -> void:
+	if not _group_copy_active:
+		return
+	var cell := _raycast_ground_cell(PointerInput.get_position())
+	if not _is_valid_cell(cell):
+		return
+	var delta := cell - _group_copy_anchor
+	if delta == _group_copy_delta and not _copy_ghosts.is_empty():
+		_refresh_group_copy_confirm_state()
+		return
+	_group_copy_delta = delta
+	_rebuild_group_copy_ghosts()
+	_refresh_group_copy_confirm_state()
+
+
+func _rebuild_group_copy_ghosts() -> void:
+	_clear_copy_ghosts()
+	for entry in _group_copy_entries:
+		var item_type: ItemData.ItemType = entry["type"]
+		var origin: Vector2i = entry["origin"]
+		var rot: int = entry["rotation"]
+		var growth: int = entry["growth"]
+		var cell: Vector2i = origin + _group_copy_delta
+		var ghost := PlaceableObject.create(item_type, cell, rot, growth)
+		ghost.name = "Ghost"
+		ghost.set_meta("is_copy_ghost", true)
+		grid_manager.objects_container.add_child(ghost)
+		ghost.position = grid_manager.grid_to_world(cell)
+		GridManager.apply_placeable_yaw(ghost, rot, ItemData.get_footprint(item_type))
+		_set_geometry_move_tint(ghost, true)
+		var fp := FootprintOverlay.create_for_item(item_type, grid_manager)
+		fp.name = "SelectionFootprint"
+		ghost.add_child(fp)
+		fp.set_valid(_group_copy_cell_valid(item_type, cell, rot))
+		_copy_ghosts.append(ghost)
+
+
+func _group_copy_cell_valid(item_type: ItemData.ItemType, cell: Vector2i, rot: int) -> bool:
+	if not grid_manager.is_in_bounds(cell):
+		return false
+	return grid_manager.can_place_at(cell, item_type, rot)
+
+
+func _refresh_group_copy_confirm_state() -> void:
+	_copy_all_valid = not _group_copy_entries.is_empty() and _group_copy_delta != Vector2i.ZERO
+	if _copy_all_valid:
+		var seen: Dictionary = {}
+		for entry in _group_copy_entries:
+			var cell: Vector2i = entry["origin"] + _group_copy_delta
+			if seen.has(cell) or not _group_copy_cell_valid(entry["type"], cell, entry["rotation"]):
+				_copy_all_valid = false
+				break
+			seen[cell] = true
+	if _action_bar and is_instance_valid(_action_bar):
+		_action_bar.show_confirm_at_top(_copy_all_valid)
+
+
+func _confirm_group_copy() -> void:
+	if not _group_copy_active:
+		return
+	if not _copy_all_valid or _group_copy_entries.is_empty() or _group_copy_delta == Vector2i.ZERO:
+		status_message.emit("Can't place — drag to a free spot or cancel")
+		return
+	var entries: Array[Dictionary] = _group_copy_entries.duplicate(true)
+	var delta := _group_copy_delta
+	_clear_copy_ghosts()
+	_group_copy_active = false
+	_copy_dragging = false
+	_group_copy_entries.clear()
+	_copy_all_valid = false
+	_hide_selection_actions()
+
+	var batching := undo_manager != null and entries.size() > 1
+	if batching:
+		undo_manager.begin_batch()
+	var placed := 0
+	for entry in entries:
+		var cell: Vector2i = entry["origin"] + delta
+		var item_type: ItemData.ItemType = entry["type"]
+		var rot: int = entry["rotation"]
+		var growth: int = entry["growth"]
+		if not grid_manager.can_place_at(cell, item_type, rot):
+			continue
+		var obj := grid_manager.place_object(item_type, cell, rot, true, growth)
+		if obj != null or item_type == ItemData.ItemType.GRASS:
+			placed += 1
+	if batching:
+		undo_manager.end_batch()
+
+	if placed > 0:
+		AudioManager.play("copy_confirm")
+	_restore_selection_drag_anchor()
+	if not _selected_group.is_empty():
+		_show_selection_actions()
+	status_message.emit("Copied %d item(s)" % placed)
+
+
+func _cancel_group_copy() -> void:
+	if not _group_copy_active:
+		return
+	_clear_copy_ghosts()
+	_group_copy_active = false
+	_copy_dragging = false
+	_group_copy_entries.clear()
 	_copy_all_valid = false
 	_hide_selection_actions()
 	_restore_selection_drag_anchor()
