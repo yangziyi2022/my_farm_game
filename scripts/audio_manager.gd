@@ -21,6 +21,7 @@ const KNOWN_SFX := [
 	"delete",
 	"feed",
 	"fish_catch",
+	"fishing_drop",
 ]
 
 ## Filename typos / alternate names → canonical id.

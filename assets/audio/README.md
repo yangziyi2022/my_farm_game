@@ -11,12 +11,13 @@
 |------|--------|
 | `ui_click.ogg` | Menu buttons |
 | `place.ogg` | Place object |
-| `harvest.wav` / `.ogg` | Crop harvest |
+| `harvest.ogg` | Crop harvest (swipe / tap) |
 | `hoe.ogg` | Hoe grass |
 | `copy_confirm.ogg` (also accepts `copy_comfirm.ogg`) | Copy-extend confirm |
 | `delete.ogg` | Delete selection |
 | `feed.ogg` | Feed animal |
 | `fish_catch.ogg` | Catch fish |
+| `fishing_drop.ogg` | Cast line into water |
 | `music/day.mp3` | Looping BGM (−14 dB under SFX) |
 
 Mute (music + SFX) is toggled from the bottom-center speaker button in-game; preference saved to `user://audio_settings.cfg`.

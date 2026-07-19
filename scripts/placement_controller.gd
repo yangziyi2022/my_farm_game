@@ -38,6 +38,10 @@ var _fish_phase: int = 0  # 0 idle, 1 waiting, 2 biting
 var _fish_cell: Vector2i = Vector2i(-9999, -9999)
 var _fish_water_pos: Vector3 = Vector3.ZERO
 var _fish_wait_left: float = 0.0
+## Hold-drag harvest: swipe across mature plants.
+var _harvest_swiping: bool = false
+var _harvest_last_cell: Vector2i = Vector2i(-9999, -9999)
+var _harvest_swipe_count: int = 0
 var selected_item: ItemData.ItemType = ItemData.ItemType.GRASS
 var mode: Mode = Mode.SELECT
 var feed_item: InventoryData.Item = InventoryData.Item.WHEAT
@@ -188,6 +192,7 @@ func enter_harvest_mode() -> void:
 	_dragging = false
 	_place_drag = false
 	_group_dragging = false
+	_harvest_swiping = false
 	_cancel_marquee()
 	_reset_selection_state()
 	_remove_ghost()
@@ -196,7 +201,7 @@ func enter_harvest_mode() -> void:
 	_show_sickle_cursor()
 	_ensure_tool_footprint()
 	feed_mode_cancelled.emit()
-	status_message.emit("Harvest — click mature plants to collect them.")
+	status_message.emit("Harvest — hold and slide over mature plants")
 
 
 func enter_fish_mode() -> void:
@@ -283,6 +288,7 @@ func _process(_delta: float) -> void:
 		or _marquee_active
 		or (_menu_move_active and PointerInput.primary_down)
 		or (_copy_extend_active and _copy_dragging)
+		or (_harvest_swiping and PointerInput.primary_down)
 		or selecting_held
 		or touch_placing
 	)
@@ -294,6 +300,8 @@ func _process(_delta: float) -> void:
 		if _menu_move_pressing:
 			_menu_move_pressing = false
 			_menu_move_dragged = false
+		if _harvest_swiping:
+			_end_harvest_swipe()
 		if _marquee_active:
 			_cancel_marquee()
 	if mode == Mode.PLACE and _ghost:
@@ -309,6 +317,8 @@ func _process(_delta: float) -> void:
 		_update_tool_footprint()
 	if mode == Mode.FISH:
 		_update_fishing(_delta)
+	if mode == Mode.HARVEST and _harvest_swiping and PointerInput.primary_down:
+		_update_harvest_swipe()
 	if _copy_extend_active and _copy_dragging and PointerInput.primary_down:
 		_update_copy_extend_from_pointer()
 	if _menu_move_active and _menu_move_pressing and _menu_move_dragged:
@@ -495,6 +505,12 @@ func _on_left_press(screen_pos: Vector2) -> void:
 			status_message.emit("Cast only on water")
 		return
 
+	# Harvest: press starts a swipe path over mature plants.
+	if mode == Mode.HARVEST:
+		_register_click(null)
+		_begin_harvest_swipe(screen_pos)
+		return
+
 	if hit.is_empty():
 		_place_drag = false
 		_register_click(null)
@@ -513,8 +529,6 @@ func _on_left_press(screen_pos: Vector2) -> void:
 				status_message.emit("Hoed grass at (%d, %d)" % [grid_pos.x, grid_pos.y])
 			else:
 				status_message.emit("Hoe only works on grass")
-		Mode.HARVEST:
-			_try_harvest(grid_pos)
 		Mode.FEED:
 			_try_feed(grid_pos, hit_obj)
 
@@ -1080,23 +1094,101 @@ func _end_object_drag() -> void:
 	_dragging = false
 
 
-func _try_harvest(grid_pos: Vector2i) -> void:
-	if not grid_manager.is_plant_mature(grid_pos):
-		status_message.emit("Nothing ready to harvest here")
-		return
+func _try_harvest(grid_pos: Vector2i, quiet: bool = false) -> bool:
+	if not _is_valid_cell(grid_pos) or not grid_manager.is_plant_mature(grid_pos):
+		if not quiet:
+			status_message.emit("Nothing ready to harvest here")
+		return false
 	var plant := grid_manager.get_content_at(grid_pos)
 	if plant:
 		HarvestEffect.play(plant)
 		AudioManager.play("harvest")
 	var harvest_item = grid_manager.harvest_plant(grid_pos)
 	if harvest_item == null:
-		status_message.emit("Nothing ready to harvest here")
-		return
+		if not quiet:
+			status_message.emit("Nothing ready to harvest here")
+		return false
 	if tool_cursor:
 		tool_cursor.play_sickle_swing()
 	if inventory_manager:
 		inventory_manager.add_item(harvest_item)
-	status_message.emit("Harvested %s!" % InventoryData.get_item_name(harvest_item))
+	if not quiet:
+		status_message.emit("Harvested %s!" % InventoryData.get_item_name(harvest_item))
+	return true
+
+
+func _begin_harvest_swipe(screen_pos: Vector2) -> void:
+	_harvest_swiping = true
+	_harvest_swipe_count = 0
+	var cell := _raycast_ground_cell(screen_pos)
+	_harvest_last_cell = cell if _is_valid_cell(cell) else Vector2i(-9999, -9999)
+	if _try_harvest(cell, true):
+		_harvest_swipe_count = 1
+		status_message.emit("Harvested!")
+
+
+func _update_harvest_swipe() -> void:
+	if not _harvest_swiping:
+		return
+	var cell := _raycast_ground_cell(PointerInput.get_position())
+	if not _is_valid_cell(cell):
+		return
+	if cell == _harvest_last_cell:
+		return
+	var from := _harvest_last_cell
+	_harvest_last_cell = cell
+	var path: Array[Vector2i] = []
+	if _is_valid_cell(from):
+		path = _cells_on_line(from, cell)
+	else:
+		path = [cell]
+	var gained := 0
+	for c in path:
+		if c == from:
+			continue
+		if _try_harvest(c, true):
+			gained += 1
+	if gained > 0:
+		_harvest_swipe_count += gained
+		status_message.emit("Harvested %d" % _harvest_swipe_count)
+
+
+func _end_harvest_swipe() -> void:
+	if not _harvest_swiping:
+		return
+	_harvest_swiping = false
+	if _harvest_swipe_count > 1:
+		status_message.emit("Harvested %d plants" % _harvest_swipe_count)
+	elif _harvest_swipe_count == 0:
+		status_message.emit("Nothing ready along that path")
+	_harvest_swipe_count = 0
+	_harvest_last_cell = Vector2i(-9999, -9999)
+
+
+func _cells_on_line(from: Vector2i, to: Vector2i) -> Array[Vector2i]:
+	## Inclusive grid line so fast swipes don't skip plants.
+	var cells: Array[Vector2i] = []
+	var x0 := from.x
+	var y0 := from.y
+	var x1 := to.x
+	var y1 := to.y
+	var dx := absi(x1 - x0)
+	var dy := absi(y1 - y0)
+	var sx := 1 if x0 < x1 else -1
+	var sy := 1 if y0 < y1 else -1
+	var err := dx - dy
+	while true:
+		cells.append(Vector2i(x0, y0))
+		if x0 == x1 and y0 == y1:
+			break
+		var e2 := err * 2
+		if e2 > -dy:
+			err -= dy
+			x0 += sx
+		if e2 < dx:
+			err += dx
+			y0 += sy
+	return cells
 
 
 func _try_fish(grid_pos: Vector2i) -> void:
@@ -1114,6 +1206,7 @@ func _on_fish_click(grid_pos: Vector2i) -> void:
 			_fish_water_pos = grid_manager.grid_to_world(grid_pos) + Vector3(0.0, 0.05, 0.0)
 			_fish_phase = 1
 			_fish_wait_left = 5.0
+			AudioManager.play("fishing_drop")
 			if tool_cursor:
 				tool_cursor.play_rod_cast(_fish_water_pos)
 			status_message.emit("Line cast — wait for a bite…")
@@ -1178,6 +1271,10 @@ func _try_feed(grid_pos: Vector2i, hit_obj: Node3D) -> void:
 func _on_left_release(screen_pos: Vector2) -> void:
 	if _marquee_active:
 		_finish_marquee(screen_pos)
+		return
+
+	if _harvest_swiping:
+		_end_harvest_swipe()
 		return
 
 	# Copy-extend: release freezes the preview so ✓/✕ can be pressed without re-aiming.
@@ -1371,6 +1468,8 @@ func _delete_selected() -> void:
 func _cancel_action() -> void:
 	if _marquee_active:
 		_cancel_marquee()
+	if _harvest_swiping:
+		_end_harvest_swipe()
 	if _copy_extend_active:
 		_cancel_copy_extend()
 	if _menu_move_active:
