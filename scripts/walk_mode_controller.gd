@@ -3,7 +3,8 @@ extends Node
 
 ## Build ↔ Walk explore mode.
 ## 1) Place a yellow ghost avatar on a free cell
-## 2) Drop in → third-person follow + on-screen move pad
+## 2) Drop in → third-person follow + circular joystick (diagonal ok)
+##    Bridges walkable, benches hop-on, fences vault-over.
 
 signal status_message(text: String)
 signal walk_started
@@ -16,8 +17,14 @@ const LOOK_PITCH_MIN: float = deg_to_rad(8.0)
 const LOOK_PITCH_MAX: float = deg_to_rad(55.0)
 const FOLLOW_DISTANCE: float = 5.5
 const FOLLOW_HEIGHT: float = 2.4
-const STEP_DURATION: float = 0.18
 const GHOST_HOVER_Y: float = 0.55
+const PLACE_TAP_THRESHOLD: float = 14.0
+const MOVE_SPEED: float = 3.6
+const HEIGHT_LERP: float = 10.0
+const JOYSTICK_RADIUS: float = 64.0
+const JOYSTICK_DEADZONE: float = 0.18
+const VAULT_DURATION: float = 0.38
+const VAULT_HEIGHT: float = 0.75
 
 var grid_manager: GridManager
 var camera: Camera3D
@@ -27,7 +34,7 @@ var placement_controller: PlacementController
 var state: State = State.OFF
 var _avatar: PlayerAvatar
 var _ghost_cell: Vector2i = Vector2i(-9999, -9999)
-var _stepping: bool = false
+var _busy: bool = false  # vault / hop tween lock
 
 ## Saved build-camera state.
 var _saved_projection: int = Camera3D.PROJECTION_ORTHOGONAL
@@ -44,14 +51,19 @@ var _look_last: Vector2 = Vector2.ZERO
 var _place_pressing: bool = false
 var _place_press_pos: Vector2 = Vector2.ZERO
 var _place_dragged: bool = false
-const PLACE_TAP_THRESHOLD: float = 14.0
+
+## Movement input (−1..1). y negative = forward (camera-relative).
+var _stick_vec: Vector2 = Vector2.ZERO
+var _key_vec: Vector2 = Vector2.ZERO
 
 ## UI
 var _ui_layer: CanvasLayer
 var _place_hint: Label
 var _walk_hud: Control
 var _exit_btn: Button
-var _pad: HBoxContainer
+var _joystick: Control
+var _stick_active: bool = false
+var _stick_pointer_id: int = -1  # -1 mouse, >=0 touch index
 var _build_ui_hidden: Array[CanvasItem] = []
 
 
@@ -76,7 +88,6 @@ func begin_place_avatar() -> void:
 	if state == State.WALKING:
 		return
 	if state == State.PLACING:
-		# Second press on the Walk button while placing: try drop under ghost.
 		_try_confirm_place()
 		return
 	_enter_placing()
@@ -85,6 +96,10 @@ func begin_place_avatar() -> void:
 func exit_walk() -> void:
 	if state == State.OFF:
 		return
+	_busy = false
+	_stick_vec = Vector2.ZERO
+	_key_vec = Vector2.ZERO
+	_stick_active = false
 	_teardown_avatar()
 	_hide_walk_hud()
 	_hide_place_hint()
@@ -119,17 +134,20 @@ func _try_confirm_place() -> void:
 	if state != State.PLACING:
 		return
 	if not grid_manager.player_can_stand_at(_ghost_cell):
-		status_message.emit("Can't stand here — try grass or a path")
+		status_message.emit("Can't stand here — try grass, path, bridge, or bench")
 		return
 	_start_walking(_ghost_cell)
 
 
 func _start_walking(cell: Vector2i) -> void:
 	state = State.WALKING
+	_busy = false
+	_stick_vec = Vector2.ZERO
+	_key_vec = Vector2.ZERO
 	_ensure_avatar()
 	_avatar.set_ghost_look(false)
 	_avatar.grid_pos = cell
-	_avatar.position = grid_manager.grid_to_world(cell)
+	_avatar.position = _world_stand_pos(cell)
 	_avatar.set_facing_yaw(_look_yaw)
 	_hide_place_hint()
 	_hide_build_ui()
@@ -137,7 +155,6 @@ func _start_walking(cell: Vector2i) -> void:
 	_snapshot_build_camera()
 	if camera_controller:
 		camera_controller.set_build_orbit_enabled(false)
-	# Start look roughly matching previous build camera angle.
 	if camera:
 		var focus := _avatar.global_position + Vector3(0.0, 1.0, 0.0)
 		var to_cam := camera.global_position - focus
@@ -147,7 +164,13 @@ func _start_walking(cell: Vector2i) -> void:
 			_look_pitch = clampf(_look_pitch, LOOK_PITCH_MIN, LOOK_PITCH_MAX)
 	_apply_follow_camera(true)
 	walk_started.emit()
-	status_message.emit("Exploring — swipe to look · pad to move · Exit to leave")
+	status_message.emit("Exploring — joystick to move · swipe to look · Exit to leave")
+
+
+func _world_stand_pos(cell: Vector2i) -> Vector3:
+	var p := grid_manager.grid_to_world(cell)
+	p.y = grid_manager.player_surface_height(cell)
+	return p
 
 
 func _default_place_cell() -> Vector2i:
@@ -186,9 +209,9 @@ func _set_ghost_cell(cell: Vector2i) -> void:
 	if _avatar == null or not is_instance_valid(_avatar):
 		return
 	var world := grid_manager.grid_to_world(cell)
-	var valid := grid_manager.player_can_stand_at(cell)
-	_avatar.position = world + Vector3(0.0, GHOST_HOVER_Y, 0.0)
-	if valid:
+	world.y = grid_manager.player_surface_height(cell) + GHOST_HOVER_Y
+	_avatar.position = world
+	if grid_manager.player_can_stand_at(cell):
 		_avatar.set_ghost_look(true)
 	else:
 		_apply_invalid_ghost_tint()
@@ -205,7 +228,7 @@ func _apply_invalid_ghost_tint() -> void:
 			(child as MeshInstance3D).material_override = mat
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if state == State.PLACING:
 		if PointerInput.primary_down:
 			PointerInput.gameplay_captures_primary = true
@@ -214,8 +237,139 @@ func _process(_delta: float) -> void:
 				_place_dragged = true
 		_update_ghost_from_pointer()
 	elif state == State.WALKING:
-		PointerInput.gameplay_captures_primary = _look_dragging
+		PointerInput.gameplay_captures_primary = _look_dragging or _stick_active
+		_update_key_vec()
+		if not _busy:
+			_apply_move(delta)
 		_apply_follow_camera(false)
+
+
+func _update_key_vec() -> void:
+	_key_vec = Vector2.ZERO
+	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP):
+		_key_vec.y -= 1.0
+	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
+		_key_vec.y += 1.0
+	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
+		_key_vec.x -= 1.0
+	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
+		_key_vec.x += 1.0
+	if _key_vec.length_squared() > 1.0:
+		_key_vec = _key_vec.normalized()
+
+
+func _move_input() -> Vector2:
+	if _stick_vec.length() >= JOYSTICK_DEADZONE:
+		return _stick_vec
+	return _key_vec
+
+
+func _apply_move(delta: float) -> void:
+	if _avatar == null or not is_instance_valid(_avatar):
+		return
+	var input := _move_input()
+	if input.length() < JOYSTICK_DEADZONE:
+		_sync_height(delta)
+		return
+	var forward := Vector3(-sin(_look_yaw), 0.0, -cos(_look_yaw))
+	var right := Vector3(cos(_look_yaw), 0.0, -sin(_look_yaw))
+	# input.y negative = forward
+	var wish := (-forward * input.y + right * input.x)
+	if wish.length_squared() < 0.0001:
+		_sync_height(delta)
+		return
+	wish = wish.normalized()
+	var speed := MOVE_SPEED * clampf(input.length(), 0.0, 1.0)
+	var delta_pos := wish * speed * delta
+
+	# Face movement direction.
+	var look_target := _avatar.position + wish
+	look_target.y = _avatar.position.y
+	_avatar.look_at(look_target, Vector3.UP)
+	_avatar.facing_yaw = _avatar.rotation.y
+
+	# Slide on X then Z so diagonals can glance along walls / fences.
+	_try_axis_move(Vector3(delta_pos.x, 0.0, 0.0))
+	_try_axis_move(Vector3(0.0, 0.0, delta_pos.z))
+	_sync_height(delta)
+	_avatar.grid_pos = grid_manager.world_to_grid_nearest(_avatar.position)
+
+
+func _try_axis_move(delta_pos: Vector3) -> void:
+	if delta_pos.length_squared() < 0.0000001:
+		return
+	var next := _avatar.position + delta_pos
+	var cell := grid_manager.world_to_grid_nearest(next)
+	if grid_manager.player_can_stand_at(cell):
+		_avatar.position = next
+		return
+	# Vault fence: hop to the cell beyond if free.
+	if grid_manager.player_is_fence(cell):
+		var beyond := _vault_landing(cell, delta_pos)
+		if beyond.x > -9000 and grid_manager.player_can_stand_at(beyond):
+			_start_vault(beyond)
+			return
+	# Blocked — leave position unchanged on this axis.
+
+
+func _vault_landing(fence_cell: Vector2i, delta_pos: Vector3) -> Vector2i:
+	var step := Vector2i.ZERO
+	if absf(delta_pos.x) >= absf(delta_pos.z):
+		step.x = 1 if delta_pos.x > 0.0 else -1
+	else:
+		step.y = 1 if delta_pos.z > 0.0 else -1
+	if step == Vector2i.ZERO:
+		return Vector2i(-9999, -9999)
+	return fence_cell + step
+
+
+func _start_vault(landing: Vector2i) -> void:
+	if _busy or _avatar == null:
+		return
+	_busy = true
+	_stick_vec = Vector2.ZERO
+	var from := _avatar.position
+	var to := _world_stand_pos(landing)
+	var mid := (from + to) * 0.5
+	mid.y = maxf(from.y, to.y) + VAULT_HEIGHT
+	var look := to
+	look.y = from.y
+	if look.distance_squared_to(from) > 0.0001:
+		_avatar.look_at(look, Vector3.UP)
+	_avatar.grid_pos = landing
+	var tw := create_tween()
+	tw.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	tw.tween_property(_avatar, "position", mid, VAULT_DURATION * 0.45)
+	tw.tween_property(_avatar, "position", to, VAULT_DURATION * 0.55)
+	tw.finished.connect(func() -> void:
+		_busy = false
+		if _avatar and is_instance_valid(_avatar):
+			_avatar.position = to
+			_avatar.grid_pos = landing
+	)
+
+
+func _sync_height(delta: float) -> void:
+	if _avatar == null or not is_instance_valid(_avatar):
+		return
+	var cell := grid_manager.world_to_grid_nearest(_avatar.position)
+	var target_y := grid_manager.player_surface_height(cell)
+	# Small hop onto / off bench when height changes a lot.
+	var dy := target_y - _avatar.position.y
+	if absf(dy) > 0.28 and not _busy and _move_input().length() >= JOYSTICK_DEADZONE:
+		_busy = true
+		var to := _avatar.position
+		to.y = target_y
+		var mid := _avatar.position.lerp(to, 0.5)
+		mid.y = maxf(_avatar.position.y, target_y) + 0.35
+		var tw := create_tween()
+		tw.tween_property(_avatar, "position", mid, 0.12)
+		tw.tween_property(_avatar, "position", to, 0.14)
+		tw.finished.connect(func() -> void:
+			_busy = false
+		)
+		return
+	_avatar.position.y = lerpf(_avatar.position.y, target_y, clampf(HEIGHT_LERP * delta, 0.0, 1.0))
 
 
 func _update_ghost_from_pointer() -> void:
@@ -249,7 +403,6 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _handle_placing_input(event: InputEvent) -> void:
-	## Drag moves the ghost; a short tap (or Walk button again) drops in.
 	if event is InputEventScreenTouch:
 		var st := event as InputEventScreenTouch
 		if st.pressed:
@@ -294,28 +447,11 @@ func _handle_placing_input(event: InputEvent) -> void:
 
 func _handle_walking_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
-		match event.keycode:
-			KEY_ESCAPE:
-				exit_walk()
-				get_viewport().set_input_as_handled()
-				return
-			KEY_W, KEY_UP:
-				_step(Vector2(0, -1))
-				get_viewport().set_input_as_handled()
-				return
-			KEY_S, KEY_DOWN:
-				_step(Vector2(0, 1))
-				get_viewport().set_input_as_handled()
-				return
-			KEY_A, KEY_LEFT:
-				_step(Vector2(-1, 0))
-				get_viewport().set_input_as_handled()
-				return
-			KEY_D, KEY_RIGHT:
-				_step(Vector2(1, 0))
-				get_viewport().set_input_as_handled()
-				return
-	# Swipe / drag to look (one finger or left mouse).
+		if event.keycode == KEY_ESCAPE:
+			exit_walk()
+			get_viewport().set_input_as_handled()
+			return
+	# Look drag — ignore when over joystick / exit.
 	if event is InputEventScreenTouch:
 		var st := event as InputEventScreenTouch
 		if _is_pointer_over_walk_ui(st.position):
@@ -354,9 +490,6 @@ func _apply_look_delta(relative: Vector2) -> void:
 	_look_yaw -= relative.x * LOOK_SENSITIVITY
 	_look_pitch += relative.y * LOOK_SENSITIVITY
 	_look_pitch = clampf(_look_pitch, LOOK_PITCH_MIN, LOOK_PITCH_MAX)
-	if _avatar and is_instance_valid(_avatar):
-		# Keep avatar facing roughly with look yaw when idle.
-		pass
 	_apply_follow_camera(false)
 
 
@@ -404,42 +537,6 @@ func _restore_build_camera() -> void:
 		camera_controller.refresh_from_camera()
 
 
-func _step(dir_cam: Vector2) -> void:
-	## dir_cam: y=-1 forward, +1 back, x=-1 left, +1 right (camera-relative).
-	if state != State.WALKING or _stepping or _avatar == null:
-		return
-	var forward := Vector3(-sin(_look_yaw), 0.0, -cos(_look_yaw))
-	var right := Vector3(cos(_look_yaw), 0.0, -sin(_look_yaw))
-	var wish := (-forward * dir_cam.y + right * dir_cam.x)
-	if wish.length_squared() < 0.01:
-		return
-	wish = wish.normalized()
-	# Snap to nearest cardinal grid step.
-	var step := Vector2i.ZERO
-	if absf(wish.x) >= absf(wish.z):
-		step = Vector2i(1 if wish.x > 0.0 else -1, 0)
-	else:
-		step = Vector2i(0, 1 if wish.z > 0.0 else -1)
-	var to: Vector2i = _avatar.grid_pos + step
-	if not grid_manager.player_can_stand_at(to):
-		status_message.emit("Blocked")
-		return
-	_stepping = true
-	var from_pos := _avatar.position
-	var to_pos := grid_manager.grid_to_world(to)
-	if to_pos.distance_squared_to(from_pos) > 0.0001:
-		var look := to_pos
-		look.y = from_pos.y
-		_avatar.look_at(look, Vector3.UP)
-		_avatar.facing_yaw = _avatar.rotation.y
-	_avatar.grid_pos = to
-	var tw := create_tween()
-	tw.tween_property(_avatar, "position", to_pos, STEP_DURATION).from(from_pos)
-	tw.finished.connect(func() -> void:
-		_stepping = false
-	)
-
-
 func _build_ui() -> void:
 	_ui_layer = CanvasLayer.new()
 	_ui_layer.name = "WalkModeUI"
@@ -474,39 +571,82 @@ func _build_ui() -> void:
 	_exit_btn.pressed.connect(exit_walk)
 	_walk_hud.add_child(_exit_btn)
 
-	_pad = HBoxContainer.new()
-	_pad.add_theme_constant_override("separation", 10)
-	_pad.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	_pad.offset_left = 24.0
-	_pad.offset_top = -200.0
-	_pad.offset_right = 320.0
-	_pad.offset_bottom = -48.0
-	_walk_hud.add_child(_pad)
+	_joystick = Control.new()
+	_joystick.name = "MoveJoystick"
+	_joystick.custom_minimum_size = Vector2(JOYSTICK_RADIUS * 2.0 + 24.0, JOYSTICK_RADIUS * 2.0 + 24.0)
+	_joystick.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_joystick.offset_left = 28.0
+	_joystick.offset_top = -(JOYSTICK_RADIUS * 2.0 + 72.0)
+	_joystick.offset_right = 28.0 + JOYSTICK_RADIUS * 2.0 + 24.0
+	_joystick.offset_bottom = -36.0
+	_joystick.mouse_filter = Control.MOUSE_FILTER_STOP
+	_joystick.gui_input.connect(_on_joystick_gui_input)
+	_joystick.draw.connect(_on_joystick_draw)
+	_walk_hud.add_child(_joystick)
 
-	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 8)
-	_pad.add_child(col)
 
-	var forward := _make_hud_button("▲", Color(0.3, 0.55, 0.4))
-	forward.custom_minimum_size = Vector2(72, 64)
-	forward.pressed.connect(func() -> void: _step(Vector2(0, -1)))
-	col.add_child(forward)
+func _on_joystick_gui_input(event: InputEvent) -> void:
+	if state != State.WALKING:
+		return
+	if event is InputEventScreenTouch:
+		var st := event as InputEventScreenTouch
+		if st.pressed:
+			_stick_active = true
+			_stick_pointer_id = st.index
+			_update_stick_from_local(st.position)
+			_joystick.accept_event()
+		elif st.index == _stick_pointer_id:
+			_stick_active = false
+			_stick_pointer_id = -1
+			_stick_vec = Vector2.ZERO
+			_joystick.queue_redraw()
+			_joystick.accept_event()
+		return
+	if event is InputEventScreenDrag:
+		var sd := event as InputEventScreenDrag
+		if _stick_active and sd.index == _stick_pointer_id:
+			_update_stick_from_local(sd.position)
+			_joystick.accept_event()
+		return
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		var mb := event as InputEventMouseButton
+		if mb.pressed:
+			_stick_active = true
+			_stick_pointer_id = -1
+			_update_stick_from_local(mb.position)
+			_joystick.accept_event()
+		else:
+			_stick_active = false
+			_stick_vec = Vector2.ZERO
+			_joystick.queue_redraw()
+			_joystick.accept_event()
+		return
+	if event is InputEventMouseMotion and _stick_active and _stick_pointer_id < 0:
+		_update_stick_from_local(event.position)
+		_joystick.accept_event()
 
-	var mid := HBoxContainer.new()
-	mid.add_theme_constant_override("separation", 8)
-	col.add_child(mid)
-	var left := _make_hud_button("◀", Color(0.3, 0.5, 0.55))
-	left.custom_minimum_size = Vector2(72, 64)
-	left.pressed.connect(func() -> void: _step(Vector2(-1, 0)))
-	mid.add_child(left)
-	var back := _make_hud_button("▼", Color(0.3, 0.55, 0.4))
-	back.custom_minimum_size = Vector2(72, 64)
-	back.pressed.connect(func() -> void: _step(Vector2(0, 1)))
-	mid.add_child(back)
-	var right := _make_hud_button("▶", Color(0.3, 0.5, 0.55))
-	right.custom_minimum_size = Vector2(72, 64)
-	right.pressed.connect(func() -> void: _step(Vector2(1, 0)))
-	mid.add_child(right)
+
+func _update_stick_from_local(local_pos: Vector2) -> void:
+	var center := _joystick.size * 0.5
+	var offset := local_pos - center
+	var max_r := JOYSTICK_RADIUS
+	if offset.length() > max_r:
+		offset = offset.normalized() * max_r
+	# UI y+ is down; invert so up on stick = forward (negative move.y).
+	_stick_vec = Vector2(offset.x / max_r, offset.y / max_r)
+	_joystick.queue_redraw()
+
+
+func _on_joystick_draw() -> void:
+	if _joystick == null:
+		return
+	var center := _joystick.size * 0.5
+	var base_r := JOYSTICK_RADIUS
+	_joystick.draw_circle(center, base_r + 6.0, Color(0.1, 0.12, 0.1, 0.45))
+	_joystick.draw_arc(center, base_r, 0.0, TAU, 48, Color(0.85, 0.9, 0.75, 0.55), 3.0, true)
+	var knob_offset := Vector2(_stick_vec.x, _stick_vec.y) * base_r
+	_joystick.draw_circle(center + knob_offset, 28.0, Color(0.35, 0.7, 0.45, 0.92))
+	_joystick.draw_arc(center + knob_offset, 28.0, 0.0, TAU, 32, Color(1, 1, 1, 0.35), 2.0, true)
 
 
 func _make_hud_button(text: String, tint: Color) -> Button:
@@ -544,18 +684,23 @@ func _hide_place_hint() -> void:
 func _show_walk_hud() -> void:
 	if _walk_hud:
 		_walk_hud.visible = true
+	if _joystick:
+		_stick_vec = Vector2.ZERO
+		_joystick.queue_redraw()
 
 
 func _hide_walk_hud() -> void:
 	if _walk_hud:
 		_walk_hud.visible = false
+	_stick_active = false
+	_stick_vec = Vector2.ZERO
 
 
 func _is_pointer_over_walk_ui(screen_pos: Vector2) -> bool:
 	if _walk_hud and _walk_hud.visible:
 		if _exit_btn and _exit_btn.get_global_rect().has_point(screen_pos):
 			return true
-		if _pad and _pad.get_global_rect().has_point(screen_pos):
+		if _joystick and _joystick.get_global_rect().has_point(screen_pos):
 			return true
 	return false
 
@@ -567,7 +712,6 @@ func _hide_build_ui() -> void:
 		return
 	for child in ui.get_children():
 		if child is CanvasItem and (child as CanvasItem).visible:
-			# Keep nothing from build UI; walk HUD is on our own layer.
 			_build_ui_hidden.append(child as CanvasItem)
 			(child as CanvasItem).visible = false
 

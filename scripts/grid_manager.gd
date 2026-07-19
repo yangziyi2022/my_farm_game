@@ -368,19 +368,42 @@ func is_in_bounds(grid_pos: Vector2i) -> bool:
 
 
 func player_can_stand_at(grid_pos: Vector2i) -> bool:
-	## Walk mode: stay on the island disc; no water / fences / buildings / ponds.
+	## Walk mode standable cells (bridges & benches ok; fences / buildings / open water not).
 	if not is_in_bounds(grid_pos):
 		return false
+	var has := has_content(grid_pos)
 	if is_water_cell(grid_pos):
-		return false
-	if not has_content(grid_pos):
+		# Open water is blocked; a bridge deck is fine.
+		return has and get_item_type_at(grid_pos) == ItemData.ItemType.BRIDGE
+	if not has:
 		return true
 	var t: ItemData.ItemType = get_item_type_at(grid_pos)
+	if t == ItemData.ItemType.FENCE:
+		return false
+	if t == ItemData.ItemType.BRIDGE or t == ItemData.ItemType.BENCH:
+		return true
 	if ItemData.blocks_animal(t):
 		return false
 	if ItemData.is_water_source(t):
 		return false
 	return true
+
+
+func player_surface_height(grid_pos: Vector2i) -> float:
+	## Visual stand height for walk mode (bench / bridge sit above the deck).
+	if not has_content(grid_pos):
+		return 0.0
+	match get_item_type_at(grid_pos):
+		ItemData.ItemType.BENCH:
+			return 0.42
+		ItemData.ItemType.BRIDGE:
+			return 0.22
+		_:
+			return 0.0
+
+
+func player_is_fence(grid_pos: Vector2i) -> bool:
+	return has_content(grid_pos) and get_item_type_at(grid_pos) == ItemData.ItemType.FENCE
 
 
 func get_play_radius() -> float:
