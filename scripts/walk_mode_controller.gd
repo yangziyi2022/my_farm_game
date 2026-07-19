@@ -30,6 +30,7 @@ var grid_manager: GridManager
 var camera: Camera3D
 var camera_controller: CameraController
 var placement_controller: PlacementController
+var inventory_manager: InventoryManager
 
 var state: State = State.OFF
 var _avatar: PlayerAvatar
@@ -62,21 +63,37 @@ var _place_hint: Label
 var _walk_hud: Control
 var _exit_btn: Button
 var _joystick: Control
+var _hotbar: HBoxContainer
+var _hotbar_btns: Array[Button] = []
+var _hotbar_icons: Array[TextureRect] = []
+var _hotbar_counts: Array[Label] = []
+var _hotbar_selected: int = -1
+var _use_btn: Button
+var _hotbar_name_lbl: Label
+var _use_highlight: MeshInstance3D
 var _stick_active: bool = false
 var _stick_pointer_id: int = -1  # -1 mouse, >=0 touch index
 var _build_ui_hidden: Array[CanvasItem] = []
+var _fish_phase: int = 0  # 0 idle, 1 waiting, 2 bite
+var _fish_cell: Vector2i = Vector2i(-9999, -9999)
+var _fish_wait_left: float = 0.0
+var _fish_water_pos: Vector3 = Vector3.ZERO
 
 
 func setup(
 	p_grid: GridManager,
 	p_camera: Camera3D,
 	p_cam_ctrl: CameraController,
-	p_placement: PlacementController
+	p_placement: PlacementController,
+	p_inventory: InventoryManager = null
 ) -> void:
 	grid_manager = p_grid
 	camera = p_camera
 	camera_controller = p_cam_ctrl
 	placement_controller = p_placement
+	inventory_manager = p_inventory
+	if inventory_manager and not inventory_manager.inventory_changed.is_connected(_refresh_hotbar):
+		inventory_manager.inventory_changed.connect(_refresh_hotbar)
 	_build_ui()
 
 
@@ -100,6 +117,7 @@ func exit_walk() -> void:
 	_stick_vec = Vector2.ZERO
 	_key_vec = Vector2.ZERO
 	_stick_active = false
+	_reset_walk_fish()
 	_teardown_avatar()
 	_hide_walk_hud()
 	_hide_place_hint()
@@ -198,7 +216,9 @@ func _ensure_avatar() -> void:
 
 
 func _teardown_avatar() -> void:
+	_clear_use_highlight()
 	if _avatar != null and is_instance_valid(_avatar):
+		_avatar.clear_fishing_line()
 		_avatar.queue_free()
 	_avatar = null
 	_ghost_cell = Vector2i(-9999, -9999)
@@ -241,7 +261,11 @@ func _process(delta: float) -> void:
 		_update_key_vec()
 		if not _busy:
 			_apply_move(delta)
+		_update_walk_fishing(delta)
+		_update_use_highlight()
 		_apply_follow_camera(false)
+		_update_use_button_label()
+		_update_hotbar_name_label()
 
 
 func _update_key_vec() -> void:
@@ -451,7 +475,16 @@ func _handle_walking_input(event: InputEvent) -> void:
 			exit_walk()
 			get_viewport().set_input_as_handled()
 			return
-	# Look drag — ignore when over joystick / exit.
+		var hot_i := _hotbar_index_from_key(event.keycode)
+		if hot_i >= 0:
+			_select_hotbar_slot(hot_i)
+			get_viewport().set_input_as_handled()
+			return
+		if event.keycode == KEY_E or event.keycode == KEY_SPACE:
+			_on_use_pressed()
+			get_viewport().set_input_as_handled()
+			return
+	# Look drag — ignore when over joystick / exit / hotbar.
 	if event is InputEventScreenTouch:
 		var st := event as InputEventScreenTouch
 		if _is_pointer_over_walk_ui(st.position):
@@ -484,6 +517,389 @@ func _handle_walking_input(event: InputEvent) -> void:
 		var mm := event as InputEventMouseMotion
 		_apply_look_delta(mm.relative)
 		get_viewport().set_input_as_handled()
+
+
+func _hotbar_index_from_key(keycode: int) -> int:
+	match keycode:
+		KEY_1, KEY_KP_1:
+			return 0
+		KEY_2, KEY_KP_2:
+			return 1
+		KEY_3, KEY_KP_3:
+			return 2
+		KEY_4, KEY_KP_4:
+			return 3
+		KEY_5, KEY_KP_5:
+			return 4
+		KEY_6, KEY_KP_6:
+			return 5
+		KEY_7, KEY_KP_7:
+			return 6
+		KEY_8, KEY_KP_8:
+			return 7
+		_:
+			return -1
+
+
+func _select_hotbar_slot(index: int) -> void:
+	if index < 0 or index >= InventoryData.HOTBAR_SIZE:
+		return
+	if index != _hotbar_selected:
+		_reset_walk_fish()
+	_hotbar_selected = index
+	_apply_held_from_hotbar()
+	_refresh_hotbar_selection_style()
+	_update_use_button_label()
+
+
+func _apply_held_from_hotbar() -> void:
+	if _avatar == null or not is_instance_valid(_avatar):
+		return
+	if inventory_manager == null or _hotbar_selected < 0:
+		_avatar.set_held_inventory_item(null)
+		_update_hotbar_name_label()
+		return
+	if inventory_manager.is_slot_empty(_hotbar_selected):
+		_avatar.set_held_inventory_item(null)
+		_update_hotbar_name_label()
+		return
+	_avatar.set_held_inventory_item(inventory_manager.get_slot_item(_hotbar_selected))
+	_update_hotbar_name_label()
+
+
+func _refresh_hotbar() -> void:
+	if _hotbar_icons.is_empty():
+		return
+	for i in range(InventoryData.HOTBAR_SIZE):
+		var icon: TextureRect = _hotbar_icons[i]
+		var count_lbl: Label = _hotbar_counts[i]
+		var btn: Button = _hotbar_btns[i]
+		if inventory_manager == null or inventory_manager.is_slot_empty(i):
+			icon.texture = null
+			count_lbl.text = ""
+			btn.tooltip_text = "Hotbar %d (empty)" % (i + 1)
+			continue
+		var item = inventory_manager.get_slot_item(i)
+		var count: int = inventory_manager.get_slot_count(i)
+		icon.texture = InventoryData.get_icon(item)
+		count_lbl.text = "∞" if InventoryData.is_infinite(item) else str(count)
+		btn.tooltip_text = "%s  [%d]" % [InventoryData.get_item_name(item), i + 1]
+	_apply_held_from_hotbar()
+	_refresh_hotbar_selection_style()
+	_update_use_button_label()
+	_update_hotbar_name_label()
+
+
+func _on_use_pressed() -> void:
+	if state != State.WALKING or _busy:
+		return
+	if _avatar == null or not is_instance_valid(_avatar):
+		return
+	if _avatar.is_swinging():
+		return
+	var item = _avatar.get_held_inventory_item()
+	if item == null:
+		status_message.emit("Select a hotbar item first (1–8)")
+		return
+	# Fishing reel / cast uses the same Use button without always swinging twice.
+	if item == InventoryData.Item.TOOL_ROD and _fish_phase == 2:
+		_avatar.play_use_swing(Callable(self, "_reel_walk_fish"))
+		return
+	_avatar.play_use_swing(Callable(self, "_apply_use_impact").bind(item))
+
+
+func _apply_use_impact(item: InventoryData.Item) -> void:
+	match item:
+		InventoryData.Item.TOOL_HOE:
+			_use_hoe()
+		InventoryData.Item.TOOL_HARVEST:
+			_use_harvest()
+		InventoryData.Item.TOOL_ROD:
+			_use_rod()
+		_:
+			if InventoryData.is_feedable(item):
+				_use_feed(item)
+			else:
+				status_message.emit("Waved %s" % InventoryData.get_item_name(item))
+
+
+func _facing_cell() -> Vector2i:
+	if _avatar == null:
+		return Vector2i.ZERO
+	var yaw := _avatar.rotation.y
+	var fx := -sin(yaw)
+	var fz := -cos(yaw)
+	var step := Vector2i.ZERO
+	if absf(fx) >= absf(fz):
+		step.x = 1 if fx > 0.0 else -1
+	else:
+		step.y = 1 if fz > 0.0 else -1
+	return _avatar.grid_pos + step
+
+
+func _raycast_view_cell() -> Vector2i:
+	## Camera look ray → ground cell, clamped near the avatar.
+	if camera == null or _avatar == null or grid_manager == null:
+		return _facing_cell()
+	var vp := camera.get_viewport()
+	if vp == null:
+		return _facing_cell()
+	var center: Vector2 = vp.get_visible_rect().size * 0.5
+	var from := camera.project_ray_origin(center)
+	var dir := camera.project_ray_normal(center)
+	if absf(dir.y) < 0.001:
+		return _facing_cell()
+	var ground_y := grid_manager.player_surface_height(_avatar.grid_pos)
+	var t := (ground_y - from.y) / dir.y
+	if t < 0.2 or t > 40.0:
+		return _facing_cell()
+	var hit := from + dir * t
+	var cell := grid_manager.world_to_grid_nearest(hit)
+	if not grid_manager.is_in_bounds(cell):
+		return _facing_cell()
+	var dx := absi(cell.x - _avatar.grid_pos.x)
+	var dy := absi(cell.y - _avatar.grid_pos.y)
+	if maxi(dx, dy) > 4:
+		return _facing_cell()
+	return cell
+
+
+func _resolve_use_cell() -> Vector2i:
+	## Prefer view-ray cell when it is a useful target; else face-forward cell.
+	var view_cell := _raycast_view_cell()
+	var face_cell := _facing_cell()
+	var item = null
+	if _avatar:
+		item = _avatar.get_held_inventory_item()
+	if item != null and _cell_is_useful_for(item, view_cell):
+		return view_cell
+	if item != null and _cell_is_useful_for(item, face_cell):
+		return face_cell
+	if _avatar and view_cell != _avatar.grid_pos:
+		return view_cell
+	return face_cell
+
+
+func _cell_is_useful_for(item: InventoryData.Item, cell: Vector2i) -> bool:
+	if grid_manager == null or not grid_manager.is_in_bounds(cell):
+		return false
+	match item:
+		InventoryData.Item.TOOL_HOE:
+			return grid_manager.can_hoe_at(cell)
+		InventoryData.Item.TOOL_HARVEST:
+			return grid_manager.is_plant_mature(cell)
+		InventoryData.Item.TOOL_ROD:
+			return grid_manager.try_fish(cell)
+		_:
+			if InventoryData.is_feedable(item):
+				return grid_manager.get_animal_at(cell) != null
+	return false
+
+
+func _use_target_cells() -> Array[Vector2i]:
+	var cells: Array[Vector2i] = []
+	if _avatar == null:
+		return cells
+	var primary := _resolve_use_cell()
+	cells.append(primary)
+	var face := _facing_cell()
+	if face != primary:
+		cells.append(face)
+	if _avatar.grid_pos != primary and _avatar.grid_pos != face:
+		cells.append(_avatar.grid_pos)
+	return cells
+
+
+func _use_hoe() -> void:
+	var cell := _resolve_use_cell()
+	if grid_manager.hoe_grass(cell):
+		AudioManager.play("hoe")
+		status_message.emit("Tilled dirt")
+	else:
+		status_message.emit("Can't hoe here")
+
+
+func _use_harvest() -> void:
+	for cell in _use_target_cells():
+		if not grid_manager.is_plant_mature(cell):
+			continue
+		var plant := grid_manager.get_content_at(cell)
+		if plant:
+			HarvestEffect.play(plant)
+		AudioManager.play("harvest")
+		var harvest_item = grid_manager.harvest_plant(cell)
+		if harvest_item != null and inventory_manager:
+			inventory_manager.add_item(harvest_item)
+			status_message.emit("Harvested %s!" % InventoryData.get_item_name(harvest_item))
+			return
+	status_message.emit("Nothing ready to harvest")
+
+
+func _use_rod() -> void:
+	if _fish_phase == 1:
+		status_message.emit("Wait for a bite…")
+		return
+	var cell := _resolve_use_cell()
+	if not grid_manager.try_fish(cell):
+		status_message.emit("Need water or a pond ahead")
+		return
+	_fish_phase = 1
+	_fish_cell = cell
+	_fish_water_pos = grid_manager.grid_to_world(cell) + Vector3(0.0, 0.06, 0.0)
+	_fish_wait_left = randf_range(1.2, 2.4)
+	AudioManager.play("fishing_drop")
+	if _avatar:
+		_avatar.set_fishing_line_target(_fish_water_pos, false)
+	status_message.emit("Line cast — wait, then Use again")
+	_update_use_button_label()
+
+
+func _update_walk_fishing(delta: float) -> void:
+	if _fish_phase == 1:
+		_fish_wait_left -= delta
+		if _avatar:
+			_avatar.set_fishing_line_target(_fish_water_pos, false)
+		if _fish_wait_left > 0.0:
+			return
+		_fish_phase = 2
+		AudioManager.play("ui_click")
+		if _avatar:
+			_avatar.set_fishing_line_target(_fish_water_pos, true)
+		status_message.emit("Bite! Press Use to reel in")
+		_update_use_button_label()
+	elif _fish_phase == 2:
+		if _avatar:
+			_avatar.set_fishing_line_target(_fish_water_pos, true)
+
+
+func _reel_walk_fish() -> void:
+	if _fish_phase != 2:
+		return
+	if inventory_manager:
+		inventory_manager.add_item(InventoryData.Item.FISH)
+	AudioManager.play("fish_catch")
+	if grid_manager:
+		FishCatchEffect.play(grid_manager.objects_container, _fish_water_pos)
+	_reset_walk_fish()
+	status_message.emit("Caught a fish!")
+
+
+func _reset_walk_fish() -> void:
+	_fish_phase = 0
+	_fish_cell = Vector2i(-9999, -9999)
+	_fish_wait_left = 0.0
+	_fish_water_pos = Vector3.ZERO
+	if _avatar and is_instance_valid(_avatar):
+		_avatar.clear_fishing_line()
+	_update_use_button_label()
+
+
+func _use_feed(item: InventoryData.Item) -> void:
+	for cell in _use_target_cells():
+		var animal := grid_manager.get_animal_at(cell)
+		if animal == null:
+			continue
+		if inventory_manager and not inventory_manager.remove_item(item):
+			status_message.emit("No %s left" % InventoryData.get_item_name(item))
+			return
+		AnimalFeedEffect.play(animal)
+		AudioManager.play("feed")
+		AudioManager.play_animal_for_item(
+			animal.get_meta("item_type"),
+			false,
+			animal.global_position
+		)
+		status_message.emit("Fed %s to %s!" % [
+			InventoryData.get_item_name(item),
+			ItemData.get_item_name(animal.get_meta("item_type")),
+		])
+		_apply_held_from_hotbar()
+		return
+	status_message.emit("Look at / face an animal to feed")
+
+
+func _update_use_button_label() -> void:
+	if _use_btn == null:
+		return
+	if _fish_phase == 2:
+		_use_btn.text = "Reel"
+	elif _fish_phase == 1:
+		_use_btn.text = "Wait…"
+	else:
+		_use_btn.text = "Use"
+
+
+func _update_hotbar_name_label() -> void:
+	if _hotbar_name_lbl == null:
+		return
+	if inventory_manager == null or _hotbar_selected < 0 or inventory_manager.is_slot_empty(_hotbar_selected):
+		_hotbar_name_lbl.text = ""
+		return
+	var item = inventory_manager.get_slot_item(_hotbar_selected)
+	_hotbar_name_lbl.text = InventoryData.get_item_name(item)
+
+
+func _ensure_use_highlight() -> void:
+	if _use_highlight and is_instance_valid(_use_highlight):
+		return
+	_use_highlight = MeshInstance3D.new()
+	_use_highlight.name = "WalkUseHighlight"
+	var box := BoxMesh.new()
+	box.size = Vector3(GridManager.TILE_WIDTH * 0.92, 0.06, GridManager.TILE_HEIGHT * 0.92)
+	_use_highlight.mesh = box
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(1.0, 0.88, 0.25, 0.38)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_use_highlight.material_override = mat
+	if grid_manager and grid_manager.objects_container:
+		grid_manager.objects_container.add_child(_use_highlight)
+	else:
+		add_child(_use_highlight)
+
+
+func _clear_use_highlight() -> void:
+	if _use_highlight and is_instance_valid(_use_highlight):
+		_use_highlight.queue_free()
+	_use_highlight = null
+
+
+func _update_use_highlight() -> void:
+	if state != State.WALKING or _avatar == null or not is_instance_valid(_avatar):
+		if _use_highlight:
+			_use_highlight.visible = false
+		return
+	var item = _avatar.get_held_inventory_item()
+	if item == null:
+		if _use_highlight:
+			_use_highlight.visible = false
+		return
+	_ensure_use_highlight()
+	var cell := _resolve_use_cell()
+	var useful := _cell_is_useful_for(item, cell)
+	var world := grid_manager.grid_to_world(cell)
+	world.y = grid_manager.player_surface_height(cell) + 0.08
+	_use_highlight.global_position = world
+	_use_highlight.visible = true
+	var mat := _use_highlight.material_override as StandardMaterial3D
+	if mat:
+		mat.albedo_color = Color(1.0, 0.88, 0.25, 0.42) if useful else Color(1.0, 0.88, 0.25, 0.18)
+
+
+func _refresh_hotbar_selection_style() -> void:
+	for i in range(_hotbar_btns.size()):
+		var btn: Button = _hotbar_btns[i]
+		var selected := i == _hotbar_selected
+		var style := StyleBoxFlat.new()
+		style.bg_color = Color(0.22, 0.4, 0.42, 0.98) if selected else Color(0.14, 0.22, 0.26, 0.92)
+		style.set_corner_radius_all(10)
+		style.set_border_width_all(3 if selected else 2)
+		style.border_color = Color(0.95, 0.85, 0.35, 1.0) if selected else Color(0.45, 0.7, 0.78, 0.65)
+		btn.add_theme_stylebox_override("normal", style)
+		var hover := style.duplicate() as StyleBoxFlat
+		hover.bg_color = style.bg_color.lightened(0.08)
+		btn.add_theme_stylebox_override("hover", hover)
 
 
 func _apply_look_delta(relative: Vector2) -> void:
@@ -583,6 +999,112 @@ func _build_ui() -> void:
 	_joystick.gui_input.connect(_on_joystick_gui_input)
 	_joystick.draw.connect(_on_joystick_draw)
 	_walk_hud.add_child(_joystick)
+
+	_hotbar = HBoxContainer.new()
+	_hotbar.name = "WalkHotbar"
+	_hotbar.add_theme_constant_override("separation", 8)
+	_hotbar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_hotbar.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_hotbar.offset_left = -292.0
+	_hotbar.offset_right = 292.0
+	_hotbar.offset_top = -138.0
+	_hotbar.offset_bottom = -56.0
+	_hotbar.mouse_filter = Control.MOUSE_FILTER_STOP
+	_walk_hud.add_child(_hotbar)
+
+	_hotbar_btns.clear()
+	_hotbar_icons.clear()
+	_hotbar_counts.clear()
+	for i in range(InventoryData.HOTBAR_SIZE):
+		_hotbar.add_child(_make_hotbar_slot(i))
+
+	_hotbar_name_lbl = Label.new()
+	_hotbar_name_lbl.name = "HotbarItemName"
+	_hotbar_name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_hotbar_name_lbl.add_theme_font_size_override("font_size", 14)
+	_hotbar_name_lbl.add_theme_color_override("font_color", Color(1.0, 0.96, 0.82, 0.95))
+	_hotbar_name_lbl.add_theme_color_override("font_outline_color", Color(0.1, 0.08, 0.05, 0.85))
+	_hotbar_name_lbl.add_theme_constant_override("outline_size", 4)
+	_hotbar_name_lbl.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_hotbar_name_lbl.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_hotbar_name_lbl.offset_left = -180.0
+	_hotbar_name_lbl.offset_right = 180.0
+	_hotbar_name_lbl.offset_top = -52.0
+	_hotbar_name_lbl.offset_bottom = -28.0
+	_hotbar_name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hotbar_name_lbl.text = ""
+	_walk_hud.add_child(_hotbar_name_lbl)
+
+	_use_btn = _make_hud_button("Use", Color(0.35, 0.55, 0.75))
+	_use_btn.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
+	_use_btn.offset_left = -150.0
+	_use_btn.offset_right = -36.0
+	_use_btn.offset_top = -36.0
+	_use_btn.offset_bottom = 36.0
+	_use_btn.pressed.connect(_on_use_pressed)
+	_walk_hud.add_child(_use_btn)
+
+
+func _make_hotbar_slot(index: int) -> Button:
+	var btn := Button.new()
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.custom_minimum_size = Vector2(68, 72)
+	btn.tooltip_text = "Hotbar %d" % (index + 1)
+	btn.pressed.connect(_select_hotbar_slot.bind(index))
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.14, 0.22, 0.26, 0.92)
+	style.set_corner_radius_all(10)
+	style.set_border_width_all(2)
+	style.border_color = Color(0.45, 0.7, 0.78, 0.65)
+	btn.add_theme_stylebox_override("normal", style)
+	var hover := style.duplicate() as StyleBoxFlat
+	hover.bg_color = Color(0.18, 0.3, 0.34, 0.95)
+	btn.add_theme_stylebox_override("hover", hover)
+	var pressed := style.duplicate() as StyleBoxFlat
+	pressed.bg_color = Color(0.22, 0.4, 0.42, 0.98)
+	btn.add_theme_stylebox_override("pressed", pressed)
+
+	var root := Control.new()
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	btn.add_child(root)
+
+	var key := Label.new()
+	key.text = str(index + 1)
+	key.add_theme_font_size_override("font_size", 11)
+	key.add_theme_color_override("font_color", Color(0.75, 0.9, 0.95))
+	key.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	key.offset_left = 5
+	key.offset_top = 2
+	key.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(key)
+
+	var icon := TextureRect.new()
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	icon.offset_left = 12
+	icon.offset_top = 14
+	icon.offset_right = -12
+	icon.offset_bottom = -18
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(icon)
+	_hotbar_icons.append(icon)
+
+	var count := Label.new()
+	count.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	count.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	count.add_theme_font_size_override("font_size", 12)
+	count.add_theme_color_override("font_color", Color(1, 0.98, 0.9))
+	count.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	count.offset_right = -6
+	count.offset_bottom = -4
+	count.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(count)
+	_hotbar_counts.append(count)
+
+	_hotbar_btns.append(btn)
+	return btn
 
 
 func _on_joystick_gui_input(event: InputEvent) -> void:
@@ -687,6 +1209,10 @@ func _show_walk_hud() -> void:
 	if _joystick:
 		_stick_vec = Vector2.ZERO
 		_joystick.queue_redraw()
+	if _hotbar_selected < 0:
+		_hotbar_selected = 0
+	_reset_walk_fish()
+	_refresh_hotbar()
 
 
 func _hide_walk_hud() -> void:
@@ -694,6 +1220,8 @@ func _hide_walk_hud() -> void:
 		_walk_hud.visible = false
 	_stick_active = false
 	_stick_vec = Vector2.ZERO
+	_hotbar_selected = -1
+	_reset_walk_fish()
 
 
 func _is_pointer_over_walk_ui(screen_pos: Vector2) -> bool:
@@ -701,6 +1229,10 @@ func _is_pointer_over_walk_ui(screen_pos: Vector2) -> bool:
 		if _exit_btn and _exit_btn.get_global_rect().has_point(screen_pos):
 			return true
 		if _joystick and _joystick.get_global_rect().has_point(screen_pos):
+			return true
+		if _hotbar and _hotbar.get_global_rect().has_point(screen_pos):
+			return true
+		if _use_btn and _use_btn.get_global_rect().has_point(screen_pos):
 			return true
 	return false
 
@@ -711,6 +1243,9 @@ func _hide_build_ui() -> void:
 	if ui == null:
 		return
 	for child in ui.get_children():
+		# Keep backpack available so hotbar tools can be rearranged mid-walk.
+		if child is InventoryBar:
+			continue
 		if child is CanvasItem and (child as CanvasItem).visible:
 			_build_ui_hidden.append(child as CanvasItem)
 			(child as CanvasItem).visible = false

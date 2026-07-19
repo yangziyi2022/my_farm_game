@@ -8,6 +8,9 @@ enum Item {
 	WOOD,
 	FISH,
 	MEAT,
+	TOOL_HOE,
+	TOOL_HARVEST,
+	TOOL_ROD,
 }
 
 const ITEMS: Dictionary = {
@@ -17,10 +20,50 @@ const ITEMS: Dictionary = {
 	Item.WOOD: {"id": "wood", "name": "Wood", "color": Color(0.55, 0.38, 0.22), "feedable": false, "letter": "T"},
 	Item.FISH: {"id": "fish", "name": "Fish", "color": Color(0.35, 0.55, 0.85), "feedable": false, "letter": "F"},
 	Item.MEAT: {"id": "meat", "name": "Meat", "color": Color(0.75, 0.35, 0.35), "feedable": false, "letter": "M"},
+	Item.TOOL_HOE: {
+		"id": "tool_hoe",
+		"name": "Hoe",
+		"color": Color(0.55, 0.42, 0.28),
+		"feedable": false,
+		"letter": "H",
+		"infinite": true,
+		"tool": true,
+	},
+	Item.TOOL_HARVEST: {
+		"id": "tool_harvest",
+		"name": "Sickle",
+		"color": Color(0.72, 0.72, 0.78),
+		"feedable": false,
+		"letter": "K",
+		"infinite": true,
+		"tool": true,
+	},
+	Item.TOOL_ROD: {
+		"id": "tool_rod",
+		"name": "Rod",
+		"color": Color(0.4, 0.55, 0.7),
+		"feedable": false,
+		"letter": "R",
+		"infinite": true,
+		"tool": true,
+	},
 }
 
-## Fixed backpack slot indices (8x8 grid has room to spare).
-const SLOT_INDEX: Dictionary = {
+## Fixed backpack grid (8×8). Top row (0..7) is the walk-mode hotbar.
+const GRID_COLS: int = 8
+const GRID_ROWS: int = 8
+const SLOT_COUNT: int = GRID_COLS * GRID_ROWS
+const HOTBAR_SIZE: int = GRID_COLS
+
+## Default tools live in the bottom-right corner of the bag.
+const DEFAULT_TOOL_SLOTS: Dictionary = {
+	Item.TOOL_HOE: 61,
+	Item.TOOL_HARVEST: 62,
+	Item.TOOL_ROD: 63,
+}
+
+## Default placement when migrating legacy flat count saves.
+const DEFAULT_SLOT: Dictionary = {
 	Item.WHEAT: 0,
 	Item.CARROT: 1,
 	Item.SUNFLOWER: 2,
@@ -28,6 +71,9 @@ const SLOT_INDEX: Dictionary = {
 	Item.FISH: 4,
 	Item.MEAT: 5,
 }
+
+## Deprecated alias kept so older scripts still resolve.
+const SLOT_INDEX := DEFAULT_SLOT
 
 static var _icon_cache: Dictionary = {}
 
@@ -58,6 +104,14 @@ static func is_feedable(item: Item) -> bool:
 	return ITEMS[item].get("feedable", false)
 
 
+static func is_infinite(item: Item) -> bool:
+	return ITEMS[item].get("infinite", false)
+
+
+static func is_hand_tool(item: Item) -> bool:
+	return ITEMS[item].get("tool", false)
+
+
 static func get_by_id(item_id: String) -> Item:
 	# Legacy save ids map onto the trimmed inventory.
 	match item_id:
@@ -65,6 +119,12 @@ static func get_by_id(item_id: String) -> Item:
 			return Item.SUNFLOWER
 		"tree":
 			return Item.WOOD
+		"hoe":
+			return Item.TOOL_HOE
+		"sickle", "harvest":
+			return Item.TOOL_HARVEST
+		"rod", "fishing_rod":
+			return Item.TOOL_ROD
 	for item in ITEMS:
 		if ITEMS[item]["id"] == item_id:
 			return item
@@ -93,7 +153,6 @@ static func _make_icon_texture(color: Color, letter: String) -> ImageTexture:
 				img.set_pixel(x, y, color.darkened(0.35))
 			else:
 				img.set_pixel(x, y, color)
-	# Simple letter mark as a darker block in the center.
 	var cx := size / 2
 	var cy := size / 2
 	var mark := color.lightened(0.45)
@@ -101,7 +160,6 @@ static func _make_icon_texture(color: Color, letter: String) -> ImageTexture:
 		for x in range(cx - 5, cx + 6):
 			if x >= 0 and y >= 0 and x < size and y < size:
 				img.set_pixel(x, y, mark)
-	# Vary mark shape slightly by letter hash so icons feel distinct.
 	var h: int = letter.unicode_at(0) % 5
 	for i in range(6):
 		var px := cx - 6 + h + i

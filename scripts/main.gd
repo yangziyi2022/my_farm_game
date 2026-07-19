@@ -56,12 +56,13 @@ func _ready() -> void:
 	grid_manager.undo_manager = undo_manager
 	placement_controller.setup(grid_manager, camera, undo_manager, inventory_manager, cursor_overlay, tool_cursor)
 	inventory_bar.setup(inventory_manager)
+	inventory_manager.inventory_changed.connect(_on_inventory_changed)
 	inventory_bar.walk_mode_pressed.connect(_on_walk_mode_pressed)
 
 	_walk_mode = WalkModeController.new()
 	_walk_mode.name = "WalkModeController"
 	add_child(_walk_mode)
-	_walk_mode.setup(grid_manager, camera, camera_controller, placement_controller)
+	_walk_mode.setup(grid_manager, camera, camera_controller, placement_controller, inventory_manager)
 	_walk_mode.status_message.connect(_on_status_message)
 
 	item_palette.item_selected.connect(placement_controller.set_selected_item)
@@ -245,6 +246,11 @@ func _on_undo_stack_changed(can_undo: bool) -> void:
 	if _time_controls:
 		_time_controls.set_undo_enabled(can_undo)
 	_world_dirty = undo_manager.stack_depth() != _undo_depth_at_save
+
+
+func _on_inventory_changed() -> void:
+	# Harvest / rearrange backpack is not on the undo stack.
+	_world_dirty = true
 
 
 func _on_status_message(text: String) -> void:
