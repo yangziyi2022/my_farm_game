@@ -7,8 +7,8 @@ signal object_moved(from: Vector2i, to: Vector2i)
 signal selection_changed(object_node: Node3D)
 signal play_radius_changed(new_radius: float)
 
-const TILE_WIDTH: float = 1.25
-const TILE_HEIGHT: float = 1.25
+const TILE_WIDTH: float = 1.35
+const TILE_HEIGHT: float = 1.35
 ## Expanded so a circular playable disc can be filled with cells.
 const GRID_WIDTH: int = 56
 const GRID_HEIGHT: int = 56
@@ -395,9 +395,9 @@ func player_surface_height(grid_pos: Vector2i) -> float:
 		return 0.0
 	match get_item_type_at(grid_pos):
 		ItemData.ItemType.BENCH:
-			return 0.42
+			return 0.54
 		ItemData.ItemType.BRIDGE:
-			return 0.22
+			return 0.24
 		_:
 			return 0.0
 

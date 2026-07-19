@@ -11,6 +11,6 @@ visual_scene_path = "res://scenes/placeables/well.tscn"
 visual_scene = ExtResource("2_well")
 category = 4
 rotatable = true
-visual_scale = 1.8
+visual_scale = 2.45
 visual_y_offset = 0.0
 footprint_size = Vector2i(2, 2)

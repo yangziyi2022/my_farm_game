@@ -24,6 +24,9 @@ const MAIN_MENU_SCENE := "res://scenes/main_menu.tscn"
 
 var _time_controls: TimeOfDayControls
 var _walk_mode: WalkModeController
+## True when farm differs from last successful save (or never saved after edits).
+var _world_dirty: bool = false
+var _undo_depth_at_save: int = 0
 
 
 func _ready() -> void:
@@ -97,12 +100,15 @@ func _ready() -> void:
 			var meta := SaveManager.load_meta(boot_id)
 			var wname := str(meta.get("display_name", "Farm"))
 			_on_status_message("Loaded \"%s\"" % wname)
+			_mark_world_clean()
 		else:
 			_on_status_message("Could not load world — starting empty")
+			_mark_world_clean()
 	else:
 		var meta := SaveManager.load_meta(boot_id)
 		var wname := str(meta.get("display_name", "Farm"))
 		_on_status_message("New world \"%s\" — tap Save to keep progress" % wname)
+		_mark_world_clean()
 
 	_on_undo_stack_changed(undo_manager.can_undo())
 	item_palette.activate_select_tool()
@@ -238,15 +244,22 @@ func _on_undo() -> void:
 func _on_undo_stack_changed(can_undo: bool) -> void:
 	if _time_controls:
 		_time_controls.set_undo_enabled(can_undo)
+	_world_dirty = undo_manager.stack_depth() != _undo_depth_at_save
 
 
 func _on_status_message(text: String) -> void:
 	status_label.text = text
 
 
+func _mark_world_clean() -> void:
+	_undo_depth_at_save = undo_manager.stack_depth()
+	_world_dirty = false
+
+
 func _on_save() -> void:
 	AudioManager.play("ui_click")
 	if SaveManager.save_farm(grid_manager, inventory_manager):
+		_mark_world_clean()
 		var meta := SaveManager.load_meta(SaveManager.get_current_world_id())
 		var wname := str(meta.get("display_name", "Farm"))
 		_on_status_message("Saved \"%s\"" % wname)
@@ -256,6 +269,11 @@ func _on_save() -> void:
 
 func _on_worlds() -> void:
 	AudioManager.play("ui_click")
+	# Already matches last save — leave without nagging.
+	if not _world_dirty:
+		_go_to_worlds_menu()
+		return
+
 	var dlg := ConfirmationDialog.new()
 	dlg.title = "Leave World"
 	dlg.dialog_text = "Save your farm before returning to Worlds?"
@@ -263,7 +281,8 @@ func _on_worlds() -> void:
 	dlg.cancel_button_text = "Cancel"
 	dlg.add_button("Don't Save", true, "nosave")
 	dlg.confirmed.connect(func() -> void:
-		SaveManager.save_farm(grid_manager, inventory_manager)
+		if SaveManager.save_farm(grid_manager, inventory_manager):
+			_mark_world_clean()
 		dlg.queue_free()
 		_go_to_worlds_menu()
 	)

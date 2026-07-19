@@ -10,6 +10,6 @@ display_name = "Lamp Post"
 visual_scene = ExtResource("2_lamp")
 category = 4
 rotatable = true
-visual_scale = 0.055
+visual_scale = 0.072
 visual_y_offset = 0.0
 footprint_size = Vector2i(1, 1)

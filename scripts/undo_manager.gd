@@ -26,6 +26,10 @@ func can_undo() -> bool:
 	return not _stack.is_empty()
 
 
+func stack_depth() -> int:
+	return _stack.size()
+
+
 func clear() -> void:
 	_stack.clear()
 	_pending_batch.clear()

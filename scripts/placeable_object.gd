@@ -184,8 +184,8 @@ static func _build_growing_tree(parent: Node3D, info: Dictionary) -> void:
 	parent.add_child(s1)
 
 	const TREE_GLB := "res://assets/models/nature/tree 3d model.glb"
-	parent.add_child(_make_glb_model_stage("Stage2", TREE_GLB, 1.35))
-	parent.add_child(_make_glb_model_stage("Stage3", TREE_GLB, 1.85))
+	parent.add_child(_make_glb_model_stage("Stage2", TREE_GLB, 2.15))
+	parent.add_child(_make_glb_model_stage("Stage3", TREE_GLB, 3.05))
 
 
 static func _make_glb_model_stage(stage_name: String, glb_path: String, model_scale: float) -> Node3D:
@@ -252,7 +252,7 @@ static func _build_growing_sunflower(parent: Node3D, info: Dictionary) -> void:
 	parent.add_child(s2)
 
 	const SUNFLOWER_GLB := "res://assets/models/crops/sunflower 3d model.glb"
-	parent.add_child(_make_wheat_model_stage("Stage3", SUNFLOWER_GLB, 0.52))
+	parent.add_child(_make_wheat_model_stage("Stage3", SUNFLOWER_GLB, 0.68))
 
 
 static func _footprint_center_offset(footprint: Vector2i) -> Vector3:
@@ -504,13 +504,13 @@ static func _build_growing_wheat(parent: Node3D, _info: Dictionary) -> void:
 	parent.add_child(_make_wheat_model_stage(
 		"Stage2",
 		"res://assets/models/crops/wheat.glb",
-		0.95
+		1.15
 	))
 	# Stage 3 keeps CropGrowth.STAGE_COUNT=4; same mature field for harvest-ready.
 	parent.add_child(_make_wheat_model_stage(
 		"Stage3",
 		"res://assets/models/crops/wheat.glb",
-		1.0
+		1.22
 	))
 
 
@@ -1048,7 +1048,7 @@ static func _build_greenhouse(parent: Node3D, info: Dictionary) -> void:
 static func _build_pond(parent: Node3D, info: Dictionary) -> void:
 	var visual := Node3D.new()
 	visual.name = "Visual"
-	visual.position = _footprint_center_offset(Vector2i(3, 3))
+	visual.position = _footprint_center_offset(Vector2i(4, 4))
 	parent.add_child(visual)
 
 	var rim_color: Color = info.get("rim_color", Color(0.52, 0.5, 0.48))

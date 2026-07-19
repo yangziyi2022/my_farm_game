@@ -9,7 +9,7 @@ id = "fence"
 display_name = "Fence"
 visual_scene = ExtResource("2_fence")
 category = 4
-visual_scale = 1.0
+visual_scale = 1.3
 visual_y_offset = 0.0
 ## One cell for the post; mesh spans to the next cell center for seamless joins.
 footprint_size = Vector2i(1, 1)

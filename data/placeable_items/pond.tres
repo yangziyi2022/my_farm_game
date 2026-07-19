@@ -13,7 +13,7 @@ category = 4
 rotatable = true
 visual_scale = 1.0
 visual_y_offset = 0.0
-footprint_size = Vector2i(3, 3)
+footprint_size = Vector2i(4, 4)
 fit_xz_to_footprint = true
-## Slight overshoot so rocks/rim sit flush on the 3×3 translucent outline.
+## Slight overshoot so rocks/rim sit flush on the 4×4 translucent outline.
 footprint_overscale = 1.06

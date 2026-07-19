@@ -22,10 +22,10 @@ func _build_mesh() -> void:
 	_body = MeshInstance3D.new()
 	_body.name = "Body"
 	var body_mesh := CapsuleMesh.new()
-	body_mesh.radius = 0.22
-	body_mesh.height = 0.85
+	body_mesh.radius = 0.26
+	body_mesh.height = 1.0
 	_body.mesh = body_mesh
-	_body.position = Vector3(0.0, 0.55, 0.0)
+	_body.position = Vector3(0.0, 0.64, 0.0)
 	_body.material_override = _mat(BODY_COLOR)
 	add_child(_body)
 
@@ -33,19 +33,19 @@ func _build_mesh() -> void:
 	_head = MeshInstance3D.new()
 	_head.name = "Head"
 	var head_mesh := SphereMesh.new()
-	head_mesh.radius = 0.18
-	head_mesh.height = 0.36
+	head_mesh.radius = 0.2
+	head_mesh.height = 0.4
 	_head.mesh = head_mesh
-	_head.position = Vector3(0.0, 1.12, 0.0)
+	_head.position = Vector3(0.0, 1.28, 0.0)
 	_head.material_override = _mat(ACCENT_COLOR)
 	add_child(_head)
 
 	# Tiny nose so facing is readable
 	var nose := MeshInstance3D.new()
 	var nose_mesh := BoxMesh.new()
-	nose_mesh.size = Vector3(0.06, 0.06, 0.1)
+	nose_mesh.size = Vector3(0.07, 0.07, 0.12)
 	nose.mesh = nose_mesh
-	nose.position = Vector3(0.0, 1.1, -0.2)
+	nose.position = Vector3(0.0, 1.26, -0.22)
 	nose.material_override = _mat(Color(0.75, 0.35, 0.2))
 	add_child(nose)
 
