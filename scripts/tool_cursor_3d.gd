@@ -1,22 +1,25 @@
 extends Node3D
 
-## 3D cursor tools: hoe dig, sickle harvest, fishing rod cast.
+## 3D cursor tools: hoe dig, sickle harvest, fishing rod cast, compost pour.
 
 const HOE_SCENE_PATH: String = "res://assets/models/crops/Hoe.glb"
 const ROD_SCENE_PATH: String = "res://assets/models/others/Fishing Rod.glb"
 const SICKLE_SCENE_PATH: String = "res://assets/models/others/sickle.glb"
+const COMPOST_SCENE_PATH: String = "res://assets/models/crops/compost.glb"
 
 const HOE_EXTRA_SCALE: float = 0.85
 ## Rod GLB is already ×100 inside; keep final length close to the hoe.
 const ROD_EXTRA_SCALE: float = 0.18
 ## sickle.glb is ~1 unit tall; keep handheld size close to the hoe.
 const SICKLE_EXTRA_SCALE: float = 0.45
+## Burlap compost bag — keep comparable to other tools in cursor space.
+const COMPOST_EXTRA_SCALE: float = 0.48
 
 const FOLLOW_DEPTH: float = 3.2
 const CURSOR_SCREEN_OFFSET := Vector2(28, 36)
 const CELL_HOVER_HEIGHT: float = 0.85
 
-enum ActiveTool { NONE, HOE, ROD, SICKLE }
+enum ActiveTool { NONE, HOE, ROD, SICKLE, COMPOST }
 enum AnchorMode { FOLLOW_POINTER, FOLLOW_CELL }
 
 var camera: Camera3D
@@ -28,10 +31,12 @@ var _swing_pivot: Node3D
 var _hoe_root: Node3D
 var _rod_root: Node3D
 var _sickle_root: Node3D
+var _compost_root: Node3D
 var _hoe_model: Node3D
 var _rod_model: Node3D
 var _sickle_model: Node3D
-var _rod_tip_local: Vector3 = Vector3(0.0, 0.55, 0.0)
+var _compost_model: Node3D
+var _compost_spout_local: Vector3 = Vector3(0.0, 0.2, 0.0)
 var _line_mesh: MeshInstance3D
 var _line_active: bool = false
 var _line_target: Vector3 = Vector3.ZERO
@@ -39,7 +44,7 @@ var _animating: bool = false
 var _bite_shake: bool = false
 var _shake_time: float = 0.0
 var _rest_rot_z: float = -10.0
-
+var _compost_rest_rot := Vector3(12.0, 25.0, -18.0)
 
 func setup(p_camera: Camera3D) -> void:
 	camera = p_camera
@@ -103,6 +108,18 @@ func show_sickle() -> void:
 	_reset_swing(Vector3(0.0, 0.0, 0.0))
 
 
+func show_compost() -> void:
+	_stop_bite_shake()
+	_clear_line()
+	_ensure_compost_model()
+	_show_only(ActiveTool.COMPOST)
+	_active_tool = ActiveTool.COMPOST
+	visible = true
+	_refresh_anchor_mode()
+	_apply_mouse_mode()
+	_reset_swing(_compost_rest_rot)
+
+
 func hide_tool() -> void:
 	_stop_bite_shake()
 	_clear_line()
@@ -148,6 +165,48 @@ func play_sickle_swing() -> void:
 	)
 
 
+func play_compost_pour(ground_hint: Vector3 = Vector3.ZERO) -> void:
+	## Tip the bag and spill soil crumbs toward the plant / ground.
+	if _active_tool != ActiveTool.COMPOST or _swing_pivot == null or _animating:
+		return
+	_animating = true
+	var tip_rot := Vector3(55.0, 15.0, -70.0)
+	var tween := create_tween()
+	tween.set_trans(Tween.TRANS_SINE)
+	tween.tween_property(_swing_pivot, "rotation_degrees", tip_rot, 0.16)
+	tween.parallel().tween_property(_swing_pivot, "position:y", -0.06, 0.16)
+	tween.tween_callback(func() -> void:
+		_emit_compost_pour(ground_hint)
+	)
+	tween.tween_interval(0.08)
+	tween.tween_callback(func() -> void:
+		_emit_compost_pour(ground_hint)
+	)
+	tween.tween_property(_swing_pivot, "rotation_degrees", _compost_rest_rot, 0.22)
+	tween.parallel().tween_property(_swing_pivot, "position:y", 0.0, 0.22)
+	tween.tween_callback(func() -> void:
+		_reset_swing(_compost_rest_rot)
+		_animating = false
+	)
+
+
+func _emit_compost_pour(ground_hint: Vector3) -> void:
+	var host: Node = get_parent()
+	if host == null:
+		host = self
+	var spout := get_compost_spout_global()
+	var toward := ground_hint
+	if toward == Vector3.ZERO:
+		toward = spout + Vector3(0.0, -0.9, 0.15)
+	CompostPourEffect.play(host, spout, toward)
+
+
+func get_compost_spout_global() -> Vector3:
+	if _compost_root and is_instance_valid(_compost_root):
+		return _compost_root.to_global(_compost_spout_local)
+	return global_position + Vector3(0.0, 0.1, 0.0)
+
+
 func play_rod_cast(water_world_pos: Vector3) -> void:
 	if _active_tool != ActiveTool.ROD or _swing_pivot == null:
 		return
@@ -182,9 +241,25 @@ func stop_rod_session() -> void:
 
 
 func get_rod_tip_global() -> Vector3:
+	## Live tip: farthest mesh corner from the swing grip so the line sticks to the pole tip.
 	if _rod_root and is_instance_valid(_rod_root):
-		return _rod_root.to_global(_rod_tip_local)
+		var grip := _swing_pivot.global_position if _swing_pivot else global_position
+		return _find_rod_tip_global(_rod_root, grip)
 	return global_position + Vector3(0.0, 0.55, 0.0)
+
+
+func _find_rod_tip_global(visual_root: Node3D, grip_world: Vector3) -> Vector3:
+	var best := visual_root.global_position
+	var best_d2 := -1.0
+	for mi in _gather_meshes(visual_root):
+		var aabb := mi.get_aabb()
+		for corner in _aabb_corners(aabb):
+			var p: Vector3 = mi.to_global(corner)
+			var d2 := grip_world.distance_squared_to(p)
+			if d2 > best_d2:
+				best_d2 = d2
+				best = p
+	return best
 
 
 func _reset_swing(euler_deg: Vector3) -> void:
@@ -294,7 +369,6 @@ func _ensure_rod_model() -> void:
 	_rod_model.rotation_degrees = Vector3(-20.0, 0.0, -25.0)
 	_rod_model.position = Vector3(0.05, -0.08, 0.0)
 	_rod_root.add_child(_rod_model)
-	_rod_tip_local = _find_highest_local_point(_rod_root)
 
 
 func _ensure_sickle_model() -> void:
@@ -312,6 +386,25 @@ func _ensure_sickle_model() -> void:
 	_sickle_model.rotation_degrees = Vector3(0.0, 90.0, -15.0)
 	_sickle_model.position = Vector3(0.1, -0.05, 0.0)
 	_sickle_root.add_child(_sickle_model)
+
+
+func _ensure_compost_model() -> void:
+	_ensure_swing_pivot()
+	if _compost_model and is_instance_valid(_compost_model):
+		return
+	if not ResourceLoader.exists(COMPOST_SCENE_PATH):
+		push_warning("Compost model missing: %s" % COMPOST_SCENE_PATH)
+		return
+	_compost_root = Node3D.new()
+	_compost_root.name = "CompostVisual"
+	_swing_pivot.add_child(_compost_root)
+	_compost_model = (load(COMPOST_SCENE_PATH) as PackedScene).instantiate() as Node3D
+	_compost_model.scale = Vector3.ONE * COMPOST_EXTRA_SCALE
+	_compost_model.rotation_degrees = Vector3(0.0, -20.0, 15.0)
+	_compost_model.position = Vector3(0.05, -0.02, 0.0)
+	_compost_root.add_child(_compost_model)
+	# Prefer the top of the bag as the pour spout before tipping.
+	_compost_spout_local = _find_highest_local_point(_compost_root)
 
 
 func _find_highest_local_point(root: Node3D) -> Vector3:
@@ -362,6 +455,8 @@ func _show_only(tool: ActiveTool) -> void:
 		_rod_root.visible = tool == ActiveTool.ROD
 	if _sickle_root:
 		_sickle_root.visible = tool == ActiveTool.SICKLE
+	if _compost_root:
+		_compost_root.visible = tool == ActiveTool.COMPOST
 
 
 func _process(delta: float) -> void:

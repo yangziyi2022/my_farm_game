@@ -9,10 +9,12 @@ const ACCENT_COLOR := Color(0.85, 0.55, 0.2)
 const HOE_SCENE_PATH: String = "res://assets/models/crops/Hoe.glb"
 const ROD_SCENE_PATH: String = "res://assets/models/others/Fishing Rod.glb"
 const SICKLE_SCENE_PATH: String = "res://assets/models/others/sickle.glb"
+const COMPOST_SCENE_PATH: String = "res://assets/models/crops/compost.glb"
 ## Handheld scales (smaller than the build-mode ToolCursor3D).
 const HOE_HAND_SCALE: float = 0.55
 const ROD_HAND_SCALE: float = 0.12
 const SICKLE_HAND_SCALE: float = 0.3
+const COMPOST_HAND_SCALE: float = 0.32
 
 var grid_pos: Vector2i = Vector2i.ZERO
 var facing_yaw: float = 0.0
@@ -25,7 +27,6 @@ var _hand_anchor: Node3D
 var _held_visual: Node3D
 var _held_item = null  # InventoryData.Item or null
 var _swinging: bool = false
-var _rod_tip_local: Vector3 = Vector3(0.0, 0.4, 0.0)
 var _line_mesh: MeshInstance3D
 var _line_active: bool = false
 var _line_target: Vector3 = Vector3.ZERO
@@ -110,8 +111,13 @@ func set_held_inventory_item(item) -> void:
 			_held_visual = _make_tool_visual(SICKLE_SCENE_PATH, SICKLE_HAND_SCALE, Vector3(0.0, 90.0, -15.0), Vector3(0.04, -0.02, 0.0))
 		InventoryData.Item.TOOL_ROD:
 			_held_visual = _make_tool_visual(ROD_SCENE_PATH, ROD_HAND_SCALE, Vector3(-20.0, 0.0, -25.0), Vector3(0.02, -0.04, 0.0))
-			if _held_visual:
-				_rod_tip_local = _find_highest_local_point(_held_visual)
+		InventoryData.Item.COMPOST:
+			_held_visual = _make_tool_visual(
+				COMPOST_SCENE_PATH,
+				COMPOST_HAND_SCALE,
+				Vector3(10.0, -15.0, 20.0),
+				Vector3(0.02, -0.04, -0.02)
+			)
 		_:
 			_held_visual = _make_item_cube(item)
 	if _held_visual:
@@ -206,6 +212,69 @@ func play_use_swing(on_impact: Callable = Callable()) -> void:
 	)
 
 
+func play_compost_sprinkle(on_impact: Callable = Callable(), ground_hint: Vector3 = Vector3.ZERO) -> void:
+	## Tip the compost bag forward and sprinkle soil powder ahead of the avatar.
+	if _swinging or _swing_pivot == null:
+		if on_impact.is_valid():
+			on_impact.call()
+		return
+	_swinging = true
+	var tip := Vector3(-35.0, -20.0, -55.0)
+	var poured := {"ok": false}
+	var tween := create_tween()
+	tween.set_trans(Tween.TRANS_SINE)
+	# Reach / tip the bag over the plant.
+	tween.tween_property(_swing_pivot, "rotation_degrees", tip, 0.18)
+	tween.tween_callback(func() -> void:
+		var ok := true
+		if on_impact.is_valid():
+			var result = on_impact.call()
+			if result is bool:
+				ok = result
+		poured["ok"] = ok
+		if ok:
+			_emit_hand_compost_pour(ground_hint)
+	)
+	tween.tween_interval(0.07)
+	tween.tween_callback(func() -> void:
+		if poured.get("ok", false):
+			_emit_hand_compost_pour(ground_hint)
+	)
+	tween.tween_property(_swing_pivot, "rotation_degrees", Vector3.ZERO, 0.22)
+	tween.tween_callback(func() -> void:
+		if _swing_pivot:
+			_swing_pivot.rotation_degrees = Vector3.ZERO
+		_swinging = false
+	)
+
+
+func _emit_hand_compost_pour(ground_hint: Vector3) -> void:
+	var host: Node = get_parent()
+	if host == null:
+		host = self
+	var spout := get_compost_spout_global()
+	var toward := ground_hint
+	if toward == Vector3.ZERO:
+		# Sprinkle ahead of the facing character onto the ground.
+		var forward := -global_transform.basis.z
+		forward.y = 0.0
+		if forward.length_squared() < 0.0001:
+			forward = Vector3(0.0, 0.0, -1.0)
+		else:
+			forward = forward.normalized()
+		toward = global_position + forward * 0.85 + Vector3(0.0, 0.05, 0.0)
+	CompostPourEffect.play(host, spout, toward)
+
+
+func get_compost_spout_global() -> Vector3:
+	if _held_visual and is_instance_valid(_held_visual):
+		# Approximate bag mouth: slightly above / forward of the handheld visual.
+		return _held_visual.to_global(Vector3(0.0, 0.18, -0.05))
+	if _hand_anchor and is_instance_valid(_hand_anchor):
+		return _hand_anchor.global_position
+	return global_position + Vector3(0.2, 1.0, 0.0)
+
+
 func set_fishing_line_target(world_pos: Vector3, biting: bool = false) -> void:
 	_line_target = world_pos
 	_line_active = true
@@ -223,8 +292,10 @@ func clear_fishing_line() -> void:
 
 
 func get_rod_tip_global() -> Vector3:
+	## Live tip from mesh extremes (farthest from the grip) so the line stays on the pole tip.
 	if _held_visual and is_instance_valid(_held_visual):
-		return _held_visual.to_global(_rod_tip_local)
+		var grip := _hand_anchor.global_position if _hand_anchor else global_position
+		return _find_rod_tip_global(_held_visual, grip)
 	if _hand_anchor:
 		return _hand_anchor.global_position
 	return global_position + Vector3(0.3, 1.2, -0.2)
@@ -273,34 +344,41 @@ func _update_fishing_line() -> void:
 	_line_mesh.rotate_object_local(Vector3.RIGHT, PI * 0.5)
 
 
-func _find_highest_local_point(root: Node3D) -> Vector3:
-	var best := Vector3(0.0, 0.45, 0.0)
-	var best_y := -9999.0
-	var stack: Array[Node] = [root]
+func _find_rod_tip_global(visual_root: Node3D, grip_world: Vector3) -> Vector3:
+	## Pole tip = mesh AABB corner farthest from the hand / grip.
+	var best := visual_root.global_position
+	var best_d2 := -1.0
+	var stack: Array[Node] = [visual_root]
 	while not stack.is_empty():
 		var node: Node = stack.pop_back()
 		if node is MeshInstance3D:
 			var mi := node as MeshInstance3D
 			if mi.mesh:
 				var aabb := mi.get_aabb()
-				var corners := [
-					aabb.position,
-					aabb.position + Vector3(aabb.size.x, 0, 0),
-					aabb.position + Vector3(0, aabb.size.y, 0),
-					aabb.position + Vector3(0, 0, aabb.size.z),
-					aabb.position + aabb.size,
-					aabb.position + Vector3(aabb.size.x, aabb.size.y, 0),
-					aabb.position + Vector3(aabb.size.x, 0, aabb.size.z),
-					aabb.position + Vector3(0, aabb.size.y, aabb.size.z),
-				]
-				for c in corners:
-					var local_in_root: Vector3 = root.to_local(mi.to_global(c))
-					if local_in_root.y > best_y:
-						best_y = local_in_root.y
-						best = local_in_root
+				for c in _aabb_corners(aabb):
+					var p: Vector3 = mi.to_global(c)
+					var d2 := grip_world.distance_squared_to(p)
+					if d2 > best_d2:
+						best_d2 = d2
+						best = p
 		for child in node.get_children():
 			stack.append(child)
 	return best
+
+
+func _aabb_corners(aabb: AABB) -> Array[Vector3]:
+	var p := aabb.position
+	var s := aabb.size
+	return [
+		p,
+		p + Vector3(s.x, 0, 0),
+		p + Vector3(0, s.y, 0),
+		p + Vector3(0, 0, s.z),
+		p + Vector3(s.x, s.y, 0),
+		p + Vector3(s.x, 0, s.z),
+		p + Vector3(0, s.y, s.z),
+		p + s,
+	]
 
 
 func set_ghost_look(enabled: bool) -> void:

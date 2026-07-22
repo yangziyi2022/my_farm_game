@@ -254,12 +254,9 @@ func enter_fertilize_mode() -> void:
 	_reset_selection_state()
 	_remove_ghost()
 	_reset_fishing_session()
-	_hide_tool_cursor()
+	_hide_cursor_overlay()
 	feed_mode_cancelled.emit()
-	_show_cursor_overlay(
-		LocaleManager.t("Fertilize"),
-		InventoryData.get_color(InventoryData.Item.COMPOST)
-	)
+	_show_compost_cursor()
 	_ensure_tool_footprint()
 	status_message.emit(LocaleManager.t("Fertilize — click a growing plant (uses 1 Compost)"))
 
@@ -1636,6 +1633,11 @@ func _show_sickle_cursor() -> void:
 		tool_cursor.show_sickle()
 
 
+func _show_compost_cursor() -> void:
+	if tool_cursor:
+		tool_cursor.show_compost()
+
+
 func _hide_tool_cursor() -> void:
 	_reset_fishing_session()
 	if tool_cursor:
@@ -1699,6 +1701,10 @@ func _try_fertilize_at(grid_pos: Vector2i) -> void:
 	if result.get("ok", false):
 		inventory_manager.remove_item(InventoryData.Item.COMPOST, 1)
 		AudioManager.play("hoe")
+		var ground := grid_manager.grid_to_world(grid_pos)
+		ground.y = grid_manager.player_surface_height(grid_pos)
+		if tool_cursor:
+			tool_cursor.play_compost_pour(ground)
 		if not inventory_manager.has_item(InventoryData.Item.COMPOST):
 			status_message.emit(LocaleManager.t("No Compost left — harvest crops to get more"))
 

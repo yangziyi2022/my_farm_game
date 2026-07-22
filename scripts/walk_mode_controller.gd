@@ -648,6 +648,17 @@ func _on_use_pressed() -> void:
 	if item == InventoryData.Item.TOOL_ROD and _fish_phase == 2:
 		_avatar.play_use_swing(Callable(self, "_reel_walk_fish"))
 		return
+	if InventoryData.is_fertilizer(item):
+		var ground := Vector3.ZERO
+		var plant := _aimed_plant()
+		if plant and is_instance_valid(plant):
+			ground = plant.global_position
+			if grid_manager:
+				ground.y = grid_manager.player_surface_height(
+					grid_manager.world_to_grid_nearest(plant.global_position)
+				)
+		_avatar.play_compost_sprinkle(Callable(self, "_use_fertilizer").bind(item), ground)
+		return
 	_avatar.play_use_swing(Callable(self, "_apply_use_impact").bind(item))
 
 
@@ -749,23 +760,25 @@ func _try_pet() -> void:
 			ctrl.play_pet_react(from)
 
 
-func _use_fertilizer(item: InventoryData.Item) -> void:
+func _use_fertilizer(item: InventoryData.Item) -> bool:
 	if inventory_manager == null or not inventory_manager.has_item(item):
 		status_message.emit(LocaleManager.t("No %s left") % InventoryData.get_item_name(item))
-		return
+		return false
 	var plant := _aimed_plant()
 	if plant == null:
 		status_message.emit(LocaleManager.t("Aim at a growing plant to fertilize"))
-		return
+		return false
 	var growth := plant.get_node_or_null("CropGrowth") as CropGrowth
 	if growth == null:
 		status_message.emit(LocaleManager.t("Can't fertilize that"))
-		return
+		return false
 	var result := growth.try_fertilize()
 	status_message.emit(str(result.get("message", "")))
 	if result.get("ok", false):
 		inventory_manager.remove_item(item, 1)
 		AudioManager.play("hoe")
+		return true
+	return false
 
 
 func _update_feed_attract() -> void:
