@@ -72,6 +72,12 @@ func _ready() -> void:
 	placement_controller.animal_info_card = animal_card
 	_walk_mode.animal_info_card = animal_card
 
+	var plant_card := PlantInfoCard.new()
+	plant_card.name = "PlantInfoCard"
+	$UI.add_child(plant_card)
+	plant_card.setup(camera)
+	_walk_mode.plant_info_card = plant_card
+
 	item_palette.item_selected.connect(placement_controller.set_selected_item)
 	item_palette.select_tool_activated.connect(_on_select_tool_activated)
 	item_palette.multiselect_tool_activated.connect(_on_multiselect_tool_activated)

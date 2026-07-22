@@ -8,6 +8,7 @@ enum Item {
 	WOOD,
 	FISH,
 	MEAT,
+	COMPOST,
 	TOOL_HOE,
 	TOOL_HARVEST,
 	TOOL_ROD,
@@ -20,6 +21,14 @@ const ITEMS: Dictionary = {
 	Item.WOOD: {"id": "wood", "name": "Wood", "color": Color(0.55, 0.38, 0.22), "feedable": false, "letter": "T"},
 	Item.FISH: {"id": "fish", "name": "Fish", "color": Color(0.35, 0.55, 0.85), "feedable": true, "letter": "F"},
 	Item.MEAT: {"id": "meat", "name": "Meat", "color": Color(0.75, 0.35, 0.35), "feedable": false, "letter": "M"},
+	Item.COMPOST: {
+		"id": "compost",
+		"name": "Compost",
+		"color": Color(0.42, 0.32, 0.18),
+		"feedable": false,
+		"letter": "P",
+		"fertilizer": true,
+	},
 	Item.TOOL_HOE: {
 		"id": "tool_hoe",
 		"name": "Hoe",
@@ -70,6 +79,7 @@ const DEFAULT_SLOT: Dictionary = {
 	Item.WOOD: 3,
 	Item.FISH: 4,
 	Item.MEAT: 5,
+	Item.COMPOST: 6,
 }
 
 ## Deprecated alias kept so older scripts still resolve.
@@ -110,6 +120,10 @@ static func is_infinite(item: Item) -> bool:
 
 static func is_hand_tool(item: Item) -> bool:
 	return ITEMS[item].get("tool", false)
+
+
+static func is_fertilizer(item: Item) -> bool:
+	return ITEMS[item].get("fertilizer", false)
 
 
 static func get_by_id(item_id: String) -> Item:

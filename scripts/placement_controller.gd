@@ -1189,7 +1189,9 @@ func _try_harvest(grid_pos: Vector2i, quiet: bool = false) -> bool:
 			status_message.emit(LocaleManager.t("Nothing ready to harvest here"))
 		return false
 	var plant := grid_manager.get_content_at(grid_pos)
+	var plant_type = null
 	if plant:
+		plant_type = plant.get_meta("item_type")
 		HarvestEffect.play(plant)
 		AudioManager.play("harvest")
 	var harvest_item = grid_manager.harvest_plant(grid_pos)
@@ -1201,6 +1203,8 @@ func _try_harvest(grid_pos: Vector2i, quiet: bool = false) -> bool:
 		tool_cursor.play_sickle_swing()
 	if inventory_manager:
 		inventory_manager.add_item(harvest_item)
+		if plant_type != null and plant_type != ItemData.ItemType.TREE and randf() < 0.28:
+			inventory_manager.add_item(InventoryData.Item.COMPOST, 1)
 	if not quiet:
 		status_message.emit(LocaleManager.t("Harvested %s!") % InventoryData.get_item_name(harvest_item))
 	return true

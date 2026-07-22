@@ -79,14 +79,12 @@ func try_feed(food: InventoryData.Item) -> Dictionary:
 	affinity = clampf(affinity + AnimalDiet.affinity_restore(_animal_type, food), 0.0, 100.0)
 	_recompute_mood(0.0)
 	needs_changed.emit()
+	var who := _display_name()
 	var key := "%s loved the %s!" if favorite else "%s ate the %s!"
 	return {
 		"ok": true,
 		"favorite": favorite,
-		"message": LocaleManager.tf(key, [
-			ItemData.get_item_name(_animal_type),
-			InventoryData.get_item_name(food),
-		]),
+		"message": LocaleManager.tf(key, [who, InventoryData.get_item_name(food)]),
 	}
 
 
@@ -95,7 +93,7 @@ func try_pet() -> Dictionary:
 	if _pet_cooldown > 0.0:
 		return {
 			"ok": false,
-			"message": LocaleManager.tf("%s needs a moment", [ItemData.get_item_name(_animal_type)]),
+			"message": LocaleManager.tf("%s needs a moment", [_display_name()]),
 		}
 	_pet_cooldown = PET_COOLDOWN_SEC
 	affinity = clampf(affinity + PET_AFFINITY_GAIN, 0.0, 100.0)
@@ -103,8 +101,14 @@ func try_pet() -> Dictionary:
 	needs_changed.emit()
 	return {
 		"ok": true,
-		"message": LocaleManager.tf("Pet %s (+affinity)", [ItemData.get_item_name(_animal_type)]),
+		"message": LocaleManager.tf("Pet %s (+affinity)", [_display_name()]),
 	}
+
+
+func _display_name() -> String:
+	if _root != null and is_instance_valid(_root):
+		return AnimalInteraction.get_display_name(_root)
+	return ItemData.get_item_name(_animal_type)
 
 
 func _process(delta: float) -> void:

@@ -183,7 +183,7 @@ static func _build_growing_tree(parent: Node3D, info: Dictionary) -> void:
 	_add_mesh(s1, leaf, info["color"], Vector3(0.0, 0.3, 0.0))
 	parent.add_child(s1)
 
-	const TREE_GLB := "res://assets/models/nature/tree 3d model.glb"
+	const TREE_GLB := "res://assets/models/nature/tree.glb"
 	parent.add_child(_make_glb_model_stage("Stage2", TREE_GLB, 2.15))
 	parent.add_child(_make_glb_model_stage("Stage3", TREE_GLB, 3.05))
 

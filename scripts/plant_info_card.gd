@@ -1,18 +1,18 @@
-class_name AnimalInfoCard
+class_name PlantInfoCard
 extends Control
 
-## Minimal screen-space card: name + affinity / satiety / mood bars.
+## Screen-space card for aimed plants: stage + growth + fertilized.
 
 const CARD_WIDTH: float = 168.0
 const OFFSET := Vector2(18, -110)
 
 var _panel: PanelContainer
 var _name_lbl: Label
-var _aff_bar: ProgressBar
-var _sat_bar: ProgressBar
-var _mood_bar: ProgressBar
+var _stage_lbl: Label
+var _growth_bar: ProgressBar
+var _fert_lbl: Label
 var _target: Node3D
-var _needs: AnimalNeeds
+var _growth: CropGrowth
 var _camera: Camera3D
 
 
@@ -31,7 +31,7 @@ func _build_ui() -> void:
 	_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_panel.custom_minimum_size = Vector2(CARD_WIDTH, 0)
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.12, 0.14, 0.12, 0.82)
+	style.bg_color = Color(0.11, 0.15, 0.11, 0.84)
 	style.set_corner_radius_all(8)
 	style.content_margin_left = 10
 	style.content_margin_right = 10
@@ -51,9 +51,19 @@ func _build_ui() -> void:
 	_name_lbl.add_theme_color_override("font_color", Color(0.95, 0.93, 0.88))
 	vbox.add_child(_name_lbl)
 
-	_aff_bar = _add_stat_row(vbox, LocaleManager.t("Affinity"), Color(0.92, 0.55, 0.62))
-	_sat_bar = _add_stat_row(vbox, LocaleManager.t("Satiety"), Color(0.85, 0.72, 0.28))
-	_mood_bar = _add_stat_row(vbox, LocaleManager.t("Mood"), Color(0.45, 0.78, 0.55))
+	_stage_lbl = Label.new()
+	_stage_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_stage_lbl.add_theme_font_size_override("font_size", 11)
+	_stage_lbl.add_theme_color_override("font_color", Color(0.78, 0.82, 0.72))
+	vbox.add_child(_stage_lbl)
+
+	_growth_bar = _add_stat_row(vbox, LocaleManager.t("Growth"), Color(0.48, 0.78, 0.42))
+
+	_fert_lbl = Label.new()
+	_fert_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_fert_lbl.add_theme_font_size_override("font_size", 11)
+	_fert_lbl.add_theme_color_override("font_color", Color(0.72, 0.68, 0.42))
+	vbox.add_child(_fert_lbl)
 
 
 func _add_stat_row(parent: VBoxContainer, label_text: String, fill: Color) -> ProgressBar:
@@ -89,44 +99,54 @@ func _add_stat_row(parent: VBoxContainer, label_text: String, fill: Color) -> Pr
 	return bar
 
 
-func show_animal(animal: Node3D) -> void:
-	if animal == null or not is_instance_valid(animal):
+func show_plant(plant: Node3D) -> void:
+	if plant == null or not is_instance_valid(plant):
 		clear()
 		return
-	var needs := AnimalInteraction.get_needs(animal)
-	if needs == null:
+	var growth := plant.get_node_or_null("CropGrowth") as CropGrowth
+	if growth == null:
 		clear()
 		return
-	if _needs and _needs != needs and is_instance_valid(_needs):
-		if _needs.needs_changed.is_connected(_on_needs_changed):
-			_needs.needs_changed.disconnect(_on_needs_changed)
-	_target = animal
-	_needs = needs
-	if not _needs.needs_changed.is_connected(_on_needs_changed):
-		_needs.needs_changed.connect(_on_needs_changed)
-	_name_lbl.text = AnimalInteraction.get_display_name(animal)
-	_refresh_bars()
+	if _growth and _growth != growth and is_instance_valid(_growth):
+		if _growth.growth_changed.is_connected(_on_growth_changed):
+			_growth.growth_changed.disconnect(_on_growth_changed)
+	_target = plant
+	_growth = growth
+	if not _growth.growth_changed.is_connected(_on_growth_changed):
+		_growth.growth_changed.connect(_on_growth_changed)
+	_name_lbl.text = ItemData.get_item_name(plant.get_meta("item_type"))
+	_refresh()
 	visible = true
 
 
 func clear() -> void:
-	if _needs and is_instance_valid(_needs) and _needs.needs_changed.is_connected(_on_needs_changed):
-		_needs.needs_changed.disconnect(_on_needs_changed)
+	if _growth and is_instance_valid(_growth) and _growth.growth_changed.is_connected(_on_growth_changed):
+		_growth.growth_changed.disconnect(_on_growth_changed)
 	_target = null
-	_needs = null
+	_growth = null
 	visible = false
 
 
-func _on_needs_changed() -> void:
-	_refresh_bars()
+func _on_growth_changed() -> void:
+	_refresh()
 
 
-func _refresh_bars() -> void:
-	if _needs == null:
+func _refresh() -> void:
+	if _growth == null:
 		return
-	_aff_bar.value = _needs.affinity
-	_sat_bar.value = _needs.satiety
-	_mood_bar.value = _needs.mood
+	var stage := _growth.get_stage()
+	if _growth.is_mature():
+		_stage_lbl.text = LocaleManager.t("Ready to harvest")
+		_growth_bar.value = 100.0
+	else:
+		_stage_lbl.text = LocaleManager.tf("Stage %d / %d", [stage + 1, CropGrowth.STAGE_COUNT])
+		_growth_bar.value = _growth.get_total_progress()
+	_fert_lbl.text = (
+		LocaleManager.t("Fertilized (faster)")
+		if _growth.is_fertilized()
+		else LocaleManager.t("Not fertilized")
+	)
+	_fert_lbl.visible = not _growth.is_mature() or _growth.is_fertilized()
 
 
 func _process(_delta: float) -> void:
@@ -139,5 +159,5 @@ func _process(_delta: float) -> void:
 	if _camera.is_position_behind(_target.global_position):
 		clear()
 		return
-	var screen := _camera.unproject_position(_target.global_position + Vector3(0, 1.1, 0))
+	var screen := _camera.unproject_position(_target.global_position + Vector3(0, 0.85, 0))
 	position = screen + OFFSET

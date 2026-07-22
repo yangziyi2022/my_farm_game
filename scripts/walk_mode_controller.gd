@@ -25,6 +25,11 @@ const JOYSTICK_RADIUS: float = 64.0
 const JOYSTICK_DEADZONE: float = 0.18
 const VAULT_DURATION: float = 0.38
 const VAULT_HEIGHT: float = 0.75
+## Soft aim: pick nearest interactable near screen center (not only a hard ray).
+const AIM_SCREEN_RADIUS: float = 110.0
+const AIM_CELL_RADIUS: int = 3
+const AIM_STICKY_BONUS: float = 28.0
+const COMPOST_DROP_CHANCE: float = 0.28
 
 var grid_manager: GridManager
 var camera: Camera3D
@@ -33,6 +38,8 @@ var placement_controller: PlacementController
 var inventory_manager: InventoryManager
 
 var animal_info_card: AnimalInfoCard = null
+var plant_info_card: PlantInfoCard = null
+var _soft_aim_target: Node3D = null
 
 var state: State = State.OFF
 var _avatar: PlayerAvatar
@@ -71,7 +78,12 @@ var _hotbar_icons: Array[TextureRect] = []
 var _hotbar_counts: Array[Label] = []
 var _hotbar_selected: int = -1
 var _use_btn: Button
+var _rename_btn: Button
+var _rename_dialog: ConfirmationDialog
+var _rename_edit: LineEdit
+var _rename_target: Node3D = null
 var _hotbar_name_lbl: Label
+var _day_night_kept: CanvasItem = null
 var _use_highlight: MeshInstance3D
 var _stick_active: bool = false
 var _stick_pointer_id: int = -1  # -1 mouse, >=0 touch index
@@ -133,6 +145,9 @@ func exit_walk() -> void:
 		grid_manager.set_feed_attract(false)
 	if animal_info_card:
 		animal_info_card.clear()
+	if plant_info_card:
+		plant_info_card.clear()
+	_soft_aim_target = null
 	state = State.OFF
 	walk_ended.emit()
 	status_message.emit(LocaleManager.t("Back to build view"))
@@ -273,7 +288,7 @@ func _process(delta: float) -> void:
 		_update_use_button_label()
 		_update_hotbar_name_label()
 		_update_feed_attract()
-		_update_animal_aim_card()
+		_update_aim_cards()
 
 
 func _update_key_vec() -> void:
@@ -627,6 +642,8 @@ func _apply_use_impact(item: InventoryData.Item) -> void:
 		_:
 			if InventoryData.is_feedable(item):
 				_use_feed(item)
+			elif InventoryData.is_fertilizer(item):
+				_use_fertilizer(item)
 			elif _aimed_animal() != null:
 				_try_pet()
 			else:
@@ -634,10 +651,24 @@ func _apply_use_impact(item: InventoryData.Item) -> void:
 
 
 func _aimed_animal() -> Node3D:
+	var soft := _soft_aim_interactable()
+	if soft and ItemData.is_animal(soft.get_meta("item_type")):
+		return soft
 	for cell in _use_target_cells():
 		var animal := grid_manager.get_animal_at(cell)
 		if animal:
 			return animal
+	return null
+
+
+func _aimed_plant() -> Node3D:
+	var soft := _soft_aim_interactable()
+	if soft and ItemData.is_growable_plant(soft.get_meta("item_type")):
+		return soft
+	for cell in _use_target_cells():
+		var obj := grid_manager.get_content_at(cell)
+		if obj and ItemData.is_growable_plant(obj.get_meta("item_type")):
+			return obj
 	return null
 
 
@@ -651,7 +682,27 @@ func _try_pet() -> void:
 	if result.get("ok", false):
 		var ctrl := animal.get_node_or_null("AnimalController") as AnimalController
 		if ctrl:
-			ctrl.play_pet_react()
+			var from := _avatar.global_position if _avatar else Vector3.ZERO
+			ctrl.play_pet_react(from)
+
+
+func _use_fertilizer(item: InventoryData.Item) -> void:
+	if inventory_manager == null or not inventory_manager.has_item(item):
+		status_message.emit(LocaleManager.t("No %s left") % InventoryData.get_item_name(item))
+		return
+	var plant := _aimed_plant()
+	if plant == null:
+		status_message.emit(LocaleManager.t("Aim at a growing plant to fertilize"))
+		return
+	var growth := plant.get_node_or_null("CropGrowth") as CropGrowth
+	if growth == null:
+		status_message.emit(LocaleManager.t("Can't fertilize that"))
+		return
+	var result := growth.try_fertilize()
+	status_message.emit(str(result.get("message", "")))
+	if result.get("ok", false):
+		inventory_manager.remove_item(item, 1)
+		AudioManager.play("hoe")
 
 
 func _update_feed_attract() -> void:
@@ -664,16 +715,73 @@ func _update_feed_attract() -> void:
 		grid_manager.set_feed_attract(false)
 
 
-func _update_animal_aim_card() -> void:
-	if animal_info_card == null:
-		return
-	var animal := _raycast_view_animal()
-	if animal == null:
-		animal = _aimed_animal()
-	if animal:
-		animal_info_card.show_animal(animal)
-	else:
-		animal_info_card.clear()
+func _update_aim_cards() -> void:
+	## Soft-lock nearest animal or plant near the reticle; sticky so cards don't flicker.
+	var target := _soft_aim_interactable()
+	var animal: Node3D = null
+	var plant: Node3D = null
+	if target:
+		var item_type: ItemData.ItemType = target.get_meta("item_type")
+		if ItemData.is_animal(item_type):
+			animal = target
+		elif ItemData.is_growable_plant(item_type):
+			plant = target
+	if animal_info_card:
+		if animal:
+			animal_info_card.show_animal(animal)
+		else:
+			animal_info_card.clear()
+	if plant_info_card:
+		if plant:
+			plant_info_card.show_plant(plant)
+		else:
+			plant_info_card.clear()
+	_update_rename_button(animal)
+
+
+func _soft_aim_interactable() -> Node3D:
+	## Prefer animals slightly over plants when scores are close.
+	if camera == null or grid_manager == null or _avatar == null:
+		return null
+	var vp := camera.get_viewport()
+	if vp == null:
+		return null
+	var center: Vector2 = vp.get_visible_rect().size * 0.5
+	var best: Node3D = null
+	var best_score := INF
+	var origin := _avatar.grid_pos
+	for dx in range(-AIM_CELL_RADIUS, AIM_CELL_RADIUS + 1):
+		for dy in range(-AIM_CELL_RADIUS, AIM_CELL_RADIUS + 1):
+			var cell := Vector2i(origin.x + dx, origin.y + dy)
+			if not grid_manager.is_in_bounds(cell):
+				continue
+			var obj := grid_manager.get_content_at(cell)
+			if obj == null or not is_instance_valid(obj):
+				continue
+			var item_type: ItemData.ItemType = obj.get_meta("item_type")
+			var is_animal := ItemData.is_animal(item_type)
+			var is_plant := ItemData.is_growable_plant(item_type)
+			if not is_animal and not is_plant:
+				continue
+			if camera.is_position_behind(obj.global_position):
+				continue
+			var screen: Vector2 = camera.unproject_position(obj.global_position + Vector3(0, 0.6, 0))
+			var screen_dist := screen.distance_to(center)
+			if screen_dist > AIM_SCREEN_RADIUS:
+				continue
+			var world_dist := _avatar.global_position.distance_to(obj.global_position)
+			var score := screen_dist + world_dist * 14.0
+			if is_plant:
+				score += 10.0  # prefer animals when tied
+			if obj == _soft_aim_target:
+				score -= AIM_STICKY_BONUS
+			if score < best_score:
+				best_score = score
+				best = obj
+	if best == null:
+		best = _raycast_view_animal()
+	_soft_aim_target = best
+	return best
 
 
 func _raycast_view_animal() -> Node3D:
@@ -770,6 +878,12 @@ func _cell_is_useful_for(item: InventoryData.Item, cell: Vector2i) -> bool:
 		_:
 			if InventoryData.is_feedable(item):
 				return grid_manager.get_animal_at(cell) != null
+			if InventoryData.is_fertilizer(item):
+				var obj := grid_manager.get_content_at(cell)
+				if obj == null:
+					return false
+				var growth := obj.get_node_or_null("CropGrowth") as CropGrowth
+				return growth != null and not growth.is_mature() and not growth.is_fertilized()
 	return false
 
 
@@ -801,13 +915,30 @@ func _use_harvest() -> void:
 		if not grid_manager.is_plant_mature(cell):
 			continue
 		var plant := grid_manager.get_content_at(cell)
+		var plant_type = null
 		if plant:
+			plant_type = plant.get_meta("item_type")
 			HarvestEffect.play(plant)
 		AudioManager.play("harvest")
 		var harvest_item = grid_manager.harvest_plant(cell)
 		if harvest_item != null and inventory_manager:
 			inventory_manager.add_item(harvest_item)
-			status_message.emit(LocaleManager.t("Harvested %s!") % InventoryData.get_item_name(harvest_item))
+			# Occasional compost from non-tree crops fuels the fertilize loop.
+			if (
+				plant_type != null
+				and plant_type != ItemData.ItemType.TREE
+				and randf() < COMPOST_DROP_CHANCE
+			):
+				inventory_manager.add_item(InventoryData.Item.COMPOST, 1)
+				status_message.emit(
+					LocaleManager.tf("Harvested %s! (+compost)", [
+						InventoryData.get_item_name(harvest_item),
+					])
+				)
+			else:
+				status_message.emit(
+					LocaleManager.t("Harvested %s!") % InventoryData.get_item_name(harvest_item)
+				)
 			return
 	status_message.emit(LocaleManager.t("Nothing ready to harvest"))
 
@@ -889,8 +1020,17 @@ func _update_use_button_label() -> void:
 		return
 	if _fish_phase == 2:
 		_use_btn.text = LocaleManager.t("Reel")
-	elif _fish_phase == 1:
+		return
+	if _fish_phase == 1:
 		_use_btn.text = LocaleManager.t("Wait…")
+		return
+	var item = null
+	if _avatar:
+		item = _avatar.get_held_inventory_item()
+	if item == null:
+		_use_btn.text = LocaleManager.t("Pet") if _aimed_animal() else LocaleManager.t("Use")
+	elif InventoryData.is_fertilizer(item):
+		_use_btn.text = LocaleManager.t("Fertilize")
 	else:
 		_use_btn.text = LocaleManager.t("Use")
 
@@ -1110,6 +1250,104 @@ func _build_ui() -> void:
 	_use_btn.pressed.connect(_on_use_pressed)
 	_walk_hud.add_child(_use_btn)
 
+	_rename_btn = _make_hud_button(LocaleManager.t("Rename"), Color(0.55, 0.48, 0.32))
+	_rename_btn.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
+	_rename_btn.offset_left = -150.0
+	_rename_btn.offset_right = -36.0
+	_rename_btn.offset_top = 48.0
+	_rename_btn.offset_bottom = 108.0
+	_rename_btn.visible = false
+	_rename_btn.pressed.connect(_on_rename_pressed)
+	_walk_hud.add_child(_rename_btn)
+
+	_build_rename_dialog()
+
+
+func _build_rename_dialog() -> void:
+	_rename_dialog = ConfirmationDialog.new()
+	_rename_dialog.title = LocaleManager.t("Rename animal")
+	_rename_dialog.ok_button_text = LocaleManager.t("Save")
+	_rename_dialog.cancel_button_text = LocaleManager.t("Cancel")
+	_rename_dialog.dialog_hide_on_ok = false
+	_rename_dialog.exclusive = true
+	_rename_dialog.confirmed.connect(_on_rename_confirmed)
+	_rename_dialog.close_requested.connect(func() -> void:
+		_rename_dialog.hide()
+		_rename_target = null
+	)
+	_rename_dialog.canceled.connect(func() -> void:
+		_rename_target = null
+	)
+
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 10)
+	body.custom_minimum_size = Vector2(280, 0)
+
+	var hint := Label.new()
+	hint.text = LocaleManager.t("Enter a name (leave blank to reset)")
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.add_theme_font_size_override("font_size", 13)
+	body.add_child(hint)
+
+	_rename_edit = LineEdit.new()
+	_rename_edit.placeholder_text = LocaleManager.t("Animal name")
+	_rename_edit.max_length = 20
+	_rename_edit.clear_button_enabled = true
+	_rename_edit.virtual_keyboard_enabled = true
+	_rename_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_rename_edit.text_submitted.connect(func(_t: String) -> void:
+		_on_rename_confirmed()
+	)
+	body.add_child(_rename_edit)
+
+	_rename_dialog.add_child(body)
+	# Keep dialog above walk HUD.
+	_ui_layer.add_child(_rename_dialog)
+
+
+func _update_rename_button(animal: Node3D) -> void:
+	if _rename_btn == null:
+		return
+	_rename_btn.visible = animal != null and is_instance_valid(animal)
+
+
+func _on_rename_pressed() -> void:
+	var animal := _aimed_animal()
+	if animal == null:
+		status_message.emit(LocaleManager.t("Aim at an animal to rename"))
+		return
+	_rename_target = animal
+	_rename_dialog.title = LocaleManager.tf("Rename %s", [AnimalInteraction.get_display_name(animal)])
+	var current := ""
+	if animal.has_meta("custom_name"):
+		current = str(animal.get_meta("custom_name"))
+	_rename_edit.text = current
+	_rename_dialog.popup_centered(Vector2(340, 160))
+	_rename_edit.grab_focus()
+	_rename_edit.caret_column = _rename_edit.text.length()
+	# Mobile / tablet: force virtual keyboard.
+	_rename_edit.edit()
+
+
+func _on_rename_confirmed() -> void:
+	if _rename_dialog == null:
+		return
+	if _rename_target == null or not is_instance_valid(_rename_target):
+		_rename_dialog.hide()
+		_rename_target = null
+		return
+	var result := AnimalInteraction.set_custom_name(_rename_target, _rename_edit.text)
+	status_message.emit(str(result.get("message", "")))
+	if result.get("ok", false):
+		_rename_dialog.hide()
+		# Refresh card name immediately if still aimed.
+		if animal_info_card and animal_info_card.visible:
+			animal_info_card.show_animal(_rename_target)
+		_rename_target = null
+	else:
+		# Keep dialog open on failure.
+		_rename_edit.grab_focus()
+
 
 func _make_hotbar_slot(index: int) -> Button:
 	var btn := Button.new()
@@ -1277,6 +1515,8 @@ func _show_walk_hud() -> void:
 		_joystick.queue_redraw()
 	if _hotbar_selected < 0:
 		_hotbar_selected = 0
+	if _rename_btn:
+		_rename_btn.visible = false
 	_reset_walk_fish()
 	_refresh_hotbar()
 
@@ -1287,6 +1527,11 @@ func _hide_walk_hud() -> void:
 	_stick_active = false
 	_stick_vec = Vector2.ZERO
 	_hotbar_selected = -1
+	if _rename_btn:
+		_rename_btn.visible = false
+	if _rename_dialog and _rename_dialog.visible:
+		_rename_dialog.hide()
+	_rename_target = null
 	_reset_walk_fish()
 
 
@@ -1300,17 +1545,26 @@ func _is_pointer_over_walk_ui(screen_pos: Vector2) -> bool:
 			return true
 		if _use_btn and _use_btn.get_global_rect().has_point(screen_pos):
 			return true
+		if _rename_btn and _rename_btn.visible and _rename_btn.get_global_rect().has_point(screen_pos):
+			return true
 	return false
 
 
 func _hide_build_ui() -> void:
 	_build_ui_hidden.clear()
+	_day_night_kept = null
 	var ui := get_tree().current_scene.get_node_or_null("UI") if get_tree().current_scene else null
 	if ui == null:
 		return
 	for child in ui.get_children():
 		# Keep backpack available so hotbar tools can be rearranged mid-walk.
 		if child is InventoryBar:
+			continue
+		# Keep sun / moon on the walk UI layer so taps aren't blocked.
+		if child is TimeOfDayControls:
+			_day_night_kept = child as CanvasItem
+			if _ui_layer:
+				child.reparent(_ui_layer)
 			continue
 		if child is CanvasItem and (child as CanvasItem).visible:
 			_build_ui_hidden.append(child as CanvasItem)
@@ -1322,3 +1576,8 @@ func _restore_build_ui() -> void:
 		if item != null and is_instance_valid(item):
 			item.visible = true
 	_build_ui_hidden.clear()
+	if _day_night_kept != null and is_instance_valid(_day_night_kept):
+		var ui := get_tree().current_scene.get_node_or_null("UI") if get_tree().current_scene else null
+		if ui:
+			_day_night_kept.reparent(ui)
+	_day_night_kept = null

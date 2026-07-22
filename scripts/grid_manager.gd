@@ -1703,10 +1703,17 @@ func get_all_objects_data() -> Array:
 		}
 		if ItemData.is_growable_plant(obj.get_meta("item_type")):
 			entry["growth_stage"] = obj.get_meta("growth_stage", 0)
+			var growth := obj.get_node_or_null("CropGrowth") as CropGrowth
+			if growth:
+				entry.merge(growth.to_save_dict())
 		if ItemData.is_animal(obj.get_meta("item_type")):
 			var needs := obj.get_node_or_null("AnimalNeeds") as AnimalNeeds
 			if needs:
 				entry.merge(needs.to_save_dict())
+			if obj.has_meta("custom_name"):
+				var custom := str(obj.get_meta("custom_name")).strip_edges()
+				if not custom.is_empty():
+					entry["custom_name"] = custom
 		if has_terrain(anchor):
 			entry["ground"] = ItemData.get_item_id(_terrain[anchor].get_meta("item_type"))
 		result.append(entry)
@@ -2010,15 +2017,27 @@ func load_objects_data(data: Array) -> void:
 				place_object_silent(item_type, grid_pos, rotation, growth_stage)
 			continue
 		var obj := place_object_silent(item_type, grid_pos, rotation, growth_stage)
-		if obj and ItemData.is_animal(item_type) and (
-			entry.has("satiety") or entry.has("affinity") or entry.has("mood")
+		if obj and ItemData.is_growable_plant(item_type) and (
+			entry.has("fertilized") or entry.has("growth_elapsed")
 		):
-			var needs := obj.get_node_or_null("AnimalNeeds") as AnimalNeeds
-			if needs:
-				needs.apply_saved(
-					float(entry.get("satiety", AnimalNeeds.DEFAULT_SATIETY)),
-					float(entry.get("affinity", AnimalNeeds.DEFAULT_AFFINITY)),
-					float(entry.get("mood", AnimalNeeds.DEFAULT_MOOD))
+			var growth := obj.get_node_or_null("CropGrowth") as CropGrowth
+			if growth:
+				growth.apply_saved(
+					float(entry.get("growth_elapsed", 0.0)),
+					bool(entry.get("fertilized", false))
 				)
+		if obj and ItemData.is_animal(item_type):
+			if entry.has("custom_name"):
+				var custom := str(entry.get("custom_name", "")).strip_edges()
+				if not custom.is_empty():
+					obj.set_meta("custom_name", custom)
+			if entry.has("satiety") or entry.has("affinity") or entry.has("mood"):
+				var needs := obj.get_node_or_null("AnimalNeeds") as AnimalNeeds
+				if needs:
+					needs.apply_saved(
+						float(entry.get("satiety", AnimalNeeds.DEFAULT_SATIETY)),
+						float(entry.get("affinity", AnimalNeeds.DEFAULT_AFFINITY)),
+						float(entry.get("mood", AnimalNeeds.DEFAULT_MOOD))
+					)
 	_sync_grass_visibility()
 	repair_content_registry()

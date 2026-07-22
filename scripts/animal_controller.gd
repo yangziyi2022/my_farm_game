@@ -10,7 +10,8 @@ enum Species { GENERIC, CHICKEN, SHEEP, PIG, RABBIT, DUCK, COW }
 const WATER_SEEK_RADIUS: int = 3
 const FOOD_SEEK_RADIUS: int = 5
 const FOOD_SEEK_CHECK_INTERVAL: float = 0.45
-const PET_BOB_DURATION: float = 0.35
+const PET_BOB_DURATION: float = 0.55
+const PET_BOB_HEIGHT: float = 0.11
 
 @export var walk_speed: float = 0.35
 @export var wander_radius: float = 0.22
@@ -140,17 +141,66 @@ func _ground_pivot_y() -> float:
 	return _swim_pivot_y if (species == Species.DUCK and _is_on_water()) else _base_pivot_y
 
 
-func play_pet_react() -> void:
+func play_pet_react(from_world: Vector3 = Vector3.ZERO) -> void:
 	_pet_bob_t = PET_BOB_DURATION
+	if from_world != Vector3.ZERO and _root != null and is_instance_valid(_root):
+		var to := from_world - _root.global_position
+		to.y = 0.0
+		if to.length_squared() > 0.0001:
+			_target_angle = atan2(to.x, to.z)
+	_spawn_pet_hearts()
 
 
 func _update_pet_bob(delta: float) -> void:
-	if _pet_bob_t <= 0.0 or _pivot == null:
+	if _pivot == null:
+		return
+	if _pet_bob_t <= 0.0:
 		return
 	_pet_bob_t = maxf(0.0, _pet_bob_t - delta)
+	if _pet_bob_t <= 0.0:
+		_pivot.position.y = _ground_pivot_y()
+		if _gait_visual:
+			_gait_visual.rotation.z = 0.0
+		return
 	var t := 1.0 - (_pet_bob_t / PET_BOB_DURATION)
-	var bob := sin(t * PI) * 0.06
+	# Double bob + slight lean = readable “happy” reaction.
+	var bob := sin(t * TAU) * PET_BOB_HEIGHT * (1.0 - t * 0.35)
 	_pivot.position.y = _ground_pivot_y() + bob
+	if _gait_visual:
+		_gait_visual.rotation.z = sin(t * PI) * 0.12
+
+
+func _spawn_pet_hearts() -> void:
+	if _root == null or not is_instance_valid(_root):
+		return
+	var anchor := Node3D.new()
+	anchor.name = "PetHearts"
+	anchor.position = Vector3(0.0, 0.95, 0.0)
+	_root.add_child(anchor)
+	for i in range(4):
+		var heart := MeshInstance3D.new()
+		var mesh := SphereMesh.new()
+		mesh.radius = 0.045
+		mesh.height = 0.07
+		heart.mesh = mesh
+		var mat := StandardMaterial3D.new()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.albedo_color = Color(0.95, 0.35, 0.48, 0.95)
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		heart.material_override = mat
+		var ang := deg_to_rad(-25.0 + i * 18.0)
+		heart.position = Vector3(sin(ang) * 0.12, 0.05 * i, cos(ang) * 0.08)
+		anchor.add_child(heart)
+		var tween := heart.create_tween()
+		var rise := Vector3(heart.position.x * 1.4, 0.55 + i * 0.08, heart.position.z)
+		tween.set_parallel(true)
+		tween.tween_property(heart, "position", rise, 0.7 + i * 0.05) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+		tween.tween_property(mat, "albedo_color:a", 0.0, 0.7 + i * 0.05) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	var clear := anchor.create_tween()
+	clear.tween_interval(1.0)
+	clear.tween_callback(anchor.queue_free)
 
 
 func _needs_node() -> AnimalNeeds:
