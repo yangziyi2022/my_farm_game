@@ -2,21 +2,21 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://61t0mft58xr4"
-path.s3tc="res://.godot/imported/wheat_wheat+field+3d+model_normal.jpg-6668da556bc59f99cdf1320fbb49b02b.s3tc.ctex"
-path.etc2="res://.godot/imported/wheat_wheat+field+3d+model_normal.jpg-6668da556bc59f99cdf1320fbb49b02b.etc2.ctex"
+uid="uid://0nsjhbpj85qu"
+path.s3tc="res://.godot/imported/cow_low-poly+cow+3d+model_normal.jpg-26b3fc6010a60e2cca1f0fb3e187f4af.s3tc.ctex"
+path.etc2="res://.godot/imported/cow_low-poly+cow+3d+model_normal.jpg-26b3fc6010a60e2cca1f0fb3e187f4af.etc2.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
-"md5": "ea820755ce2abcd58560e3bb4e2aacb2"
+"md5": "e2cd7339a42ad7518aa3af6f9ac23f7b"
 }
 
 [deps]
 
-source_file="res://assets/models/crops/wheat_wheat+field+3d+model_normal.jpg"
-dest_files=["res://.godot/imported/wheat_wheat+field+3d+model_normal.jpg-6668da556bc59f99cdf1320fbb49b02b.s3tc.ctex", "res://.godot/imported/wheat_wheat+field+3d+model_normal.jpg-6668da556bc59f99cdf1320fbb49b02b.etc2.ctex"]
+source_file="res://assets/models/animals/cow_low-poly+cow+3d+model_normal.jpg"
+dest_files=["res://.godot/imported/cow_low-poly+cow+3d+model_normal.jpg-26b3fc6010a60e2cca1f0fb3e187f4af.s3tc.ctex", "res://.godot/imported/cow_low-poly+cow+3d+model_normal.jpg-26b3fc6010a60e2cca1f0fb3e187f4af.etc2.ctex"]
 
 [params]
 
@@ -31,7 +31,7 @@ compress/channel_pack=0
 mipmaps/generate=true
 mipmaps/limit=-1
 roughness/mode=1
-roughness/src_normal="res://assets/models/crops/wheat_wheat+field+3d+model_normal.jpg"
+roughness/src_normal="res://assets/models/animals/cow_low-poly+cow+3d+model_normal.jpg"
 process/channel_remap/red=0
 process/channel_remap/green=1
 process/channel_remap/blue=2

@@ -2,21 +2,21 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://2v5tyl4ic0eg"
-path.s3tc="res://.godot/imported/wheat_wheat+field+3d+model_basecolor.jpg-457f62154f861e981e935d9a01fc603a.s3tc.ctex"
-path.etc2="res://.godot/imported/wheat_wheat+field+3d+model_basecolor.jpg-457f62154f861e981e935d9a01fc603a.etc2.ctex"
+uid="uid://c5hwntms34ith"
+path.s3tc="res://.godot/imported/cow_low-poly+cow+3d+model_basecolor.jpg-0ab71b4293acbfbc14f845a689f20395.s3tc.ctex"
+path.etc2="res://.godot/imported/cow_low-poly+cow+3d+model_basecolor.jpg-0ab71b4293acbfbc14f845a689f20395.etc2.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
-"md5": "80ea69975d64fd5056873976e49a273c"
+"md5": "193515b19b40b8350c3dd0bfd25e63c9"
 }
 
 [deps]
 
-source_file="res://assets/models/crops/wheat_wheat+field+3d+model_basecolor.jpg"
-dest_files=["res://.godot/imported/wheat_wheat+field+3d+model_basecolor.jpg-457f62154f861e981e935d9a01fc603a.s3tc.ctex", "res://.godot/imported/wheat_wheat+field+3d+model_basecolor.jpg-457f62154f861e981e935d9a01fc603a.etc2.ctex"]
+source_file="res://assets/models/animals/cow_low-poly+cow+3d+model_basecolor.jpg"
+dest_files=["res://.godot/imported/cow_low-poly+cow+3d+model_basecolor.jpg-0ab71b4293acbfbc14f845a689f20395.s3tc.ctex", "res://.godot/imported/cow_low-poly+cow+3d+model_basecolor.jpg-0ab71b4293acbfbc14f845a689f20395.etc2.ctex"]
 
 [params]
 

@@ -2,21 +2,21 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://2v5tyl4ic0eg"
-path.s3tc="res://.godot/imported/wheat_wheat+field+3d+model_basecolor.jpg-457f62154f861e981e935d9a01fc603a.s3tc.ctex"
-path.etc2="res://.godot/imported/wheat_wheat+field+3d+model_basecolor.jpg-457f62154f861e981e935d9a01fc603a.etc2.ctex"
+uid="uid://r02qgpc0dev6"
+path.s3tc="res://.godot/imported/carrot_carrot+3d+model_basecolor.jpg-246b752e9bcd88d0b20be59a3de02275.s3tc.ctex"
+path.etc2="res://.godot/imported/carrot_carrot+3d+model_basecolor.jpg-246b752e9bcd88d0b20be59a3de02275.etc2.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
-"md5": "80ea69975d64fd5056873976e49a273c"
+"md5": "abe01b6c999ba092399e218db9164a67"
 }
 
 [deps]
 
-source_file="res://assets/models/crops/wheat_wheat+field+3d+model_basecolor.jpg"
-dest_files=["res://.godot/imported/wheat_wheat+field+3d+model_basecolor.jpg-457f62154f861e981e935d9a01fc603a.s3tc.ctex", "res://.godot/imported/wheat_wheat+field+3d+model_basecolor.jpg-457f62154f861e981e935d9a01fc603a.etc2.ctex"]
+source_file="res://assets/models/crops/carrot_carrot+3d+model_basecolor.jpg"
+dest_files=["res://.godot/imported/carrot_carrot+3d+model_basecolor.jpg-246b752e9bcd88d0b20be59a3de02275.s3tc.ctex", "res://.godot/imported/carrot_carrot+3d+model_basecolor.jpg-246b752e9bcd88d0b20be59a3de02275.etc2.ctex"]
 
 [params]
 

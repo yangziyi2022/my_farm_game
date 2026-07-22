@@ -207,6 +207,8 @@ static func _make_glb_model_stage(stage_name: String, glb_path: String, model_sc
 
 
 static func _build_growing_carrot(parent: Node3D, info: Dictionary) -> void:
+	## Seeds → sprouts → carrot planted in dirt (only greens/top show).
+	## Full carrot GLB is reserved for harvest float-up via HarvestVisual.
 	var leaf_color: Color = info.get("leaf_color", Color(0.25, 0.65, 0.22))
 
 	parent.add_child(_make_four_seed_stage(Color(0.45, 0.32, 0.18)))
@@ -215,16 +217,67 @@ static func _build_growing_carrot(parent: Node3D, info: Dictionary) -> void:
 	s1.name = "Stage1"
 	for i in range(4):
 		var angle := deg_to_rad(i * 90.0 + 20.0)
-		var pos := Vector3(cos(angle) * 0.22, 0.12, sin(angle) * 0.22)
+		var pos := Vector3(cos(angle) * 0.18, 0.1, sin(angle) * 0.18)
 		var sprout := BoxMesh.new()
-		sprout.size = Vector3(0.04, 0.12, 0.04)
+		sprout.size = Vector3(0.035, 0.1, 0.035)
 		_add_mesh(s1, sprout, leaf_color, pos)
 	parent.add_child(s1)
 
-	const CARROT_GLB := "res://assets/models/crops/carrot plants 3d model.glb"
-	# Godot-yaw −32° squares the soil bed to the grid; cover-fill the translucent cell.
-	parent.add_child(_make_wheat_model_stage("Stage2", CARROT_GLB, 1.0, -32.0, true))
-	parent.add_child(_make_wheat_model_stage("Stage3", CARROT_GLB, 1.06, -32.0, true))
+	const CARROT_GLB := "res://assets/models/crops/carrot.glb"
+	# Growing in soil: bury most of the root; leave a bit of orange/red above dirt.
+	parent.add_child(_make_carrot_planted_stage("Stage2", CARROT_GLB, 0.72, 0.42))
+	parent.add_child(_make_carrot_planted_stage("Stage3", CARROT_GLB, 0.82, 0.50))
+	# Hidden full carrot used by HarvestEffect when pulling from dirt.
+	parent.add_child(_make_carrot_harvest_visual(CARROT_GLB, 0.82))
+
+
+static func _make_carrot_planted_stage(
+	stage_name: String,
+	scene_path: String,
+	tile_fill: float,
+	above_frac: float
+) -> Node3D:
+	var node := Node3D.new()
+	node.name = stage_name
+	if not ResourceLoader.exists(scene_path):
+		push_warning("Carrot model missing: %s" % scene_path)
+		return node
+	var model: Node3D = (load(scene_path) as PackedScene).instantiate() as Node3D
+	model.name = "Model"
+	node.add_child(model)
+	_fit_crop_model_to_dirt_tile(model, tile_fill, false)
+	_bury_crop_in_dirt(model, above_frac)
+	return node
+
+
+static func _make_carrot_harvest_visual(scene_path: String, tile_fill: float) -> Node3D:
+	## Full unburied carrot — invisible until HarvestEffect duplicates it.
+	var node := Node3D.new()
+	node.name = "HarvestVisual"
+	node.visible = false
+	if not ResourceLoader.exists(scene_path):
+		return node
+	var model: Node3D = (load(scene_path) as PackedScene).instantiate() as Node3D
+	model.name = "Model"
+	node.add_child(model)
+	_fit_crop_model_to_dirt_tile(model, tile_fill, false)
+	return node
+
+
+static func _bury_crop_in_dirt(model: Node3D, above_frac: float) -> void:
+	## After tile-fit, sink so only `above_frac` of height sticks above dirt.
+	var frac := clampf(above_frac, 0.08, 1.0)
+	var space: Node3D = model.get_parent() as Node3D
+	var aabb: AABB
+	if space != null:
+		aabb = _collect_aabb_in_ancestor(space, model)
+	else:
+		aabb = _collect_local_aabb(model)
+	if aabb.size.y < 0.0001:
+		return
+	const DIRT_TOP_Y: float = 0.015
+	var bury := aabb.size.y * (1.0 - frac)
+	model.position.y += DIRT_TOP_Y - aabb.position.y - bury
 
 
 static func _build_growing_sunflower(parent: Node3D, info: Dictionary) -> void:
@@ -251,8 +304,8 @@ static func _build_growing_sunflower(parent: Node3D, info: Dictionary) -> void:
 	_add_mesh(s2, bud, info.get("center_color", Color(0.45, 0.32, 0.12)), Vector3(0.0, 0.42, 0.0))
 	parent.add_child(s2)
 
-	const SUNFLOWER_GLB := "res://assets/models/crops/sunflower 3d model.glb"
-	parent.add_child(_make_wheat_model_stage("Stage3", SUNFLOWER_GLB, 0.68))
+	const SUNFLOWER_GLB := "res://assets/models/crops/sunflower.glb"
+	parent.add_child(_make_wheat_model_stage("Stage3", SUNFLOWER_GLB, 0.72))
 
 
 static func _footprint_center_offset(footprint: Vector2i) -> Vector3:

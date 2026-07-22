@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://bench_placeable"]
 
-[ext_resource type="PackedScene" uid="uid://dt5c344barsra" path="res://assets/models/decorations/wooden park bench 3d model.glb" id="1_bench"]
+[ext_resource type="PackedScene" path="res://assets/models/decorations/bench.glb" id="1_bench"]
 
 [node name="BenchPlaceable" type="Node3D"]
 

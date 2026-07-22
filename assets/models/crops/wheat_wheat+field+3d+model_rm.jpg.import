@@ -2,7 +2,7 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://rr8o6d0ab0ba"
+uid="uid://6evvwu06pxtd"
 path.s3tc="res://.godot/imported/wheat_wheat+field+3d+model_rm.jpg-96883d3a3f3bb811f392576203f17311.s3tc.ctex"
 path.etc2="res://.godot/imported/wheat_wheat+field+3d+model_rm.jpg-96883d3a3f3bb811f392576203f17311.etc2.ctex"
 metadata={
@@ -10,7 +10,7 @@ metadata={
 "vram_texture": true
 }
 generator_parameters={
-"md5": "89031e76c2cf81c0f340b49c243ba122"
+"md5": "4ff2c66be7cdbdbe50ced4664a220a9a"
 }
 
 [deps]

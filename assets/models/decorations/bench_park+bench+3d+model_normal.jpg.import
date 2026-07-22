@@ -2,21 +2,21 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://61t0mft58xr4"
-path.s3tc="res://.godot/imported/wheat_wheat+field+3d+model_normal.jpg-6668da556bc59f99cdf1320fbb49b02b.s3tc.ctex"
-path.etc2="res://.godot/imported/wheat_wheat+field+3d+model_normal.jpg-6668da556bc59f99cdf1320fbb49b02b.etc2.ctex"
+uid="uid://co73eb5mxkl45"
+path.s3tc="res://.godot/imported/bench_park+bench+3d+model_normal.jpg-c4be88634abd55adaf72875a6c5799cf.s3tc.ctex"
+path.etc2="res://.godot/imported/bench_park+bench+3d+model_normal.jpg-c4be88634abd55adaf72875a6c5799cf.etc2.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
-"md5": "ea820755ce2abcd58560e3bb4e2aacb2"
+"md5": "14bc97036b8b736bd83b1afdb5d49026"
 }
 
 [deps]
 
-source_file="res://assets/models/crops/wheat_wheat+field+3d+model_normal.jpg"
-dest_files=["res://.godot/imported/wheat_wheat+field+3d+model_normal.jpg-6668da556bc59f99cdf1320fbb49b02b.s3tc.ctex", "res://.godot/imported/wheat_wheat+field+3d+model_normal.jpg-6668da556bc59f99cdf1320fbb49b02b.etc2.ctex"]
+source_file="res://assets/models/decorations/bench_park+bench+3d+model_normal.jpg"
+dest_files=["res://.godot/imported/bench_park+bench+3d+model_normal.jpg-c4be88634abd55adaf72875a6c5799cf.s3tc.ctex", "res://.godot/imported/bench_park+bench+3d+model_normal.jpg-c4be88634abd55adaf72875a6c5799cf.etc2.ctex"]
 
 [params]
 
@@ -31,7 +31,7 @@ compress/channel_pack=0
 mipmaps/generate=true
 mipmaps/limit=-1
 roughness/mode=1
-roughness/src_normal="res://assets/models/crops/wheat_wheat+field+3d+model_normal.jpg"
+roughness/src_normal="res://assets/models/decorations/bench_park+bench+3d+model_normal.jpg"
 process/channel_remap/red=0
 process/channel_remap/green=1
 process/channel_remap/blue=2

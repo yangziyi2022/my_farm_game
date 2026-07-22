@@ -2,21 +2,21 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://61t0mft58xr4"
-path.s3tc="res://.godot/imported/wheat_wheat+field+3d+model_normal.jpg-6668da556bc59f99cdf1320fbb49b02b.s3tc.ctex"
-path.etc2="res://.godot/imported/wheat_wheat+field+3d+model_normal.jpg-6668da556bc59f99cdf1320fbb49b02b.etc2.ctex"
+uid="uid://dfskjy672y6lk"
+path.s3tc="res://.godot/imported/sunflower_sunflower+3d+model_normal.jpg-e084a4c565d5c59df7c698765c795c67.s3tc.ctex"
+path.etc2="res://.godot/imported/sunflower_sunflower+3d+model_normal.jpg-e084a4c565d5c59df7c698765c795c67.etc2.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
-"md5": "ea820755ce2abcd58560e3bb4e2aacb2"
+"md5": "feb316f32fc83afa16fdbc848aef501a"
 }
 
 [deps]
 
-source_file="res://assets/models/crops/wheat_wheat+field+3d+model_normal.jpg"
-dest_files=["res://.godot/imported/wheat_wheat+field+3d+model_normal.jpg-6668da556bc59f99cdf1320fbb49b02b.s3tc.ctex", "res://.godot/imported/wheat_wheat+field+3d+model_normal.jpg-6668da556bc59f99cdf1320fbb49b02b.etc2.ctex"]
+source_file="res://assets/models/crops/sunflower_sunflower+3d+model_normal.jpg"
+dest_files=["res://.godot/imported/sunflower_sunflower+3d+model_normal.jpg-e084a4c565d5c59df7c698765c795c67.s3tc.ctex", "res://.godot/imported/sunflower_sunflower+3d+model_normal.jpg-e084a4c565d5c59df7c698765c795c67.etc2.ctex"]
 
 [params]
 
@@ -31,7 +31,7 @@ compress/channel_pack=0
 mipmaps/generate=true
 mipmaps/limit=-1
 roughness/mode=1
-roughness/src_normal="res://assets/models/crops/wheat_wheat+field+3d+model_normal.jpg"
+roughness/src_normal="res://assets/models/crops/sunflower_sunflower+3d+model_normal.jpg"
 process/channel_remap/red=0
 process/channel_remap/green=1
 process/channel_remap/blue=2

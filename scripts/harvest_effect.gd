@@ -44,6 +44,10 @@ static func play(plant_root: Node3D) -> void:
 
 
 static func _find_harvest_visual(plant_root: Node3D) -> Node3D:
+	## Prefer an explicit full harvest mesh (e.g. unburied carrot).
+	var harvest := plant_root.find_child("HarvestVisual", true, false) as Node3D
+	if harvest != null and is_instance_valid(harvest):
+		return harvest
 	## Stages may sit under SwayPivot after flower/sunflower mature polish.
 	for i in range(CropGrowth.STAGE_COUNT - 1, -1, -1):
 		var stage := plant_root.find_child("Stage%d" % i, true, false) as Node3D
