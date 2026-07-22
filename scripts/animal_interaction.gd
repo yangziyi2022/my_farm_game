@@ -18,22 +18,22 @@ static func try_feed(
 	## { ok, message, consumed }. Rejected food is not consumed.
 	var needs := get_needs(animal)
 	if needs == null:
-		return {"ok": false, "consumed": false, "message": "Can't feed that"}
+		return {"ok": false, "consumed": false, "message": LocaleManager.t("Can't feed that")}
 	var animal_type: ItemData.ItemType = animal.get_meta("item_type")
 	if not AnimalDiet.can_eat(animal_type, food):
 		return {
 			"ok": false,
 			"consumed": false,
-			"message": "%s won't eat %s" % [
+			"message": LocaleManager.tf("%s won't eat %s", [
 				ItemData.get_item_name(animal_type),
 				InventoryData.get_item_name(food),
-			],
+			]),
 		}
 	if inventory_manager and not inventory_manager.remove_item(food):
 		return {
 			"ok": false,
 			"consumed": false,
-			"message": "No %s left" % InventoryData.get_item_name(food),
+			"message": LocaleManager.tf("No %s left", [InventoryData.get_item_name(food)]),
 		}
 	var result := needs.try_feed(food)
 	AnimalFeedEffect.play(animal)
@@ -50,7 +50,7 @@ static func try_feed(
 static func try_pet(animal: Node3D) -> Dictionary:
 	var needs := get_needs(animal)
 	if needs == null:
-		return {"ok": false, "message": "Can't pet that"}
+		return {"ok": false, "message": LocaleManager.t("Can't pet that")}
 	var result := needs.try_pet()
 	if result.get("ok", false):
 		AudioManager.play_animal_for_item(

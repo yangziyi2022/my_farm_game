@@ -19,6 +19,7 @@ config/icon="res://icon.svg"
 
 PointerInput="*res://scripts/pointer_input.gd"
 AudioManager="*res://scripts/audio_manager.gd"
+LocaleManager="*res://scripts/locale_manager.gd"
 
 [display]
 

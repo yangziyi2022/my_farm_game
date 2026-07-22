@@ -105,7 +105,7 @@ func _install_dock_and_handle() -> void:
 	_toggle_btn.name = "PaletteSlideToggle"
 	_toggle_btn.focus_mode = Control.FOCUS_NONE
 	_toggle_btn.text = "«"
-	_toggle_btn.tooltip_text = "Hide / show menu"
+	_toggle_btn.tooltip_text = LocaleManager.t("Hide / show menu")
 	_toggle_btn.custom_minimum_size = _toggle_size
 	_toggle_btn.size = _toggle_size
 	_toggle_btn.z_index = 20
@@ -241,24 +241,24 @@ func _build_palette() -> void:
 	# Tools accordion: hammer -> hoe / harvest / rod
 	var tools_body := VBoxContainer.new()
 	tools_body.add_theme_constant_override("separation", 6 if _touch_layout else 4)
-	_hoe_btn = _make_child_button("Hoe")
+	_hoe_btn = _make_child_button(LocaleManager.t("Hoe"))
 	_hoe_btn.pressed.connect(_on_hoe_tool_pressed)
 	tools_body.add_child(_hoe_btn)
-	_harvest_btn = _make_child_button("Harvest")
+	_harvest_btn = _make_child_button(LocaleManager.t("Harvest"))
 	_harvest_btn.pressed.connect(_on_harvest_tool_pressed)
 	tools_body.add_child(_harvest_btn)
-	_rod_btn = _make_child_button("Rod")
+	_rod_btn = _make_child_button(LocaleManager.t("Rod"))
 	_rod_btn.pressed.connect(_on_rod_tool_pressed)
 	tools_body.add_child(_rod_btn)
-	_add_section(outer, "tools", "Tool", _icon_hammer(), Color(0.55, 0.45, 0.35), tools_body)
+	_add_section(outer, "tools", LocaleManager.t("Tool"), _icon_hammer(), Color(0.55, 0.45, 0.35), tools_body)
 
 	# Category accordions
 	var cat_meta := {
-		ItemData.Category.TERRAIN: {"id": "terrain", "title": "Terrain", "icon": _icon_dirt(), "color": Color(0.40, 0.26, 0.07)},
-		ItemData.Category.STRUCTURE: {"id": "buildings", "title": "Building", "icon": _icon_house(), "color": Color(0.7, 0.45, 0.35)},
-		ItemData.Category.ANIMAL: {"id": "animals", "title": "Animal", "icon": _icon_rabbit(), "color": Color(0.85, 0.75, 0.7)},
-		ItemData.Category.PLANT: {"id": "crops", "title": "Seed", "icon": _icon_pink_flower(), "color": Color(0.9, 0.55, 0.7)},
-		ItemData.Category.DECOR: {"id": "decor", "title": "Decoration", "icon": _icon_bulb(), "color": Color(0.95, 0.85, 0.35)},
+		ItemData.Category.TERRAIN: {"id": "terrain", "title": LocaleManager.t("Terrain"), "icon": _icon_dirt(), "color": Color(0.40, 0.26, 0.07)},
+		ItemData.Category.STRUCTURE: {"id": "buildings", "title": LocaleManager.t("Building"), "icon": _icon_house(), "color": Color(0.7, 0.45, 0.35)},
+		ItemData.Category.ANIMAL: {"id": "animals", "title": LocaleManager.t("Animal"), "icon": _icon_rabbit(), "color": Color(0.85, 0.75, 0.7)},
+		ItemData.Category.PLANT: {"id": "crops", "title": LocaleManager.t("Seed"), "icon": _icon_pink_flower(), "color": Color(0.9, 0.55, 0.7)},
+		ItemData.Category.DECOR: {"id": "decor", "title": LocaleManager.t("Decoration"), "icon": _icon_bulb(), "color": Color(0.95, 0.85, 0.35)},
 	}
 
 	for category in ItemData.CATEGORIES:

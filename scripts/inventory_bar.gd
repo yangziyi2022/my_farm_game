@@ -47,7 +47,7 @@ func _build_ui() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 	_backpack_btn = Button.new()
-	_backpack_btn.tooltip_text = "Open backpack"
+	_backpack_btn.tooltip_text = LocaleManager.t("Open backpack")
 	var pack_size := 76.0
 	_backpack_btn.custom_minimum_size = Vector2(pack_size, pack_size)
 	_backpack_btn.icon = _make_backpack_icon()
@@ -66,7 +66,7 @@ func _build_ui() -> void:
 	add_child(_backpack_btn)
 
 	_walk_btn = Button.new()
-	_walk_btn.tooltip_text = "Walk on your island"
+	_walk_btn.tooltip_text = LocaleManager.t("Walk on your island")
 	_walk_btn.custom_minimum_size = Vector2(pack_size, pack_size)
 	_walk_btn.icon = _make_walk_icon()
 	_walk_btn.expand_icon = true
@@ -117,17 +117,17 @@ func _build_ui() -> void:
 	var header := HBoxContainer.new()
 	vbox.add_child(header)
 	var title := Label.new()
-	title.text = "Backpack"
+	title.text = LocaleManager.t("Backpack")
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title.add_theme_font_size_override("font_size", 18)
 	header.add_child(title)
 	var close_btn := Button.new()
-	close_btn.text = "Close"
+	close_btn.text = LocaleManager.t("Close")
 	close_btn.pressed.connect(_close_panel)
 	header.add_child(close_btn)
 
 	var hotbar_hint := Label.new()
-	hotbar_hint.text = "Top row = walk hotbar (1–8) · Bottom-right = tools (∞)"
+	hotbar_hint.text = LocaleManager.t("Top row = walk hotbar (1–8) · Bottom-right = tools (∞)")
 	hotbar_hint.add_theme_font_size_override("font_size", 12)
 	hotbar_hint.add_theme_color_override("font_color", Color(0.55, 0.78, 0.85))
 	vbox.add_child(hotbar_hint)
@@ -412,7 +412,7 @@ func _refresh() -> void:
 		if InventoryData.is_hand_tool(item):
 			tip += "\nDrag to hotbar · Use while walking"
 		elif InventoryData.is_feedable(item):
-			tip += "\nFeed (species diet) · Click animal / Walk Use"
+			tip += "\n" + LocaleManager.t("Feed (species diet) · Click animal / Walk Use")
 		if i < HOTBAR_SIZE:
 			tip += "\nWalk hotbar slot %d" % (i + 1)
 		tip += "\nDrag to rearrange"

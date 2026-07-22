@@ -483,7 +483,7 @@ static func get_item_id(item_type: ItemType) -> String:
 
 
 static func get_item_name(item_type: ItemType) -> String:
-	return ITEMS[item_type]["name"]
+	return LocaleManager.t(str(ITEMS[item_type]["name"]))
 
 
 static func is_terrain(item_type: ItemType) -> bool:
@@ -608,7 +608,7 @@ static func get_icon(item_type: ItemType) -> Texture2D:
 static func get_display_name(item_type: ItemType) -> String:
 	var def := get_item_def(item_type)
 	if def and not def.display_name.is_empty():
-		return def.display_name
+		return LocaleManager.t(def.display_name)
 	return get_item_name(item_type)
 
 

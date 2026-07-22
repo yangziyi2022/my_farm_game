@@ -166,7 +166,7 @@ func enter_select_mode() -> void:
 	grid_manager.repair_content_registry()
 	_restore_all_pickable()
 	select_mode_requested.emit()
-	status_message.emit("Select — drag empty ground to box-select, then drag selection to move.")
+	status_message.emit(LocaleManager.t("Select — drag empty ground to box-select, then drag selection to move."))
 
 
 func enter_multiselect_mode() -> void:
@@ -188,7 +188,7 @@ func enter_multiselect_mode() -> void:
 	feed_mode_cancelled.emit()
 	grid_manager.repair_content_registry()
 	_restore_all_pickable()
-	status_message.emit("Multiselect — tap items to add/remove · use top Move / Rotate / Delete")
+	status_message.emit(LocaleManager.t("Multiselect — tap items to add/remove · use top Move / Rotate / Delete"))
 
 
 func enter_hoe_mode() -> void:
@@ -204,7 +204,7 @@ func enter_hoe_mode() -> void:
 	_show_hoe_cursor()
 	_ensure_tool_footprint()
 	feed_mode_cancelled.emit()
-	status_message.emit("Hoe — click grass to turn it into dirt paths.")
+	status_message.emit(LocaleManager.t("Hoe — click grass to turn it into dirt paths."))
 
 
 func enter_harvest_mode() -> void:
@@ -221,7 +221,7 @@ func enter_harvest_mode() -> void:
 	_show_sickle_cursor()
 	_ensure_tool_footprint()
 	feed_mode_cancelled.emit()
-	status_message.emit("Harvest — hold and slide over mature plants")
+	status_message.emit(LocaleManager.t("Harvest — hold and slide over mature plants"))
 
 
 func enter_fish_mode() -> void:
@@ -237,14 +237,14 @@ func enter_fish_mode() -> void:
 	feed_mode_cancelled.emit()
 	_show_rod_cursor()
 	_ensure_tool_footprint()
-	status_message.emit("Rod — click water to cast, wait for a bite, click again to reel in")
+	status_message.emit(LocaleManager.t("Rod — click water to cast, wait for a bite, click again to reel in"))
 
 
 func enter_feed_mode(item: InventoryData.Item) -> void:
 	if not InventoryData.is_feedable(item):
 		return
 	if inventory_manager and not inventory_manager.has_item(item):
-		status_message.emit("No %s left to feed" % InventoryData.get_item_name(item))
+		status_message.emit(LocaleManager.t("No %s left to feed") % InventoryData.get_item_name(item))
 		return
 	mode = Mode.FEED
 	feed_item = item
@@ -257,7 +257,7 @@ func enter_feed_mode(item: InventoryData.Item) -> void:
 	_hide_tool_cursor()
 	_remove_tool_footprint()
 	_show_cursor_overlay(InventoryData.get_item_name(item), InventoryData.get_color(item))
-	status_message.emit("Feed — click an animal with %s" % InventoryData.get_item_name(item))
+	status_message.emit(LocaleManager.t("Feed — click an animal with %s") % InventoryData.get_item_name(item))
 
 
 func set_selected_item(item_type: ItemData.ItemType) -> void:
@@ -276,16 +276,16 @@ func set_selected_item(item_type: ItemData.ItemType) -> void:
 	_update_ghost()
 	_hide_cursor_overlay()
 	if PointerInput.is_touch_ui():
-		status_message.emit("Place %s — tap a cell to place" % ItemData.get_item_name(item_type))
+		status_message.emit(LocaleManager.t("Place %s — tap a cell to place") % ItemData.get_item_name(item_type))
 	else:
-		status_message.emit("Place %s — hold/drag/release. R to rotate preview" % ItemData.get_item_name(item_type))
+		status_message.emit(LocaleManager.t("Place %s — hold/drag/release. R to rotate preview") % ItemData.get_item_name(item_type))
 
 
 func perform_undo() -> void:
 	if undo_manager and undo_manager.undo(grid_manager):
 		enter_select_mode()
 	else:
-		status_message.emit("Nothing to undo")
+		status_message.emit(LocaleManager.t("Nothing to undo"))
 
 
 func _process(_delta: float) -> void:
@@ -529,7 +529,7 @@ func _on_left_press(screen_pos: Vector2) -> void:
 			_drag_object = null
 			if not _selected_group.is_empty():
 				_clear_selected_group()
-				status_message.emit("Deselected")
+				status_message.emit(LocaleManager.t("Deselected"))
 			# Touch: skip marquee; Multiselect tool is for tap-to-add.
 			if not PointerInput.is_touch_ui():
 				_begin_marquee(screen_pos)
@@ -546,7 +546,7 @@ func _on_left_press(screen_pos: Vector2) -> void:
 		else:
 			if not _selected_group.is_empty():
 				_clear_selected_group()
-				status_message.emit("Deselected")
+				status_message.emit(LocaleManager.t("Deselected"))
 		return
 
 	# Fishing uses ground cell + session state (cast → wait → reel).
@@ -556,11 +556,11 @@ func _on_left_press(screen_pos: Vector2) -> void:
 		if _fish_phase == 2:
 			_reel_in_fish()
 		elif _fish_phase == 1:
-			status_message.emit("Patience — wait for the rod to shake")
+			status_message.emit(LocaleManager.t("Patience — wait for the rod to shake"))
 		elif _is_valid_cell(fish_cell):
 			_on_fish_click(fish_cell)
 		else:
-			status_message.emit("Cast only on water")
+			status_message.emit(LocaleManager.t("Cast only on water"))
 		return
 
 	# Harvest: press starts a swipe path over mature plants.
@@ -584,9 +584,9 @@ func _on_left_press(screen_pos: Vector2) -> void:
 				AudioManager.play("hoe")
 				if tool_cursor:
 					tool_cursor.play_hoe_dig()
-				status_message.emit("Hoed grass at (%d, %d)" % [grid_pos.x, grid_pos.y])
+				status_message.emit(LocaleManager.t("Hoed grass at (%d, %d)") % [grid_pos.x, grid_pos.y])
 			else:
-				status_message.emit("Hoe only works on grass")
+				status_message.emit(LocaleManager.t("Hoe only works on grass"))
 		Mode.FEED:
 			_try_feed(grid_pos, hit_obj)
 
@@ -663,21 +663,21 @@ func _begin_place_drag() -> void:
 		_report_cannot_place(_place_commit_pos)
 		return
 	_place_drag = true
-	status_message.emit("Release to place at ghost cell")
+	status_message.emit(LocaleManager.t("Release to place at ghost cell"))
 
 
 func _commit_place_at(place_pos: Vector2i) -> void:
 	if not _is_valid_cell(place_pos):
-		status_message.emit("Cancelled place")
+		status_message.emit(LocaleManager.t("Cancelled place"))
 		return
 	if grid_manager.can_place_at(place_pos, selected_item, _place_rotation):
 		var placed := grid_manager.place_object(selected_item, place_pos, _place_rotation)
 		if placed != null or selected_item == ItemData.ItemType.GRASS:
 			AudioManager.play("place")
 		if selected_item == ItemData.ItemType.GRASS:
-			status_message.emit("Cleared to grass floor at (%d, %d)" % [place_pos.x, place_pos.y])
+			status_message.emit(LocaleManager.t("Cleared to grass floor at (%d, %d)") % [place_pos.x, place_pos.y])
 		else:
-			status_message.emit("Placed %s at (%d, %d)" % [
+			status_message.emit(LocaleManager.t("Placed %s at (%d, %d)") % [
 				ItemData.get_item_name(selected_item), place_pos.x, place_pos.y
 			])
 		if placed == null and selected_item != ItemData.ItemType.GRASS:
@@ -693,7 +693,7 @@ func _report_cannot_place(place_pos: Vector2i) -> void:
 	):
 		need_hoe_hint.emit()
 		return
-	status_message.emit("Cannot place here")
+	status_message.emit(LocaleManager.t("Cannot place here"))
 
 
 func _is_selectable(obj: Node3D) -> bool:
@@ -734,7 +734,7 @@ func _select_placed_object(obj: Node3D) -> void:
 	_drag_origin = obj.get_meta("grid_pos")
 	_drag_hover = _drag_origin
 	_drag_object.position = grid_manager.grid_to_world(_drag_origin)
-	status_message.emit("Selected 1 — hold-drag to move, or box-select more on empty ground")
+	status_message.emit(LocaleManager.t("Selected 1 — hold-drag to move, or box-select more on empty ground"))
 
 
 func _toggle_multiselect(obj: Node3D) -> void:
@@ -749,11 +749,11 @@ func _toggle_multiselect(obj: Node3D) -> void:
 		next.append(obj)
 	_set_selected_group(next)
 	if next.is_empty():
-		status_message.emit("Deselected")
+		status_message.emit(LocaleManager.t("Deselected"))
 	elif removing:
-		status_message.emit("Selected %d — tap more or use top actions" % next.size())
+		status_message.emit(LocaleManager.t("Selected %d — tap more or use top actions") % next.size())
 	else:
-		status_message.emit("Selected %d — tap more or use top actions" % next.size())
+		status_message.emit(LocaleManager.t("Selected %d — tap more or use top actions") % next.size())
 
 
 func _on_selection_changed(obj: Node3D) -> void:
@@ -882,7 +882,7 @@ func _begin_marquee(screen_pos: Vector2) -> void:
 	_marquee_start = screen_pos
 	_ensure_marquee_ui()
 	_update_marquee_visual(screen_pos)
-	status_message.emit("Box select — drag to cover items, release to select")
+	status_message.emit(LocaleManager.t("Box select — drag to cover items, release to select"))
 
 
 func _cancel_marquee() -> void:
@@ -917,7 +917,7 @@ func _finish_marquee(screen_pos: Vector2) -> void:
 	_cancel_marquee()
 	if not dragged:
 		_clear_selected_group()
-		status_message.emit("Deselected")
+		status_message.emit(LocaleManager.t("Deselected"))
 		return
 
 	var a := _marquee_start
@@ -936,9 +936,9 @@ func _finish_marquee(screen_pos: Vector2) -> void:
 
 	_set_selected_group(picked)
 	if picked.is_empty():
-		status_message.emit("Nothing selected")
+		status_message.emit(LocaleManager.t("Nothing selected"))
 	else:
-		status_message.emit("Selected %d — drag any selected item to move the group" % picked.size())
+		status_message.emit(LocaleManager.t("Selected %d — drag any selected item to move the group") % picked.size())
 
 
 func _prepare_group_drag(anchor_obj: Node3D) -> void:
@@ -1080,7 +1080,7 @@ func _commit_group_drag(target: Vector2i) -> void:
 		return
 	if not _can_drop_group_at(delta):
 		_snap_group_home()
-		status_message.emit("Cannot move selection there")
+		status_message.emit(LocaleManager.t("Cannot move selection there"))
 		return
 	var moves: Array = []
 	for obj in _selected_group:
@@ -1091,10 +1091,10 @@ func _commit_group_drag(target: Vector2i) -> void:
 			_group_origins[obj] = obj.get_meta("grid_pos")
 		_drag_origin = _group_origins[_selected_group[0]]
 		_drag_hover = _drag_origin
-		status_message.emit("Moved %d items" % _selected_group.size())
+		status_message.emit(LocaleManager.t("Moved %d items") % _selected_group.size())
 	else:
 		_snap_group_home()
-		status_message.emit("Cannot move selection there")
+		status_message.emit(LocaleManager.t("Cannot move selection there"))
 
 
 func _can_drop_drag_at(target: Vector2i) -> bool:
@@ -1186,7 +1186,7 @@ func _end_object_drag() -> void:
 func _try_harvest(grid_pos: Vector2i, quiet: bool = false) -> bool:
 	if not _is_valid_cell(grid_pos) or not grid_manager.is_plant_mature(grid_pos):
 		if not quiet:
-			status_message.emit("Nothing ready to harvest here")
+			status_message.emit(LocaleManager.t("Nothing ready to harvest here"))
 		return false
 	var plant := grid_manager.get_content_at(grid_pos)
 	if plant:
@@ -1195,14 +1195,14 @@ func _try_harvest(grid_pos: Vector2i, quiet: bool = false) -> bool:
 	var harvest_item = grid_manager.harvest_plant(grid_pos)
 	if harvest_item == null:
 		if not quiet:
-			status_message.emit("Nothing ready to harvest here")
+			status_message.emit(LocaleManager.t("Nothing ready to harvest here"))
 		return false
 	if tool_cursor:
 		tool_cursor.play_sickle_swing()
 	if inventory_manager:
 		inventory_manager.add_item(harvest_item)
 	if not quiet:
-		status_message.emit("Harvested %s!" % InventoryData.get_item_name(harvest_item))
+		status_message.emit(LocaleManager.t("Harvested %s!") % InventoryData.get_item_name(harvest_item))
 	return true
 
 
@@ -1213,7 +1213,7 @@ func _begin_harvest_swipe(screen_pos: Vector2) -> void:
 	_harvest_last_cell = cell if _is_valid_cell(cell) else Vector2i(-9999, -9999)
 	if _try_harvest(cell, true):
 		_harvest_swipe_count = 1
-		status_message.emit("Harvested!")
+		status_message.emit(LocaleManager.t("Harvested!"))
 
 
 func _update_harvest_swipe() -> void:
@@ -1239,7 +1239,7 @@ func _update_harvest_swipe() -> void:
 			gained += 1
 	if gained > 0:
 		_harvest_swipe_count += gained
-		status_message.emit("Harvested %d" % _harvest_swipe_count)
+		status_message.emit(LocaleManager.t("Harvested %d") % _harvest_swipe_count)
 
 
 func _end_harvest_swipe() -> void:
@@ -1247,9 +1247,9 @@ func _end_harvest_swipe() -> void:
 		return
 	_harvest_swiping = false
 	if _harvest_swipe_count > 1:
-		status_message.emit("Harvested %d plants" % _harvest_swipe_count)
+		status_message.emit(LocaleManager.t("Harvested %d plants") % _harvest_swipe_count)
 	elif _harvest_swipe_count == 0:
-		status_message.emit("Nothing ready along that path")
+		status_message.emit(LocaleManager.t("Nothing ready along that path"))
 	_harvest_swipe_count = 0
 	_harvest_last_cell = Vector2i(-9999, -9999)
 
@@ -1289,7 +1289,7 @@ func _on_fish_click(grid_pos: Vector2i) -> void:
 	match _fish_phase:
 		0:
 			if not grid_manager.try_fish(grid_pos):
-				status_message.emit("Cast only on water")
+				status_message.emit(LocaleManager.t("Cast only on water"))
 				return
 			_fish_cell = grid_pos
 			_fish_water_pos = grid_manager.grid_to_world(grid_pos) + Vector3(0.0, 0.05, 0.0)
@@ -1298,9 +1298,9 @@ func _on_fish_click(grid_pos: Vector2i) -> void:
 			AudioManager.play("fishing_drop")
 			if tool_cursor:
 				tool_cursor.play_rod_cast(_fish_water_pos)
-			status_message.emit("Line cast — wait for a bite…")
+			status_message.emit(LocaleManager.t("Line cast — wait for a bite…"))
 		1:
-			status_message.emit("Patience — wait for the rod to shake")
+			status_message.emit(LocaleManager.t("Patience — wait for the rod to shake"))
 		2:
 			_reel_in_fish()
 		_:
@@ -1316,7 +1316,7 @@ func _update_fishing(delta: float) -> void:
 	_fish_phase = 2
 	if tool_cursor:
 		tool_cursor.start_rod_bite_shake()
-	status_message.emit("Bite! Click again to reel in the fish!")
+	status_message.emit(LocaleManager.t("Bite! Click again to reel in the fish!"))
 
 
 func _reel_in_fish() -> void:
@@ -1327,7 +1327,7 @@ func _reel_in_fish() -> void:
 	if tool_cursor:
 		tool_cursor.stop_rod_session()
 	_reset_fishing_session()
-	status_message.emit("Caught a fish!")
+	status_message.emit(LocaleManager.t("Caught a fish!"))
 	# Keep rod mode ready for another cast.
 	if tool_cursor and mode == Mode.FISH:
 		tool_cursor.show_rod()
@@ -1343,7 +1343,7 @@ func _reset_fishing_session() -> void:
 
 func _try_feed(grid_pos: Vector2i, hit_obj: Node3D) -> void:
 	if hit_obj == null or not ItemData.is_animal(hit_obj.get_meta("item_type")):
-		status_message.emit("Click an animal to feed")
+		status_message.emit(LocaleManager.t("Click an animal to feed"))
 		return
 	var result := AnimalInteraction.try_feed(hit_obj, feed_item, inventory_manager)
 	status_message.emit(str(result.get("message", "")))
@@ -1394,7 +1394,7 @@ func _on_left_release(screen_pos: Vector2) -> void:
 		if not _is_valid_cell(place_pos):
 			place_pos = _ghost_grid_pos
 		if not _is_valid_cell(place_pos):
-			status_message.emit("Cancelled place")
+			status_message.emit(LocaleManager.t("Cancelled place"))
 			return
 		_commit_place_at(place_pos)
 		return
@@ -1404,7 +1404,7 @@ func _on_left_release(screen_pos: Vector2) -> void:
 		var target := _raycast_ground_cell(screen_pos)
 		if not _is_valid_cell(target):
 			_snap_group_home()
-			status_message.emit("Move cancelled")
+			status_message.emit(LocaleManager.t("Move cancelled"))
 		else:
 			_commit_group_drag(target)
 		_end_group_drag()
@@ -1417,7 +1417,7 @@ func _on_left_release(screen_pos: Vector2) -> void:
 		var target := _raycast_ground_cell(screen_pos)
 		if not _is_valid_cell(target):
 			_snap_drag_home()
-			status_message.emit("Move cancelled")
+			status_message.emit(LocaleManager.t("Move cancelled"))
 		elif target == _drag_origin:
 			_snap_drag_home()
 		elif _can_drop_drag_at(target) and grid_manager.move_object(_drag_origin, target):
@@ -1425,10 +1425,10 @@ func _on_left_release(screen_pos: Vector2) -> void:
 			_drag_hover = target
 			if _group_origins.has(_drag_object):
 				_group_origins[_drag_object] = target
-			status_message.emit("Moved to (%d, %d)" % [target.x, target.y])
+			status_message.emit(LocaleManager.t("Moved to (%d, %d)") % [target.x, target.y])
 		else:
 			_snap_drag_home()
-			status_message.emit("Cannot move there")
+			status_message.emit(LocaleManager.t("Cannot move there"))
 		_end_object_drag()
 		if grid_manager.get_selected() == _drag_object:
 			_drag_origin = _drag_object.get_meta("grid_pos")
@@ -1459,9 +1459,9 @@ func _on_right_click(screen_pos: Vector2) -> void:
 		if _selected_group.has(hit_obj):
 			_refresh_group_footprints()
 		if ok:
-			status_message.emit("Rotated %s" % ItemData.get_item_name(hit_obj.get_meta("item_type")))
+			status_message.emit(LocaleManager.t("Rotated %s") % ItemData.get_item_name(hit_obj.get_meta("item_type")))
 		else:
-			status_message.emit("Rotated — red means blocked, move or rotate again")
+			status_message.emit(LocaleManager.t("Rotated — red means blocked, move or rotate again"))
 
 
 func _rotate_place_preview() -> void:
@@ -1470,7 +1470,7 @@ func _rotate_place_preview() -> void:
 		_ghost.set_meta("rotation", _place_rotation)
 		GridManager.apply_placeable_yaw(_ghost, _place_rotation, ItemData.get_footprint(selected_item))
 		_apply_ghost_at_cell(_ghost_grid_pos)
-	status_message.emit("Facing %d° — still placing %s" % [
+	status_message.emit(LocaleManager.t("Facing %d° — still placing %s") % [
 		_place_rotation * 90,
 		ItemData.get_item_name(selected_item),
 	])
@@ -1503,11 +1503,11 @@ func _rotate_selected() -> void:
 			_refresh_group_footprints()
 			_show_selection_actions()
 			if any_blocked:
-				status_message.emit("Rotated — red means blocked, move or rotate again")
+				status_message.emit(LocaleManager.t("Rotated — red means blocked, move or rotate again"))
 			else:
-				status_message.emit("Rotated %d item(s)" % rotated)
+				status_message.emit(LocaleManager.t("Rotated %d item(s)") % rotated)
 		else:
-			status_message.emit("This item can't rotate")
+			status_message.emit(LocaleManager.t("This item can't rotate"))
 		return
 	var selected := grid_manager.get_selected()
 	if selected:
@@ -1516,9 +1516,9 @@ func _rotate_selected() -> void:
 		_refresh_group_footprints()
 		_show_selection_actions()
 		if ok:
-			status_message.emit("Rotated object")
+			status_message.emit(LocaleManager.t("Rotated object"))
 		else:
-			status_message.emit("Rotated — red means blocked, move or rotate again")
+			status_message.emit(LocaleManager.t("Rotated — red means blocked, move or rotate again"))
 
 
 func _delete_selected() -> void:
@@ -1538,13 +1538,13 @@ func _delete_selected() -> void:
 			undo_manager.end_batch()
 		if deleted > 0:
 			AudioManager.play("delete")
-		status_message.emit("Deleted %d items" % deleted)
+		status_message.emit(LocaleManager.t("Deleted %d items") % deleted)
 		return
 	var selected := grid_manager.get_selected()
 	if selected:
 		grid_manager.remove_node(selected)
 		AudioManager.play("delete")
-		status_message.emit("Deleted object")
+		status_message.emit(LocaleManager.t("Deleted object"))
 		enter_select_mode()
 
 
@@ -1574,7 +1574,7 @@ func _cancel_action() -> void:
 	_remove_tool_footprint()
 	mode = Mode.SELECT
 	select_mode_requested.emit()
-	status_message.emit("Cancelled — selection cleared")
+	status_message.emit(LocaleManager.t("Cancelled — selection cleared"))
 
 
 func _show_cursor_overlay(text: String, color: Color) -> void:
@@ -1732,7 +1732,7 @@ func _on_selection_move_pressed() -> void:
 		_begin_group_drag()
 	else:
 		_begin_object_drag(_selected_group[0])
-	status_message.emit("Move — drag to position · tap nearby to drop")
+	status_message.emit(LocaleManager.t("Move — drag to position · tap nearby to drop"))
 
 
 func _on_selection_copy_pressed() -> void:
@@ -1793,7 +1793,7 @@ func _start_copy_extend(src: Node3D) -> void:
 	_hide_selection_actions()
 	_ensure_action_bar()
 	_action_bar.show_confirm_at_top(false)
-	status_message.emit("Copy — drag to extend · green ✓ to place · ✕ to cancel")
+	status_message.emit(LocaleManager.t("Copy — drag to extend · green ✓ to place · ✕ to cancel"))
 
 
 func _update_copy_extend_from_pointer() -> void:
@@ -1900,7 +1900,7 @@ func _confirm_copy_extend() -> void:
 	if not _copy_extend_active:
 		return
 	if not _copy_all_valid or _copy_cells.is_empty():
-		status_message.emit("Can't place — clear obstacles or cancel")
+		status_message.emit(LocaleManager.t("Can't place — clear obstacles or cancel"))
 		return
 	var cells: Array[Vector2i] = _copy_cells.duplicate()
 	var item_type := _copy_item_type
@@ -1932,7 +1932,7 @@ func _confirm_copy_extend() -> void:
 	_restore_selection_drag_anchor()
 	if not _selected_group.is_empty():
 		_show_selection_actions()
-	status_message.emit("Copied %d item(s)" % placed)
+	status_message.emit(LocaleManager.t("Copied %d item(s)") % placed)
 
 
 func _cancel_copy_extend() -> void:
@@ -1949,7 +1949,7 @@ func _cancel_copy_extend() -> void:
 	_restore_selection_drag_anchor()
 	if not _selected_group.is_empty():
 		_show_selection_actions()
-	status_message.emit("Copy cancelled")
+	status_message.emit(LocaleManager.t("Copy cancelled"))
 
 
 func _start_group_copy() -> void:
@@ -1984,7 +1984,7 @@ func _start_group_copy() -> void:
 		})
 	if _group_copy_entries.is_empty():
 		_group_copy_active = false
-		status_message.emit("Nothing to copy")
+		status_message.emit(LocaleManager.t("Nothing to copy"))
 		return
 
 	_hide_selection_actions()
@@ -1992,7 +1992,7 @@ func _start_group_copy() -> void:
 	_rebuild_group_copy_ghosts()
 	_refresh_group_copy_confirm_state()
 	_action_bar.show_confirm_at_top(_copy_all_valid)
-	status_message.emit("Copy group — drag to place · green ✓ to confirm · ✕ to cancel")
+	status_message.emit(LocaleManager.t("Copy group — drag to place · green ✓ to confirm · ✕ to cancel"))
 
 
 func _update_group_copy_from_pointer() -> void:
@@ -2056,7 +2056,7 @@ func _confirm_group_copy() -> void:
 	if not _group_copy_active:
 		return
 	if not _copy_all_valid or _group_copy_entries.is_empty() or _group_copy_delta == Vector2i.ZERO:
-		status_message.emit("Can't place — drag to a free spot or cancel")
+		status_message.emit(LocaleManager.t("Can't place — drag to a free spot or cancel"))
 		return
 	var entries: Array[Dictionary] = _group_copy_entries.duplicate(true)
 	var delta := _group_copy_delta
@@ -2089,7 +2089,7 @@ func _confirm_group_copy() -> void:
 	_restore_selection_drag_anchor()
 	if not _selected_group.is_empty():
 		_show_selection_actions()
-	status_message.emit("Copied %d item(s)" % placed)
+	status_message.emit(LocaleManager.t("Copied %d item(s)") % placed)
 
 
 func _cancel_group_copy() -> void:
@@ -2104,7 +2104,7 @@ func _cancel_group_copy() -> void:
 	_restore_selection_drag_anchor()
 	if not _selected_group.is_empty():
 		_show_selection_actions()
-	status_message.emit("Copy cancelled")
+	status_message.emit(LocaleManager.t("Copy cancelled"))
 
 
 func _pin_copy_source_home() -> void:
@@ -2137,10 +2137,10 @@ func _commit_menu_move(_screen_pos: Vector2) -> void:
 	if _group_dragging and not _selected_group.is_empty():
 		if not _is_valid_cell(target):
 			_snap_group_home()
-			status_message.emit("Move cancelled")
+			status_message.emit(LocaleManager.t("Move cancelled"))
 		elif not _can_drop_group_at(target - _drag_origin):
 			_snap_group_home()
-			status_message.emit("Cannot move there")
+			status_message.emit(LocaleManager.t("Cannot move there"))
 		else:
 			_commit_group_drag(target)
 		_end_group_drag()
@@ -2148,20 +2148,20 @@ func _commit_menu_move(_screen_pos: Vector2) -> void:
 	elif _dragging and _drag_object and is_instance_valid(_drag_object):
 		if not _is_valid_cell(target):
 			_snap_drag_home()
-			status_message.emit("Move cancelled")
+			status_message.emit(LocaleManager.t("Move cancelled"))
 		elif target == _drag_origin:
 			_snap_drag_home()
-			status_message.emit("Stay put")
+			status_message.emit(LocaleManager.t("Stay put"))
 		elif _can_drop_drag_at(target) and grid_manager.move_object(_drag_origin, target):
 			_clear_menu_move_visual(_drag_object)
 			_drag_origin = target
 			_drag_hover = target
 			if _group_origins.has(_drag_object):
 				_group_origins[_drag_object] = target
-			status_message.emit("Moved to (%d, %d)" % [target.x, target.y])
+			status_message.emit(LocaleManager.t("Moved to (%d, %d)") % [target.x, target.y])
 		else:
 			_snap_drag_home()
-			status_message.emit("Cannot move there")
+			status_message.emit(LocaleManager.t("Cannot move there"))
 		_end_object_drag()
 		if is_instance_valid(_drag_object):
 			_drag_origin = _drag_object.get_meta("grid_pos")

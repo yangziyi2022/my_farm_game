@@ -69,25 +69,24 @@ func try_feed(food: InventoryData.Item) -> Dictionary:
 		return {
 			"ok": false,
 			"favorite": false,
-			"message": "%s won't eat %s" % [
+			"message": LocaleManager.tf("%s won't eat %s", [
 				ItemData.get_item_name(_animal_type),
 				InventoryData.get_item_name(food),
-			],
+			]),
 		}
 	var favorite := AnimalDiet.is_favorite(_animal_type, food)
 	satiety = clampf(satiety + AnimalDiet.satiety_restore(_animal_type, food), 0.0, 100.0)
 	affinity = clampf(affinity + AnimalDiet.affinity_restore(_animal_type, food), 0.0, 100.0)
 	_recompute_mood(0.0)
 	needs_changed.emit()
-	var verb := "loved" if favorite else "ate"
+	var key := "%s loved the %s!" if favorite else "%s ate the %s!"
 	return {
 		"ok": true,
 		"favorite": favorite,
-		"message": "%s %s the %s!" % [
+		"message": LocaleManager.tf(key, [
 			ItemData.get_item_name(_animal_type),
-			verb,
 			InventoryData.get_item_name(food),
-		],
+		]),
 	}
 
 
@@ -96,7 +95,7 @@ func try_pet() -> Dictionary:
 	if _pet_cooldown > 0.0:
 		return {
 			"ok": false,
-			"message": "%s needs a moment" % ItemData.get_item_name(_animal_type),
+			"message": LocaleManager.tf("%s needs a moment", [ItemData.get_item_name(_animal_type)]),
 		}
 	_pet_cooldown = PET_COOLDOWN_SEC
 	affinity = clampf(affinity + PET_AFFINITY_GAIN, 0.0, 100.0)
@@ -104,7 +103,7 @@ func try_pet() -> Dictionary:
 	needs_changed.emit()
 	return {
 		"ok": true,
-		"message": "Pet %s (+affinity)" % ItemData.get_item_name(_animal_type),
+		"message": LocaleManager.tf("Pet %s (+affinity)", [ItemData.get_item_name(_animal_type)]),
 	}
 
 

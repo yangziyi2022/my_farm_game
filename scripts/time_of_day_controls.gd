@@ -32,14 +32,14 @@ func setup(day_night: DayNightCycle, grid_manager: GridManager = null) -> void:
 	grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	add_theme_constant_override("separation", 12)
 
-	var sun_btn := _make_icon_button(_icon_sun(), "Morning — jump to sunrise")
+	var sun_btn := _make_icon_button(_icon_sun(), LocaleManager.t("Morning — jump to sunrise"))
 	sun_btn.pressed.connect(func() -> void:
 		if day_night:
 			day_night.jump_to_sunrise()
 	)
 	add_child(sun_btn)
 
-	var moon_btn := _make_icon_button(_icon_moon(), "Night — jump to moonrise")
+	var moon_btn := _make_icon_button(_icon_moon(), LocaleManager.t("Night — jump to moonrise"))
 	moon_btn.pressed.connect(func() -> void:
 		if day_night:
 			day_night.jump_to_moonrise()
@@ -74,17 +74,17 @@ func _install_island_size_bar() -> void:
 	ui.add_child(_island_bar)
 
 	# Select · Multi · Mute · Music · Shrink · Expand · Undo · Save
-	_select_btn = _make_text_button("Select", Color(0.35, 0.55, 0.85))
+	_select_btn = _make_text_button(LocaleManager.t("Select"), Color(0.35, 0.55, 0.85))
 	_select_btn.toggle_mode = true
 	_select_btn.pressed.connect(func() -> void: select_pressed.emit())
 	_island_bar.add_child(_select_btn)
 
-	_multiselect_btn = _make_text_button("Multi", Color(0.4, 0.7, 0.75))
+	_multiselect_btn = _make_text_button(LocaleManager.t("Multi"), Color(0.4, 0.7, 0.75))
 	_multiselect_btn.toggle_mode = true
 	_multiselect_btn.pressed.connect(func() -> void: multiselect_pressed.emit())
 	_island_bar.add_child(_multiselect_btn)
 
-	_mute_btn = _make_icon_button(_icon_speaker(not AudioManager.is_muted()), "Mute all sound")
+	_mute_btn = _make_icon_button(_icon_speaker(not AudioManager.is_muted()), LocaleManager.t("Mute all sound"))
 	_mute_btn.pressed.connect(_on_mute_pressed)
 	_island_bar.add_child(_mute_btn)
 	AudioManager.mute_changed.connect(_on_mute_changed)
@@ -92,29 +92,29 @@ func _install_island_size_bar() -> void:
 
 	_music_btn = _make_icon_button(
 		_icon_music_note(not AudioManager.is_music_muted()),
-		"Mute / unmute background music"
+		LocaleManager.t("Mute / unmute background music")
 	)
 	_music_btn.pressed.connect(_on_music_mute_pressed)
 	_island_bar.add_child(_music_btn)
 	AudioManager.music_mute_changed.connect(_on_music_mute_changed)
 	_refresh_music_icon()
 
-	_shrink_btn = _make_icon_button(_icon_shrink(), "Shrink island — toward original size")
+	_shrink_btn = _make_icon_button(_icon_shrink(), LocaleManager.t("Shrink island — toward original size"))
 	_shrink_btn.pressed.connect(_on_shrink_pressed)
 	_island_bar.add_child(_shrink_btn)
 
-	_expand_btn = _make_icon_button(_icon_expand(), "Expand island — grow playable floor")
+	_expand_btn = _make_icon_button(_icon_expand(), LocaleManager.t("Expand island — grow playable floor"))
 	_expand_btn.pressed.connect(_on_expand_pressed)
 	_island_bar.add_child(_expand_btn)
 	if _grid_manager == null:
 		_shrink_btn.visible = false
 		_expand_btn.visible = false
 
-	_undo_btn = _make_text_button("Undo", Color(0.78, 0.28, 0.28))
+	_undo_btn = _make_text_button(LocaleManager.t("Undo"), Color(0.78, 0.28, 0.28))
 	_undo_btn.pressed.connect(func() -> void: undo_pressed.emit())
 	_island_bar.add_child(_undo_btn)
 
-	_save_btn = _make_text_button("Save", Color(0.18, 0.48, 0.28))
+	_save_btn = _make_text_button(LocaleManager.t("Save"), Color(0.18, 0.48, 0.28))
 	_save_btn.pressed.connect(func() -> void: save_pressed.emit())
 	_island_bar.add_child(_save_btn)
 
@@ -183,7 +183,7 @@ func _refresh_mute_icon() -> void:
 	if _mute_btn == null:
 		return
 	_mute_btn.icon = _icon_speaker(not AudioManager.is_muted())
-	_mute_btn.tooltip_text = "Unmute all" if AudioManager.is_muted() else "Mute all"
+	_mute_btn.tooltip_text = LocaleManager.t("Unmute all") if AudioManager.is_muted() else LocaleManager.t("Mute all")
 
 
 func _refresh_music_icon() -> void:
@@ -191,7 +191,7 @@ func _refresh_music_icon() -> void:
 		return
 	var on := not AudioManager.is_music_muted()
 	_music_btn.icon = _icon_music_note(on)
-	_music_btn.tooltip_text = "Unmute music" if AudioManager.is_music_muted() else "Mute music only"
+	_music_btn.tooltip_text = LocaleManager.t("Unmute music") if AudioManager.is_music_muted() else LocaleManager.t("Mute music only")
 
 
 func _on_expand_pressed() -> void:
@@ -201,26 +201,26 @@ func _on_expand_pressed() -> void:
 	if _grid_manager.expand_island():
 		var new_r := _grid_manager.get_play_radius()
 		expand_done.emit(
-			"Island expanded %.1f → %.1f (+%.1f)" % [old_r, new_r, new_r - old_r]
+			LocaleManager.tf("Island expanded %.1f → %.1f (+%.1f)", [old_r, new_r, new_r - old_r])
 		)
 	else:
-		expand_done.emit("Island is already at max size.")
+		expand_done.emit(LocaleManager.t("Island is already at max size."))
 
 
 func _on_shrink_pressed() -> void:
 	if _grid_manager == null:
 		return
 	if _grid_manager.shrink_blocked_by_content():
-		expand_done.emit("Can't shrink — move or remove items near the edge first")
+		expand_done.emit(LocaleManager.t("Can't shrink — move or remove items near the edge first"))
 		return
 	var old_r := _grid_manager.get_play_radius()
 	if _grid_manager.shrink_island():
 		var new_r := _grid_manager.get_play_radius()
 		expand_done.emit(
-			"Island shrunk %.1f → %.1f (−%.1f)" % [old_r, new_r, old_r - new_r]
+			LocaleManager.tf("Island shrunk %.1f → %.1f (−%.1f)", [old_r, new_r, old_r - new_r])
 		)
 	else:
-		expand_done.emit("Island is already at original size.")
+		expand_done.emit(LocaleManager.t("Island is already at original size."))
 
 
 func _on_play_radius_changed(_new_radius: float) -> void:

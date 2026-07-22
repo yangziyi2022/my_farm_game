@@ -51,9 +51,9 @@ func _build_ui() -> void:
 	_name_lbl.add_theme_color_override("font_color", Color(0.95, 0.93, 0.88))
 	vbox.add_child(_name_lbl)
 
-	_aff_bar = _add_stat_row(vbox, "Affinity", Color(0.92, 0.55, 0.62))
-	_sat_bar = _add_stat_row(vbox, "Satiety", Color(0.85, 0.72, 0.28))
-	_mood_bar = _add_stat_row(vbox, "Mood", Color(0.45, 0.78, 0.55))
+	_aff_bar = _add_stat_row(vbox, LocaleManager.t("Affinity"), Color(0.92, 0.55, 0.62))
+	_sat_bar = _add_stat_row(vbox, LocaleManager.t("Satiety"), Color(0.85, 0.72, 0.28))
+	_mood_bar = _add_stat_row(vbox, LocaleManager.t("Mood"), Color(0.45, 0.78, 0.55))
 
 
 func _add_stat_row(parent: VBoxContainer, label_text: String, fill: Color) -> ProgressBar:

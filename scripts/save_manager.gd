@@ -85,7 +85,7 @@ static func create_world(display_name: String = "") -> String:
 	ensure_ready()
 	var name := display_name.strip_edges()
 	if name.is_empty():
-		name = "My Farm %d" % (list_worlds().size() + 1)
+		name = LocaleManager.tf("My Farm %d", [list_worlds().size() + 1])
 	var id := _make_world_id()
 	DirAccess.make_dir_recursive_absolute(_world_dir(id))
 	var now := int(Time.get_unix_time_from_system())
@@ -253,24 +253,24 @@ static func has_save() -> bool:
 static func format_island_size(play_radius: float) -> String:
 	var r := play_radius
 	if r <= GridManager.DEFAULT_PLAY_RADIUS + 0.05:
-		return "Island · starter"
+		return LocaleManager.t("Island · starter")
 	var steps := int(round((r - GridManager.DEFAULT_PLAY_RADIUS) / GridManager.EXPAND_STEP))
-	return "Island · +%d expand" % maxi(steps, 1)
+	return LocaleManager.tf("Island · +%d expand", [maxi(steps, 1)])
 
 
 static func format_last_played(unix_ts: int) -> String:
 	if unix_ts <= 0:
-		return "Never played"
+		return LocaleManager.t("Never played")
 	var now := int(Time.get_unix_time_from_system())
 	var delta := maxi(now - unix_ts, 0)
 	if delta < 60:
-		return "Just now"
+		return LocaleManager.t("Just now")
 	if delta < 3600:
-		return "%d min ago" % int(delta / 60.0)
+		return LocaleManager.tf("%d min ago", [int(delta / 60.0)])
 	if delta < 86400:
-		return "%d hr ago" % int(delta / 3600.0)
+		return LocaleManager.tf("%d hr ago", [int(delta / 3600.0)])
 	if delta < 86400 * 7:
-		return "%d days ago" % int(delta / 86400.0)
+		return LocaleManager.tf("%d days ago", [int(delta / 86400.0)])
 	var dt := Time.get_datetime_dict_from_unix_time(unix_ts)
 	return "%04d-%02d-%02d" % [dt.year, dt.month, dt.day]
 
@@ -325,6 +325,16 @@ static func _save_settings(settings: Dictionary) -> void:
 		return
 	file.store_string(JSON.stringify(settings, "\t"))
 	file.close()
+
+
+static func load_settings_dict() -> Dictionary:
+	ensure_ready()
+	return _load_settings()
+
+
+static func save_settings_dict(settings: Dictionary) -> void:
+	ensure_ready()
+	_save_settings(settings)
 
 
 static func _migrate_legacy_if_needed() -> void:

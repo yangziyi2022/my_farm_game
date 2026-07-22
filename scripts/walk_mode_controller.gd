@@ -135,7 +135,7 @@ func exit_walk() -> void:
 		animal_info_card.clear()
 	state = State.OFF
 	walk_ended.emit()
-	status_message.emit("Back to build view")
+	status_message.emit(LocaleManager.t("Back to build view"))
 
 
 func _enter_placing() -> void:
@@ -151,14 +151,14 @@ func _enter_placing() -> void:
 	_set_ghost_cell(start)
 	_show_place_hint()
 	_hide_walk_hud()
-	status_message.emit("Walk — drag yellow figure · tap again to drop in")
+	status_message.emit(LocaleManager.t("Walk — drag yellow figure · tap again to drop in"))
 
 
 func _try_confirm_place() -> void:
 	if state != State.PLACING:
 		return
 	if not grid_manager.player_can_stand_at(_ghost_cell):
-		status_message.emit("Can't stand here — try grass, path, bridge, or bench")
+		status_message.emit(LocaleManager.t("Can't stand here — try grass, path, bridge, or bench"))
 		return
 	_start_walking(_ghost_cell)
 
@@ -188,7 +188,7 @@ func _start_walking(cell: Vector2i) -> void:
 			_look_pitch = clampf(_look_pitch, LOOK_PITCH_MIN, LOOK_PITCH_MAX)
 	_apply_follow_camera(true)
 	walk_started.emit()
-	status_message.emit("Exploring — joystick to move · swipe to look · Exit to leave")
+	status_message.emit(LocaleManager.t("Exploring — joystick to move · swipe to look · Exit to leave"))
 
 
 func _world_stand_pos(cell: Vector2i) -> Vector3:
@@ -630,7 +630,7 @@ func _apply_use_impact(item: InventoryData.Item) -> void:
 			elif _aimed_animal() != null:
 				_try_pet()
 			else:
-				status_message.emit("Waved %s" % InventoryData.get_item_name(item))
+				status_message.emit(LocaleManager.t("Waved %s") % InventoryData.get_item_name(item))
 
 
 func _aimed_animal() -> Node3D:
@@ -644,7 +644,7 @@ func _aimed_animal() -> Node3D:
 func _try_pet() -> void:
 	var animal := _aimed_animal()
 	if animal == null:
-		status_message.emit("Look at / face an animal to pet")
+		status_message.emit(LocaleManager.t("Look at / face an animal to pet"))
 		return
 	var result := AnimalInteraction.try_pet(animal)
 	status_message.emit(str(result.get("message", "")))
@@ -791,9 +791,9 @@ func _use_hoe() -> void:
 	var cell := _resolve_use_cell()
 	if grid_manager.hoe_grass(cell):
 		AudioManager.play("hoe")
-		status_message.emit("Tilled dirt")
+		status_message.emit(LocaleManager.t("Tilled dirt"))
 	else:
-		status_message.emit("Can't hoe here")
+		status_message.emit(LocaleManager.t("Can't hoe here"))
 
 
 func _use_harvest() -> void:
@@ -807,18 +807,18 @@ func _use_harvest() -> void:
 		var harvest_item = grid_manager.harvest_plant(cell)
 		if harvest_item != null and inventory_manager:
 			inventory_manager.add_item(harvest_item)
-			status_message.emit("Harvested %s!" % InventoryData.get_item_name(harvest_item))
+			status_message.emit(LocaleManager.t("Harvested %s!") % InventoryData.get_item_name(harvest_item))
 			return
-	status_message.emit("Nothing ready to harvest")
+	status_message.emit(LocaleManager.t("Nothing ready to harvest"))
 
 
 func _use_rod() -> void:
 	if _fish_phase == 1:
-		status_message.emit("Wait for a bite…")
+		status_message.emit(LocaleManager.t("Wait for a bite…"))
 		return
 	var cell := _resolve_use_cell()
 	if not grid_manager.try_fish(cell):
-		status_message.emit("Need water or a pond ahead")
+		status_message.emit(LocaleManager.t("Need water or a pond ahead"))
 		return
 	_fish_phase = 1
 	_fish_cell = cell
@@ -827,7 +827,7 @@ func _use_rod() -> void:
 	AudioManager.play("fishing_drop")
 	if _avatar:
 		_avatar.set_fishing_line_target(_fish_water_pos, false)
-	status_message.emit("Line cast — wait, then Use again")
+	status_message.emit(LocaleManager.t("Line cast — wait, then Use again"))
 	_update_use_button_label()
 
 
@@ -842,7 +842,7 @@ func _update_walk_fishing(delta: float) -> void:
 		AudioManager.play("ui_click")
 		if _avatar:
 			_avatar.set_fishing_line_target(_fish_water_pos, true)
-		status_message.emit("Bite! Press Use to reel in")
+		status_message.emit(LocaleManager.t("Bite! Press Use to reel in"))
 		_update_use_button_label()
 	elif _fish_phase == 2:
 		if _avatar:
@@ -858,7 +858,7 @@ func _reel_walk_fish() -> void:
 	if grid_manager:
 		FishCatchEffect.play(grid_manager.objects_container, _fish_water_pos)
 	_reset_walk_fish()
-	status_message.emit("Caught a fish!")
+	status_message.emit(LocaleManager.t("Caught a fish!"))
 
 
 func _reset_walk_fish() -> void:
@@ -881,18 +881,18 @@ func _use_feed(item: InventoryData.Item) -> void:
 		if result.get("ok", false):
 			_apply_held_from_hotbar()
 		return
-	status_message.emit("Look at / face an animal to feed")
+	status_message.emit(LocaleManager.t("Look at / face an animal to feed"))
 
 
 func _update_use_button_label() -> void:
 	if _use_btn == null:
 		return
 	if _fish_phase == 2:
-		_use_btn.text = "Reel"
+		_use_btn.text = LocaleManager.t("Reel")
 	elif _fish_phase == 1:
-		_use_btn.text = "Wait…"
+		_use_btn.text = LocaleManager.t("Wait…")
 	else:
-		_use_btn.text = "Use"
+		_use_btn.text = LocaleManager.t("Use")
 
 
 func _update_hotbar_name_label() -> void:
@@ -1027,7 +1027,7 @@ func _build_ui() -> void:
 
 	_place_hint = Label.new()
 	_place_hint.visible = false
-	_place_hint.text = "Drag figure · tap to enter"
+	_place_hint.text = LocaleManager.t("Drag figure · tap to enter")
 	_place_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_place_hint.add_theme_font_size_override("font_size", 18)
 	_place_hint.add_theme_color_override("font_color", Color(1, 0.95, 0.75))
@@ -1044,7 +1044,7 @@ func _build_ui() -> void:
 	_walk_hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_ui_layer.add_child(_walk_hud)
 
-	_exit_btn = _make_hud_button("Exit", Color(0.75, 0.3, 0.28))
+	_exit_btn = _make_hud_button(LocaleManager.t("Exit"), Color(0.75, 0.3, 0.28))
 	_exit_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	_exit_btn.offset_left = -140.0
 	_exit_btn.offset_top = 56.0
@@ -1101,7 +1101,7 @@ func _build_ui() -> void:
 	_hotbar_name_lbl.text = ""
 	_walk_hud.add_child(_hotbar_name_lbl)
 
-	_use_btn = _make_hud_button("Use", Color(0.35, 0.55, 0.75))
+	_use_btn = _make_hud_button(LocaleManager.t("Use"), Color(0.35, 0.55, 0.75))
 	_use_btn.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
 	_use_btn.offset_left = -150.0
 	_use_btn.offset_right = -36.0

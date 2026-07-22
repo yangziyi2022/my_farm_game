@@ -27,17 +27,36 @@ var _rename_target: String = ""
 var _delete_dialog: ConfirmationDialog
 var _delete_target: String = ""
 
+var _brand: Label
+var _tag: Label
+var _btn_new: Button
+var _btn_load: Button
+var _btn_exit: Button
+var _worlds_header: Label
+var _hint: Label
+var _lang_label: Label
+var _lang_en_btn: Button
+var _lang_zh_btn: Button
+
 
 func _ready() -> void:
 	SaveManager.ensure_ready()
 	AudioManager.play_music("day", true)
 	_build_ui()
+	_apply_locale_texts()
 	_refresh_worlds()
 	var last := SaveManager.get_last_world_id()
 	if SaveManager.world_exists(last):
 		_select_world(last)
 	resized.connect(_update_content_margins)
 	_update_content_margins()
+	if not LocaleManager.locale_changed.is_connected(_on_locale_changed):
+		LocaleManager.locale_changed.connect(_on_locale_changed)
+
+
+func _on_locale_changed(_locale: String) -> void:
+	_apply_locale_texts()
+	_refresh_worlds()
 
 
 func _build_ui() -> void:
@@ -68,47 +87,61 @@ func _build_ui() -> void:
 	col.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	center.add_child(col)
 
-	var brand := Label.new()
-	brand.text = "Cozy Farm"
-	brand.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	brand.add_theme_font_size_override("font_size", 42)
-	brand.add_theme_color_override("font_color", Color(0.32, 0.22, 0.12, 1.0))
-	brand.add_theme_color_override("font_shadow_color", Color(1, 1, 1, 0.35))
-	brand.add_theme_constant_override("shadow_offset_x", 1)
-	brand.add_theme_constant_override("shadow_offset_y", 1)
-	col.add_child(brand)
+	_brand = Label.new()
+	_brand.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_brand.add_theme_font_size_override("font_size", 42)
+	_brand.add_theme_color_override("font_color", Color(0.32, 0.22, 0.12, 1.0))
+	_brand.add_theme_color_override("font_shadow_color", Color(1, 1, 1, 0.35))
+	_brand.add_theme_constant_override("shadow_offset_x", 1)
+	_brand.add_theme_constant_override("shadow_offset_y", 1)
+	col.add_child(_brand)
 
-	var tag := Label.new()
-	tag.text = "Build your island · grow your world"
-	tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	tag.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	tag.add_theme_font_size_override("font_size", 14)
-	tag.add_theme_color_override("font_color", Color(0.42, 0.34, 0.22, 0.95))
-	col.add_child(tag)
+	_tag = Label.new()
+	_tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_tag.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_tag.add_theme_font_size_override("font_size", 14)
+	_tag.add_theme_color_override("font_color", Color(0.42, 0.34, 0.22, 0.95))
+	col.add_child(_tag)
+
+	var lang_row := HBoxContainer.new()
+	lang_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	lang_row.add_theme_constant_override("separation", 8)
+	col.add_child(lang_row)
+
+	_lang_label = Label.new()
+	_lang_label.add_theme_font_size_override("font_size", 13)
+	_lang_label.add_theme_color_override("font_color", Color(0.38, 0.3, 0.18, 0.95))
+	lang_row.add_child(_lang_label)
+
+	_lang_en_btn = _make_lang_btn("English", LocaleManager.LOCALE_EN)
+	_lang_zh_btn = _make_lang_btn("繁體中文", LocaleManager.LOCALE_ZH_TW)
+	lang_row.add_child(_lang_en_btn)
+	lang_row.add_child(_lang_zh_btn)
 
 	var actions := HBoxContainer.new()
 	actions.alignment = BoxContainer.ALIGNMENT_CENTER
 	actions.add_theme_constant_override("separation", 10)
 	col.add_child(actions)
 
-	actions.add_child(_make_main_btn("New Game", Color(0.45, 0.62, 0.35), _on_new_game))
-	actions.add_child(_make_main_btn("Load Game", Color(0.4, 0.55, 0.7), _on_load_game))
-	actions.add_child(_make_main_btn("Exit", Color(0.7, 0.45, 0.38), _on_exit))
+	_btn_new = _make_main_btn("", Color(0.45, 0.62, 0.35), _on_new_game)
+	_btn_load = _make_main_btn("", Color(0.4, 0.55, 0.7), _on_load_game)
+	_btn_exit = _make_main_btn("", Color(0.7, 0.45, 0.38), _on_exit)
+	actions.add_child(_btn_new)
+	actions.add_child(_btn_load)
+	actions.add_child(_btn_exit)
 
-	var worlds_header := Label.new()
-	worlds_header.text = "Worlds"
-	worlds_header.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	worlds_header.add_theme_font_size_override("font_size", 20)
-	worlds_header.add_theme_color_override("font_color", Color(0.3, 0.22, 0.12, 1.0))
-	col.add_child(worlds_header)
+	_worlds_header = Label.new()
+	_worlds_header.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_worlds_header.add_theme_font_size_override("font_size", 20)
+	_worlds_header.add_theme_color_override("font_color", Color(0.3, 0.22, 0.12, 1.0))
+	col.add_child(_worlds_header)
 
-	var hint := Label.new()
-	hint.text = "Tap to select · Long-press to rename or delete"
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hint.add_theme_font_size_override("font_size", 12)
-	hint.add_theme_color_override("font_color", Color(0.45, 0.38, 0.28, 0.9))
-	col.add_child(hint)
+	_hint = Label.new()
+	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_hint.add_theme_font_size_override("font_size", 12)
+	_hint.add_theme_color_override("font_color", Color(0.45, 0.38, 0.28, 0.9))
+	col.add_child(_hint)
 
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -135,8 +168,6 @@ func _build_ui() -> void:
 	add_child(_press_timer)
 
 	_rename_dialog = AcceptDialog.new()
-	_rename_dialog.title = "Rename World"
-	_rename_dialog.ok_button_text = "Rename"
 	_rename_dialog.dialog_hide_on_ok = false
 	var rename_wrap := MarginContainer.new()
 	rename_wrap.add_theme_constant_override("margin_left", 8)
@@ -145,17 +176,64 @@ func _build_ui() -> void:
 	rename_wrap.add_theme_constant_override("margin_bottom", 8)
 	_rename_edit = LineEdit.new()
 	_rename_edit.custom_minimum_size = Vector2(280, 44)
-	_rename_edit.placeholder_text = "World name"
 	rename_wrap.add_child(_rename_edit)
 	_rename_dialog.add_child(rename_wrap)
 	_rename_dialog.confirmed.connect(_on_rename_confirmed)
 	add_child(_rename_dialog)
 
 	_delete_dialog = ConfirmationDialog.new()
-	_delete_dialog.title = "Delete World"
-	_delete_dialog.dialog_text = "Delete this world? This cannot be undone."
 	_delete_dialog.confirmed.connect(_on_delete_confirmed)
 	add_child(_delete_dialog)
+
+
+func _make_lang_btn(label: String, locale: String) -> Button:
+	var btn := Button.new()
+	btn.text = label
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.custom_minimum_size = Vector2(96, 36)
+	btn.add_theme_font_size_override("font_size", 14)
+	btn.pressed.connect(func() -> void:
+		AudioManager.play("ui_click")
+		LocaleManager.set_locale(locale)
+	)
+	_style_lang_btn(btn, false)
+	return btn
+
+
+func _style_lang_btn(btn: Button, selected: bool) -> void:
+	var style := StyleBoxFlat.new()
+	if selected:
+		style.bg_color = Color(0.55, 0.42, 0.22, 0.95)
+	else:
+		style.bg_color = Color(0.86, 0.8, 0.68, 0.92)
+	style.set_corner_radius_all(8)
+	style.set_border_width_all(2)
+	style.border_color = Color(0.75, 0.55, 0.25, 0.95) if selected else Color(1, 1, 1, 0.3)
+	btn.add_theme_stylebox_override("normal", style)
+	var hover := style.duplicate() as StyleBoxFlat
+	hover.bg_color = style.bg_color.lightened(0.1)
+	btn.add_theme_stylebox_override("hover", hover)
+	btn.add_theme_color_override(
+		"font_color",
+		Color(1, 0.96, 0.88, 1.0) if selected else Color(0.28, 0.2, 0.12, 1.0)
+	)
+
+
+func _apply_locale_texts() -> void:
+	_brand.text = LocaleManager.t("Cozy Farm")
+	_tag.text = LocaleManager.t("Build your island · grow your world")
+	_lang_label.text = LocaleManager.t("Language") + ":"
+	_btn_new.text = LocaleManager.t("New Game")
+	_btn_load.text = LocaleManager.t("Load Game")
+	_btn_exit.text = LocaleManager.t("Exit")
+	_worlds_header.text = LocaleManager.t("Worlds")
+	_hint.text = LocaleManager.t("Tap to select · Long-press to rename or delete")
+	_rename_dialog.title = LocaleManager.t("Rename World")
+	_rename_dialog.ok_button_text = LocaleManager.t("Rename")
+	_rename_edit.placeholder_text = LocaleManager.t("World name")
+	_delete_dialog.title = LocaleManager.t("Delete World")
+	_style_lang_btn(_lang_en_btn, LocaleManager.get_locale() == LocaleManager.LOCALE_EN)
+	_style_lang_btn(_lang_zh_btn, LocaleManager.get_locale() == LocaleManager.LOCALE_ZH_TW)
 
 
 func _update_content_margins() -> void:
@@ -205,7 +283,7 @@ func _refresh_worlds() -> void:
 	var worlds := SaveManager.list_worlds()
 	if worlds.is_empty():
 		var empty := Label.new()
-		empty.text = "No worlds yet — tap New Game to start."
+		empty.text = LocaleManager.t("No worlds yet — tap New Game to start.")
 		empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		empty.add_theme_font_size_override("font_size", 14)
@@ -266,7 +344,7 @@ func _make_world_row(meta: Dictionary) -> PanelContainer:
 	text_col.add_child(detail)
 
 	var play_btn := Button.new()
-	play_btn.text = "Play"
+	play_btn.text = LocaleManager.t("Play")
 	play_btn.focus_mode = Control.FOCUS_NONE
 	play_btn.custom_minimum_size = Vector2(72, 40)
 	play_btn.add_theme_font_size_override("font_size", 16)
@@ -326,16 +404,16 @@ func _show_world_actions(world_id: String) -> void:
 	var dlg := AcceptDialog.new()
 	dlg.title = name
 	dlg.dialog_text = ""
-	dlg.ok_button_text = "Cancel"
+	dlg.ok_button_text = LocaleManager.t("Cancel")
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 10)
 	box.custom_minimum_size = Vector2(260, 0)
 	var rename_btn := Button.new()
-	rename_btn.text = "Rename"
+	rename_btn.text = LocaleManager.t("Rename")
 	rename_btn.custom_minimum_size = Vector2(0, 44)
 	rename_btn.add_theme_font_size_override("font_size", 17)
 	var delete_btn := Button.new()
-	delete_btn.text = "Delete"
+	delete_btn.text = LocaleManager.t("Delete")
 	delete_btn.custom_minimum_size = Vector2(0, 44)
 	delete_btn.add_theme_font_size_override("font_size", 17)
 	box.add_child(rename_btn)
@@ -375,18 +453,18 @@ func _on_rename_confirmed() -> void:
 		_rename_dialog.hide()
 		return
 	if SaveManager.rename_world(_rename_target, _rename_edit.text):
-		_status.text = "Renamed"
+		_status.text = LocaleManager.t("Renamed")
 		_rename_dialog.hide()
 		_refresh_worlds()
 	else:
-		_status.text = "Enter a valid name"
+		_status.text = LocaleManager.t("Enter a valid name")
 
 
 func _open_delete(world_id: String) -> void:
 	_delete_target = world_id
 	var meta := SaveManager.load_meta(world_id)
 	var name := str(meta.get("display_name", world_id))
-	_delete_dialog.dialog_text = "Delete \"%s\"? This cannot be undone." % name
+	_delete_dialog.dialog_text = LocaleManager.tf("Delete \"%s\"? This cannot be undone.", [name])
 	_delete_dialog.popup_centered()
 
 
@@ -398,10 +476,10 @@ func _on_delete_confirmed() -> void:
 	if SaveManager.delete_world(id):
 		if _selected_id == id:
 			_selected_id = ""
-		_status.text = "World deleted"
+		_status.text = LocaleManager.t("World deleted")
 		_refresh_worlds()
 	else:
-		_status.text = "Delete failed"
+		_status.text = LocaleManager.t("Delete failed")
 
 
 func _select_world(world_id: String) -> void:
@@ -437,7 +515,7 @@ func _on_load_game() -> void:
 			return
 		var worlds := SaveManager.list_worlds()
 		if worlds.is_empty():
-			_status.text = "No worlds yet — tap New Game"
+			_status.text = LocaleManager.t("No worlds yet — tap New Game")
 			return
 		_enter_world(str(worlds[0].get("id", "")))
 		return
@@ -446,7 +524,7 @@ func _on_load_game() -> void:
 
 func _enter_world(world_id: String, is_new: bool = false) -> void:
 	if world_id.is_empty() or not SaveManager.world_exists(world_id):
-		_status.text = "World not found"
+		_status.text = LocaleManager.t("World not found")
 		return
 	SaveManager.set_current_world_id(world_id)
 	# Signal farm scene whether to load save or start empty.

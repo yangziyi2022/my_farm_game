@@ -108,15 +108,15 @@ func _ready() -> void:
 		if SaveManager.load_farm(grid_manager, inventory_manager):
 			var meta := SaveManager.load_meta(boot_id)
 			var wname := str(meta.get("display_name", "Farm"))
-			_on_status_message("Loaded \"%s\"" % wname)
+			_on_status_message(LocaleManager.tf("Loaded \"%s\"", [wname]))
 			_mark_world_clean()
 		else:
-			_on_status_message("Could not load world — starting empty")
+			_on_status_message(LocaleManager.t("Could not load world — starting empty"))
 			_mark_world_clean()
 	else:
 		var meta := SaveManager.load_meta(boot_id)
 		var wname := str(meta.get("display_name", "Farm"))
-		_on_status_message("New world \"%s\" — tap Save to keep progress" % wname)
+		_on_status_message(LocaleManager.tf("New world \"%s\" — tap Save to keep progress", [wname]))
 		_mark_world_clean()
 
 	_on_undo_stack_changed(undo_manager.can_undo())
@@ -157,13 +157,17 @@ func _on_day_night_phase_changed(phase: String) -> void:
 		"night": "Night",
 		"predawn": "Before dawn",
 	}
-	var label: String = str(labels.get(phase, phase.capitalize()))
-	_on_status_message("%s — 5 min day / 5 min night cycle" % label)
+	var key: String = str(labels.get(phase, phase.capitalize()))
+	_on_status_message(LocaleManager.tf("%s — 5 min day / 5 min night cycle", [LocaleManager.t(key)]))
 
 
 func _style_worlds_button() -> void:
 	_apply_btn_colors(worlds_btn, Color(0.45, 0.4, 0.32))
 	worlds_btn.focus_mode = Control.FOCUS_NONE
+	if worlds_btn:
+		worlds_btn.text = LocaleManager.t("Worlds")
+	if status_label and status_label.text == "Ready":
+		status_label.text = LocaleManager.t("Ready")
 
 
 func _apply_btn_colors(btn: Button, tint: Color) -> void:
@@ -225,7 +229,7 @@ func _on_hoe_tool_activated() -> void:
 func _on_need_hoe_hint() -> void:
 	## Player tried to plant on grass — open Tools → Hoe with a pulse highlight.
 	item_palette.guide_to_hoe()
-	_on_status_message("Seeds need dirt — use Hoe on grass first, then plant again")
+	_on_status_message(LocaleManager.t("Seeds need dirt — use Hoe on grass first, then plant again"))
 
 
 func _on_harvest_tool_activated() -> void:
@@ -282,9 +286,9 @@ func _on_save() -> void:
 		_mark_world_clean()
 		var meta := SaveManager.load_meta(SaveManager.get_current_world_id())
 		var wname := str(meta.get("display_name", "Farm"))
-		_on_status_message("Saved \"%s\"" % wname)
+		_on_status_message(LocaleManager.tf("Saved \"%s\"", [wname]))
 	else:
-		_on_status_message("Save failed!")
+		_on_status_message(LocaleManager.t("Save failed!"))
 
 
 func _on_worlds() -> void:
@@ -295,11 +299,11 @@ func _on_worlds() -> void:
 		return
 
 	var dlg := ConfirmationDialog.new()
-	dlg.title = "Leave World"
-	dlg.dialog_text = "Save your farm before returning to Worlds?"
-	dlg.ok_button_text = "Save"
-	dlg.cancel_button_text = "Cancel"
-	dlg.add_button("Don't Save", true, "nosave")
+	dlg.title = LocaleManager.t("Leave World")
+	dlg.dialog_text = LocaleManager.t("Save your farm before returning to Worlds?")
+	dlg.ok_button_text = LocaleManager.t("Save")
+	dlg.cancel_button_text = LocaleManager.t("Cancel")
+	dlg.add_button(LocaleManager.t("Don't Save"), true, "nosave")
 	dlg.confirmed.connect(func() -> void:
 		if SaveManager.save_farm(grid_manager, inventory_manager):
 			_mark_world_clean()

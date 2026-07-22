@@ -54,18 +54,18 @@ func _clear_row() -> void:
 func _rebuild_actions() -> void:
 	_clear_row()
 	_mode = "actions"
-	_row.add_child(_make_action_button("Move", _make_move_icon(), Color(0.35, 0.65, 0.95), func() -> void: move_pressed.emit()))
-	_row.add_child(_make_action_button("Copy", _make_copy_icon(), Color(0.95, 0.75, 0.3), func() -> void: copy_pressed.emit()))
-	_row.add_child(_make_action_button("Rotate", _make_rotate_icon(), Color(0.45, 0.85, 0.55), func() -> void: rotate_pressed.emit()))
-	_row.add_child(_make_action_button("Delete", _make_delete_icon(), Color(0.92, 0.4, 0.4), func() -> void: delete_pressed.emit()))
+	_row.add_child(_make_action_button(LocaleManager.t("Move"), _make_move_icon(), Color(0.35, 0.65, 0.95), func() -> void: move_pressed.emit()))
+	_row.add_child(_make_action_button(LocaleManager.t("Copy"), _make_copy_icon(), Color(0.95, 0.75, 0.3), func() -> void: copy_pressed.emit()))
+	_row.add_child(_make_action_button(LocaleManager.t("Rotate"), _make_rotate_icon(), Color(0.45, 0.85, 0.55), func() -> void: rotate_pressed.emit()))
+	_row.add_child(_make_action_button(LocaleManager.t("Delete"), _make_delete_icon(), Color(0.92, 0.4, 0.4), func() -> void: delete_pressed.emit()))
 	_apply_current_sizes()
 
 
 func _rebuild_confirm() -> void:
 	_clear_row()
 	_mode = "confirm"
-	_confirm_btn = _make_action_button("Confirm", _make_check_icon(), Color(0.35, 0.78, 0.45), func() -> void: confirm_pressed.emit())
-	_cancel_btn = _make_action_button("Cancel", _make_delete_icon(), Color(0.92, 0.4, 0.4), func() -> void: cancel_pressed.emit())
+	_confirm_btn = _make_action_button(LocaleManager.t("Confirm"), _make_check_icon(), Color(0.35, 0.78, 0.45), func() -> void: confirm_pressed.emit())
+	_cancel_btn = _make_action_button(LocaleManager.t("Cancel"), _make_delete_icon(), Color(0.92, 0.4, 0.4), func() -> void: cancel_pressed.emit())
 	_row.add_child(_confirm_btn)
 	_row.add_child(_cancel_btn)
 	_apply_current_sizes()

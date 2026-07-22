@@ -93,7 +93,7 @@ static func from_plant_type(plant_type: ItemData.ItemType) -> Item:
 
 
 static func get_item_name(item: Item) -> String:
-	return ITEMS[item]["name"]
+	return LocaleManager.t(str(ITEMS[item]["name"]))
 
 
 static func get_color(item: Item) -> Color:
