@@ -138,8 +138,27 @@ func ensure_default_tools() -> void:
 			continue
 		_place_tool(tool_item)
 		changed = true
+	if _ensure_starter_compost():
+		changed = true
 	if changed:
 		inventory_changed.emit()
+
+
+func _ensure_starter_compost() -> bool:
+	## Compost is a backpack item (not a build-palette tool). Seed a starter stack
+	## so fertilize is discoverable; harvest also drops more.
+	if get_count(InventoryData.Item.COMPOST) > 0:
+		return false
+	const STARTER := 8
+	var preferred: int = int(InventoryData.DEFAULT_SLOT.get(InventoryData.Item.COMPOST, 6))
+	if preferred >= 0 and preferred < SLOT_COUNT and is_slot_empty(preferred):
+		_slots[preferred] = {"item": InventoryData.Item.COMPOST, "count": STARTER}
+		return true
+	for i in range(SLOT_COUNT):
+		if is_slot_empty(i):
+			_slots[i] = {"item": InventoryData.Item.COMPOST, "count": STARTER}
+			return true
+	return false
 
 
 func get_all_data() -> Dictionary:

@@ -13,6 +13,9 @@ const GRID_ROWS: int = InventoryData.GRID_ROWS
 const SLOT_COUNT: int = InventoryData.SLOT_COUNT
 const HOTBAR_SIZE: int = InventoryData.HOTBAR_SIZE
 const ICON_SIZE := Vector2(48, 48)
+const ICON_SIZE_COMPACT := Vector2(36, 36)
+const CELL_SIZE := Vector2(64, 78)
+const CELL_SIZE_COMPACT := Vector2(46, 58)
 const HOTBAR_BG := Color(0.18, 0.32, 0.38, 0.92)
 const NORMAL_BG := Color(0, 0, 0, 0)
 const SLOT_FRAME := Color(0.2, 0.17, 0.14, 0.9)
@@ -24,6 +27,8 @@ var _walk_btn: Button
 var _panel_layer: CanvasLayer
 var _panel: PanelContainer
 var _grid: GridContainer
+var _hotbar_hint: Label
+var _compact_layout: bool = false
 var _slot_cells: Array[PanelContainer] = []
 var _slots: Array[PanelContainer] = []
 var _slot_icons: Array[TextureRect] = []
@@ -39,7 +44,53 @@ func setup(inventory: InventoryManager) -> void:
 	_inventory = inventory
 	_inventory.inventory_changed.connect(_refresh)
 	_build_ui()
+	_apply_panel_layout()
+	if not get_viewport().size_changed.is_connected(_on_viewport_resized):
+		get_viewport().size_changed.connect(_on_viewport_resized)
 	_refresh()
+
+
+func _on_viewport_resized() -> void:
+	_apply_panel_layout()
+
+
+func _apply_panel_layout() -> void:
+	if _panel == null:
+		return
+	var vp := get_viewport().get_visible_rect().size
+	# Phones / narrow windows: inset from edges + compact slots.
+	var compact := vp.x < 720.0 or vp.y < 780.0
+	_compact_layout = compact
+	var inset_x := 14.0 if compact else maxf(24.0, (vp.x - 640.0) * 0.5)
+	var inset_top := 52.0 if compact else maxf(36.0, (vp.y - 680.0) * 0.5)
+	var inset_bottom := 18.0 if compact else inset_top
+	# Cap max size on tablets so the bag doesn't feel oversized.
+	if not compact:
+		inset_x = maxf(inset_x, (vp.x - 620.0) * 0.5)
+		inset_top = maxf(inset_top, (vp.y - 660.0) * 0.5)
+		inset_bottom = inset_top
+	_panel.offset_left = inset_x
+	_panel.offset_right = -inset_x
+	_panel.offset_top = inset_top
+	_panel.offset_bottom = -inset_bottom
+	var gap := 4 if compact else 8
+	if _grid:
+		_grid.add_theme_constant_override("h_separation", gap)
+		_grid.add_theme_constant_override("v_separation", gap + 2)
+	if _hotbar_hint:
+		_hotbar_hint.add_theme_font_size_override("font_size", 11 if compact else 12)
+	_apply_slot_sizes()
+
+
+func _apply_slot_sizes() -> void:
+	var cell_size := CELL_SIZE_COMPACT if _compact_layout else CELL_SIZE
+	var icon_size := ICON_SIZE_COMPACT if _compact_layout else ICON_SIZE
+	for i in range(_slot_cells.size()):
+		_slot_cells[i].custom_minimum_size = cell_size
+		if i < _slots.size() and _slots[i]:
+			_slots[i].custom_minimum_size = icon_size
+		if i < _slot_roots.size() and _slot_roots[i]:
+			_slot_roots[i].custom_minimum_size = icon_size
 
 
 func _build_ui() -> void:
@@ -91,11 +142,7 @@ func _build_ui() -> void:
 	_panel = PanelContainer.new()
 	_panel.visible = false
 	_panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	_panel.set_anchors_preset(Control.PRESET_CENTER)
-	_panel.offset_left = -300.0
-	_panel.offset_top = -320.0
-	_panel.offset_right = 300.0
-	_panel.offset_bottom = 320.0
+	_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
 	var panel_style := StyleBoxFlat.new()
@@ -126,16 +173,19 @@ func _build_ui() -> void:
 	close_btn.pressed.connect(_close_panel)
 	header.add_child(close_btn)
 
-	var hotbar_hint := Label.new()
-	hotbar_hint.text = LocaleManager.t("Top row = walk hotbar (1–8) · Bottom-right = tools (∞)")
-	hotbar_hint.add_theme_font_size_override("font_size", 12)
-	hotbar_hint.add_theme_color_override("font_color", Color(0.55, 0.78, 0.85))
-	vbox.add_child(hotbar_hint)
+	_hotbar_hint = Label.new()
+	_hotbar_hint.text = LocaleManager.t("Top row = walk hotbar (1–8) · Compost fertilizes plants · Bottom-right = tools (∞)")
+	_hotbar_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_hotbar_hint.add_theme_font_size_override("font_size", 12)
+	_hotbar_hint.add_theme_color_override("font_color", Color(0.55, 0.78, 0.85))
+	vbox.add_child(_hotbar_hint)
 
 	_grid = GridContainer.new()
 	_grid.columns = GRID_COLS
 	_grid.add_theme_constant_override("h_separation", 8)
 	_grid.add_theme_constant_override("v_separation", 10)
+	_grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_grid.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	vbox.add_child(_grid)
 
 	_slot_cells.clear()
@@ -234,7 +284,7 @@ func _make_slot(index: int) -> PanelContainer:
 	var is_hotbar := index < HOTBAR_SIZE
 	var is_tool_corner := index >= SLOT_COUNT - 3
 	var cell := PanelContainer.new()
-	cell.custom_minimum_size = Vector2(64, 78)
+	cell.custom_minimum_size = CELL_SIZE_COMPACT if _compact_layout else CELL_SIZE
 	var cell_style := StyleBoxFlat.new()
 	if is_hotbar:
 		cell_style.bg_color = HOTBAR_BG
@@ -269,8 +319,9 @@ func _make_slot(index: int) -> PanelContainer:
 		key_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		col.add_child(key_lbl)
 
+	var icon_size := ICON_SIZE_COMPACT if _compact_layout else ICON_SIZE
 	var slot := PanelContainer.new()
-	slot.custom_minimum_size = ICON_SIZE
+	slot.custom_minimum_size = icon_size
 	slot.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	var style := StyleBoxFlat.new()
 	style.bg_color = HOTBAR_FRAME if is_hotbar else SLOT_FRAME
@@ -281,7 +332,7 @@ func _make_slot(index: int) -> PanelContainer:
 	col.add_child(slot)
 
 	var root := Control.new()
-	root.custom_minimum_size = ICON_SIZE
+	root.custom_minimum_size = icon_size
 	root.mouse_filter = Control.MOUSE_FILTER_STOP
 	root.set_drag_forwarding(
 		Callable(self, "_slot_get_drag_data").bind(index),
@@ -318,8 +369,8 @@ func _make_slot(index: int) -> PanelContainer:
 	var name_lbl := Label.new()
 	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	name_lbl.custom_minimum_size = Vector2(64, 22)
-	name_lbl.add_theme_font_size_override("font_size", 10)
+	name_lbl.custom_minimum_size = Vector2(46 if _compact_layout else 64, 20 if _compact_layout else 22)
+	name_lbl.add_theme_font_size_override("font_size", 9 if _compact_layout else 10)
 	name_lbl.add_theme_color_override("font_color", Color(0.92, 0.88, 0.78))
 	name_lbl.text = ""
 	name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -377,6 +428,7 @@ func _toggle_panel() -> void:
 		_close_panel()
 	else:
 		_open = true
+		_apply_panel_layout()
 		_panel.visible = true
 		_refresh()
 

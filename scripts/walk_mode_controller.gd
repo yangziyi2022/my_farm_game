@@ -1186,10 +1186,11 @@ func _build_ui() -> void:
 
 	_exit_btn = _make_hud_button(LocaleManager.t("Exit"), Color(0.75, 0.3, 0.28))
 	_exit_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	_exit_btn.offset_left = -140.0
-	_exit_btn.offset_top = 56.0
-	_exit_btn.offset_right = -28.0
-	_exit_btn.offset_bottom = 112.0
+	# Sit below Dynamic Island / notch on modern phones.
+	_exit_btn.offset_left = -148.0
+	_exit_btn.offset_top = 72.0
+	_exit_btn.offset_right = -36.0
+	_exit_btn.offset_bottom = 128.0
 	_exit_btn.pressed.connect(exit_walk)
 	_walk_hud.add_child(_exit_btn)
 
@@ -1243,8 +1244,9 @@ func _build_ui() -> void:
 
 	_use_btn = _make_hud_button(LocaleManager.t("Use"), Color(0.35, 0.55, 0.75))
 	_use_btn.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
-	_use_btn.offset_left = -150.0
-	_use_btn.offset_right = -36.0
+	# Keep clear of phone Dynamic Island / rounded right edge.
+	_use_btn.offset_left = -220.0
+	_use_btn.offset_right = -100.0
 	_use_btn.offset_top = -36.0
 	_use_btn.offset_bottom = 36.0
 	_use_btn.pressed.connect(_on_use_pressed)
@@ -1252,8 +1254,8 @@ func _build_ui() -> void:
 
 	_rename_btn = _make_hud_button(LocaleManager.t("Rename"), Color(0.55, 0.48, 0.32))
 	_rename_btn.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
-	_rename_btn.offset_left = -150.0
-	_rename_btn.offset_right = -36.0
+	_rename_btn.offset_left = -220.0
+	_rename_btn.offset_right = -100.0
 	_rename_btn.offset_top = 48.0
 	_rename_btn.offset_bottom = 108.0
 	_rename_btn.visible = false

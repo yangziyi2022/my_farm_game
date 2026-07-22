@@ -704,22 +704,29 @@ static func _fit_visual_long_axis_to_footprint(visual: Node3D, footprint: Vector
 
 
 static func _fit_visual_xz_to_footprint(visual: Node3D, footprint: Vector2i, overscale: float) -> void:
-	## Scale so mesh XZ covers the full footprint (flush / slight overshoot on both axes).
+	## Scale so mesh XZ matches the footprint rectangle (long→long, short→short).
 	var aabb := _collect_local_aabb(visual)
 	if aabb.size.length_squared() < 0.000001:
 		return
-	var target_w := float(maxi(footprint.x, 1)) * GridManager.TILE_WIDTH * maxf(overscale, 1.0)
-	var target_d := float(maxi(footprint.y, 1)) * GridManager.TILE_HEIGHT * maxf(overscale, 1.0)
+	var fp_w := maxi(footprint.x, 1)
+	var fp_d := maxi(footprint.y, 1)
+	# Rotate 90° if mesh long axis disagrees with footprint long axis.
+	var mesh_long_x := aabb.size.x >= aabb.size.z
+	var fp_long_x := fp_w >= fp_d
+	if mesh_long_x != fp_long_x:
+		visual.rotate_y(PI * 0.5)
+		aabb = _collect_local_aabb(visual)
+	var target_w := float(fp_w) * GridManager.TILE_WIDTH * maxf(overscale, 1.0)
+	var target_d := float(fp_d) * GridManager.TILE_HEIGHT * maxf(overscale, 1.0)
 	var sx := target_w / maxf(aabb.size.x, 0.001)
 	var sz := target_d / maxf(aabb.size.z, 0.001)
-	# Uniform cover — both axes reach at least the footprint outer edges.
-	var factor := maxf(sx, sz)
-	visual.scale = Vector3.ONE * factor
-	# Nudge so mesh AABB center sits on the footprint center (visual origin).
+	# Independent X/Z so a 5×4 house fills both sides; Y follows the gentler scale.
+	var sy := minf(sx, sz)
+	visual.scale = Vector3(sx, sy, sz)
 	var center := aabb.get_center()
-	visual.position.x -= center.x * factor
-	visual.position.z -= center.z * factor
-	visual.position.y -= aabb.position.y * factor
+	visual.position.x -= center.x * sx
+	visual.position.z -= center.z * sz
+	visual.position.y -= aabb.position.y * sy
 
 
 static func _collect_local_aabb(root: Node3D) -> AABB:

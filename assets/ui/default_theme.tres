@@ -1,0 +1,7 @@
+[gd_resource type="Theme" load_steps=2 format=3 uid="uid://cozy_default_theme"]
+
+[ext_resource type="FontFile" uid="uid://noto_sans_tc_regular" path="res://assets/fonts/NotoSansTC-Regular.ttf" id="1_font"]
+
+[resource]
+default_font = ExtResource("1_font")
+default_font_size = 16
