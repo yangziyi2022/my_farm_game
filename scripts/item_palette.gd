@@ -7,6 +7,8 @@ signal multiselect_tool_activated
 signal hoe_tool_activated
 signal harvest_tool_activated
 signal rod_tool_activated
+## Emitted when active tool/item highlight changes (for top-right Select buttons).
+signal tool_highlight_changed(tool: int, item_type: int)
 
 enum Tool { SELECT, MULTISELECT, HOE, HARVEST, ROD }
 
@@ -35,6 +37,9 @@ var _open_section: String = ""
 var _collapsed: bool = false
 var _slide_tween: Tween
 var _toggle_btn: Button
+var _scroll: ScrollContainer
+var _scroll_up_btn: Button
+var _scroll_down_btn: Button
 var _dock: Control
 var _panel_width: float = 156.0
 var _dock_left: float = 12.0
@@ -45,6 +50,10 @@ var _header_min_size := Vector2(140, 58)
 var _child_btn_size := CHILD_BTN_SIZE
 var _header_font_size: int = 16
 var _child_font_size: int = 14
+var _hoe_guide: Control = null
+var _hoe_guide_tween: Tween
+var _hoe_guide_token: int = 0
+var _hoe_guide_active: bool = false
 
 
 func _ready() -> void:
@@ -77,20 +86,11 @@ func _install_dock_and_handle() -> void:
 		_panel_width = maxf(base_w, 220.0)
 	else:
 		_panel_width = base_w
-	var panel_h := maxf(offset_bottom - offset_top, 400.0)
-	# Always inset from the top-left corner (rounded phone bezels).
-	_dock_left = offset_left + SAFE_INSET_LEFT
-	_dock_top = offset_top + SAFE_INSET_TOP
-	if _touch_layout:
-		# Shorter so bottom home-indicator / rounded corners don't clip the list.
-		panel_h = mini(panel_h, 560.0)
 
 	_dock = Control.new()
 	_dock.name = "ItemPaletteDock"
 	_dock.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_dock.z_index = 30
-	_dock.position = Vector2(_dock_left, _dock_top)
-	_dock.size = Vector2(_panel_width + _toggle_size.x + 8.0, panel_h)
 	ui.add_child(_dock)
 	# Keep above full-screen overlays (inventory bar / cursor) so the handle stays visible.
 	ui.move_child(_dock, ui.get_child_count() - 1)
@@ -98,11 +98,8 @@ func _install_dock_and_handle() -> void:
 	reparent(_dock)
 	set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
 	position = Vector2.ZERO
-	size = Vector2(_panel_width, panel_h)
 	offset_left = 0.0
 	offset_top = 0.0
-	offset_right = _panel_width
-	offset_bottom = panel_h
 
 	_toggle_btn = Button.new()
 	_toggle_btn.name = "PaletteSlideToggle"
@@ -111,7 +108,6 @@ func _install_dock_and_handle() -> void:
 	_toggle_btn.tooltip_text = "Hide / show menu"
 	_toggle_btn.custom_minimum_size = _toggle_size
 	_toggle_btn.size = _toggle_size
-	_toggle_btn.position = Vector2(_panel_width + 4.0, panel_h * 0.5 - _toggle_size.y * 0.5)
 	_toggle_btn.z_index = 20
 	_toggle_btn.add_theme_font_size_override("font_size", 28 if _touch_layout else 18)
 	var style := StyleBoxFlat.new()
@@ -126,6 +122,88 @@ func _install_dock_and_handle() -> void:
 	_toggle_btn.pressed.connect(_toggle_slide)
 	_dock.add_child(_toggle_btn)
 
+	_scroll_up_btn = _make_scroll_chevron("▲", "Scroll up")
+	_scroll_up_btn.pressed.connect(_on_scroll_up)
+	_dock.add_child(_scroll_up_btn)
+	_scroll_down_btn = _make_scroll_chevron("▼", "Scroll down")
+	_scroll_down_btn.pressed.connect(_on_scroll_down)
+	_dock.add_child(_scroll_down_btn)
+
+	get_viewport().size_changed.connect(_layout_dock)
+	_layout_dock()
+
+
+func _layout_dock() -> void:
+	if _dock == null:
+		return
+	var vp := get_viewport().get_visible_rect().size
+	# Vertically centered column; leave room for top toolbar + bottom status / island bar.
+	var top_guard := 120.0
+	var bottom_guard := 160.0
+	var avail_h := maxf(vp.y - top_guard - bottom_guard, 280.0)
+	var panel_h := mini(avail_h, 560.0 if _touch_layout else 520.0)
+	_dock_left = SAFE_INSET_LEFT
+	_dock_top = top_guard + (avail_h - panel_h) * 0.5
+	if not _collapsed:
+		_dock.position = Vector2(_dock_left, _dock_top)
+	else:
+		_dock.position = Vector2(-_panel_width - 4.0, _dock_top)
+	_dock.size = Vector2(_panel_width + _toggle_size.x + 8.0, panel_h)
+	size = Vector2(_panel_width, panel_h)
+	offset_right = _panel_width
+	offset_bottom = panel_h
+	if _toggle_btn:
+		_toggle_btn.position = Vector2(_panel_width + 4.0, panel_h * 0.5 - _toggle_size.y * 0.5)
+	_layout_scroll_chevrons(panel_h)
+	if _scroll and is_instance_valid(_scroll):
+		_scroll.custom_minimum_size = Vector2(
+			_panel_width - 20.0,
+			maxf(panel_h - 24.0, 200.0)
+		)
+
+
+func _make_scroll_chevron(text: String, tip: String) -> Button:
+	var btn := Button.new()
+	btn.text = text
+	btn.tooltip_text = tip
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.custom_minimum_size = Vector2(_toggle_size.x, 40.0)
+	btn.size = Vector2(_toggle_size.x, 40.0)
+	btn.z_index = 20
+	btn.add_theme_font_size_override("font_size", 18)
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.28, 0.24, 0.18, 0.95)
+	style.set_corner_radius_all(8)
+	style.set_border_width_all(2)
+	style.border_color = Color(0.85, 0.7, 0.4, 0.9)
+	btn.add_theme_stylebox_override("normal", style)
+	var hover := style.duplicate() as StyleBoxFlat
+	hover.bg_color = Color(0.38, 0.32, 0.22, 1.0)
+	btn.add_theme_stylebox_override("hover", hover)
+	return btn
+
+
+func _layout_scroll_chevrons(panel_h: float) -> void:
+	var x := _panel_width + 4.0
+	if _scroll_up_btn:
+		_scroll_up_btn.position = Vector2(x, 8.0)
+	if _scroll_down_btn:
+		_scroll_down_btn.position = Vector2(x, panel_h - 48.0)
+
+
+func _on_scroll_up() -> void:
+	_nudge_scroll(-120.0)
+
+
+func _on_scroll_down() -> void:
+	_nudge_scroll(120.0)
+
+
+func _nudge_scroll(delta: float) -> void:
+	if _scroll == null or not is_instance_valid(_scroll):
+		return
+	_scroll.scroll_vertical = maxi(0, int(_scroll.scroll_vertical + delta))
+
 
 func _build_palette() -> void:
 	var margin := MarginContainer.new()
@@ -137,13 +215,16 @@ func _build_palette() -> void:
 	add_child(margin)
 
 	var scroll := ScrollContainer.new()
+	_scroll = scroll
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.custom_minimum_size = Vector2(_panel_width - float(m * 2), 480.0 if not _touch_layout else 420.0)
+	scroll.custom_minimum_size = Vector2(_panel_width - float(m * 2), 320.0)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	margin.add_child(scroll)
 	if _touch_layout:
 		_thicken_scroll_bar(scroll)
+	_layout_dock()
 
 	# Inset rows so the thick scrollbar sits to their right instead of covering text.
 	var content_pad := MarginContainer.new()
@@ -156,17 +237,6 @@ func _build_palette() -> void:
 	outer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	outer.add_theme_constant_override("separation", 12 if _touch_layout else 10)
 	content_pad.add_child(outer)
-
-	# Always-available Select (pointer).
-	_select_btn = _make_labeled_header("Select", _icon_select(), Color(0.35, 0.55, 0.85))
-	_select_btn.toggle_mode = true
-	_select_btn.pressed.connect(_on_select_tool_pressed)
-	outer.add_child(_select_btn)
-
-	_multiselect_btn = _make_labeled_header("Multiselect", _icon_multiselect(), Color(0.4, 0.7, 0.75))
-	_multiselect_btn.toggle_mode = true
-	_multiselect_btn.pressed.connect(_on_multiselect_tool_pressed)
-	outer.add_child(_multiselect_btn)
 
 	# Tools accordion: hammer -> hoe / harvest / rod
 	var tools_body := VBoxContainer.new()
@@ -251,9 +321,17 @@ func _toggle_slide() -> void:
 		# Keep only the handle on-screen at the left edge.
 		target_x = -_panel_width - 4.0
 		_toggle_btn.text = "»"
+		if _scroll_up_btn:
+			_scroll_up_btn.visible = false
+		if _scroll_down_btn:
+			_scroll_down_btn.visible = false
 	else:
 		target_x = _dock_left
 		_toggle_btn.text = "«"
+		if _scroll_up_btn:
+			_scroll_up_btn.visible = true
+		if _scroll_down_btn:
+			_scroll_down_btn.visible = true
 	_slide_tween.tween_property(_dock, "position:x", target_x, 0.28)
 
 
@@ -319,7 +397,45 @@ func _make_child_button(text: String) -> Button:
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn.add_theme_font_size_override("font_size", _child_font_size)
+	btn.add_theme_color_override("font_color", Color(0.95, 0.92, 0.85))
+	btn.add_theme_color_override("font_pressed_color", Color(1.0, 0.98, 0.9))
+	btn.add_theme_color_override("font_hover_color", Color(1.0, 0.98, 0.92))
+	_apply_child_button_style(btn, false, false)
 	return btn
+
+
+func _apply_child_button_style(btn: Button, selected: bool, guide_pulse: bool = false) -> void:
+	if btn == null:
+		return
+	var style := StyleBoxFlat.new()
+	style.set_corner_radius_all(8)
+	style.content_margin_left = 10
+	style.content_margin_right = 10
+	style.content_margin_top = 6
+	style.content_margin_bottom = 6
+	if guide_pulse:
+		style.bg_color = Color(0.95, 0.72, 0.2, 0.98)
+		style.set_border_width_all(3)
+		style.border_color = Color(1.0, 0.95, 0.45, 1.0)
+	elif selected:
+		style.bg_color = Color(0.42, 0.55, 0.28, 0.98)
+		style.set_border_width_all(3)
+		style.border_color = Color(0.95, 0.88, 0.35, 1.0)
+	else:
+		style.bg_color = Color(0.22, 0.18, 0.14, 0.92)
+		style.set_border_width_all(1)
+		style.border_color = Color(0.45, 0.38, 0.3, 0.7)
+	btn.add_theme_stylebox_override("normal", style)
+	var hover := style.duplicate() as StyleBoxFlat
+	hover.bg_color = style.bg_color.lightened(0.1)
+	btn.add_theme_stylebox_override("hover", hover)
+	var pressed := style.duplicate() as StyleBoxFlat
+	# Keep pressed looking like selected so toggle stays readable.
+	pressed.bg_color = Color(0.42, 0.55, 0.28, 0.98) if selected or guide_pulse else style.bg_color.darkened(0.08)
+	pressed.set_border_width_all(3 if selected or guide_pulse else 1)
+	pressed.border_color = Color(0.95, 0.88, 0.35, 1.0) if selected or guide_pulse else style.border_color
+	btn.add_theme_stylebox_override("pressed", pressed)
+	btn.modulate = Color(1.15, 1.1, 0.95) if selected or guide_pulse else Color.WHITE
 
 
 func _on_section_header_pressed(section_id: String) -> void:
@@ -376,12 +492,14 @@ func _on_item_pressed(item_type: ItemData.ItemType) -> void:
 func activate_select_tool() -> void:
 	_active_tool = Tool.SELECT
 	_active_type = SELECT_TOOL
+	_clear_hoe_guide()
 	_update_button_styles()
 
 
 func activate_multiselect_tool() -> void:
 	_active_tool = Tool.MULTISELECT
 	_active_type = SELECT_TOOL
+	_clear_hoe_guide()
 	_update_button_styles()
 
 
@@ -389,12 +507,83 @@ func activate_hoe_tool() -> void:
 	_active_tool = Tool.HOE
 	_active_type = SELECT_TOOL
 	_set_open_section("tools")
+	# Keep guide pulse if we're mid-hint; otherwise clear stale guides.
+	if not _hoe_guide_active:
+		_clear_hoe_guide()
 	_update_button_styles()
+
+
+## Expand the tool list, select Hoe, and pulse-highlight it.
+func guide_to_hoe() -> void:
+	if _collapsed:
+		_toggle_slide()
+	_hoe_guide_active = true
+	activate_hoe_tool()
+	hoe_tool_activated.emit()
+	call_deferred("_finish_hoe_guide")
+
+
+func _finish_hoe_guide() -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if not is_instance_valid(_hoe_btn):
+		return
+	_scroll_control_into_view(_hoe_btn)
+	_start_hoe_guide_pulse()
+
+
+func _scroll_control_into_view(control: Control) -> void:
+	if _scroll == null or control == null or not is_instance_valid(control):
+		return
+	var scroll_rect := _scroll.get_global_rect()
+	var target_rect := control.get_global_rect()
+	var delta := 0.0
+	if target_rect.position.y < scroll_rect.position.y:
+		delta = target_rect.position.y - scroll_rect.position.y - 12.0
+	elif target_rect.end.y > scroll_rect.end.y:
+		delta = target_rect.end.y - scroll_rect.end.y + 12.0
+	if absf(delta) > 1.0:
+		_scroll.scroll_vertical = maxi(0, int(_scroll.scroll_vertical + delta))
+
+
+func _start_hoe_guide_pulse() -> void:
+	_hoe_guide_active = true
+	_hoe_guide_token += 1
+	var token := _hoe_guide_token
+	_update_button_styles()
+	if _hoe_guide_tween and _hoe_guide_tween.is_running():
+		_hoe_guide_tween.kill()
+	if _hoe_btn == null:
+		return
+	_hoe_guide_tween = create_tween()
+	_hoe_guide_tween.set_loops()
+	_hoe_guide_tween.tween_property(_hoe_btn, "modulate", Color(1.35, 1.2, 0.75), 0.4).set_trans(Tween.TRANS_SINE)
+	_hoe_guide_tween.tween_property(_hoe_btn, "modulate", Color(1.05, 1.0, 0.9), 0.4).set_trans(Tween.TRANS_SINE)
+	get_tree().create_timer(5.5).timeout.connect(func() -> void:
+		if token == _hoe_guide_token:
+			_clear_hoe_guide()
+	)
+
+
+func _clear_hoe_guide() -> void:
+	_hoe_guide_token += 1
+	_hoe_guide_active = false
+	if _hoe_guide_tween and _hoe_guide_tween.is_running():
+		_hoe_guide_tween.kill()
+	_hoe_guide_tween = null
+	if _hoe_guide and is_instance_valid(_hoe_guide):
+		_hoe_guide.queue_free()
+	_hoe_guide = null
+	if _hoe_btn and is_instance_valid(_hoe_btn) and _active_tool == Tool.HOE:
+		_apply_child_button_style(_hoe_btn, true, false)
+	elif _hoe_btn and is_instance_valid(_hoe_btn):
+		_apply_child_button_style(_hoe_btn, false, false)
 
 
 func activate_harvest_tool() -> void:
 	_active_tool = Tool.HARVEST
 	_active_type = SELECT_TOOL
+	_clear_hoe_guide()
 	_set_open_section("tools")
 	_update_button_styles()
 
@@ -402,6 +591,7 @@ func activate_harvest_tool() -> void:
 func activate_rod_tool() -> void:
 	_active_tool = Tool.ROD
 	_active_type = SELECT_TOOL
+	_clear_hoe_guide()
 	_set_open_section("tools")
 	_update_button_styles()
 
@@ -409,6 +599,7 @@ func activate_rod_tool() -> void:
 func select_item(item_type: ItemData.ItemType) -> void:
 	_active_tool = Tool.SELECT
 	_active_type = item_type
+	_clear_hoe_guide()
 	var cat: ItemData.Category = ItemData.ITEMS[item_type]["category"]
 	var section_map: Dictionary = {
 		ItemData.Category.TERRAIN: "terrain",
@@ -424,21 +615,24 @@ func select_item(item_type: ItemData.ItemType) -> void:
 
 
 func _update_button_styles() -> void:
-	if _select_btn:
-		_select_btn.button_pressed = _active_tool == Tool.SELECT and _active_type == SELECT_TOOL
-		_select_btn.modulate = Color(1.2, 1.15, 0.85) if _select_btn.button_pressed else Color.WHITE
-	if _multiselect_btn:
-		_multiselect_btn.button_pressed = _active_tool == Tool.MULTISELECT
-		_multiselect_btn.modulate = Color(1.2, 1.15, 0.85) if _multiselect_btn.button_pressed else Color.WHITE
 	if _hoe_btn:
-		_hoe_btn.button_pressed = _active_tool == Tool.HOE
+		var hoe_on := _active_tool == Tool.HOE
+		_hoe_btn.button_pressed = hoe_on
+		_apply_child_button_style(_hoe_btn, hoe_on, _hoe_guide_active and hoe_on)
 	if _harvest_btn:
-		_harvest_btn.button_pressed = _active_tool == Tool.HARVEST
+		var harvest_on := _active_tool == Tool.HARVEST
+		_harvest_btn.button_pressed = harvest_on
+		_apply_child_button_style(_harvest_btn, harvest_on, false)
 	if _rod_btn:
-		_rod_btn.button_pressed = _active_tool == Tool.ROD
+		var rod_on := _active_tool == Tool.ROD
+		_rod_btn.button_pressed = rod_on
+		_apply_child_button_style(_rod_btn, rod_on, false)
 	for type in _buttons:
 		var btn: Button = _buttons[type]
-		btn.button_pressed = _active_tool == Tool.SELECT and type == _active_type
+		var on: bool = _active_tool == Tool.SELECT and int(type) == _active_type
+		btn.button_pressed = on
+		_apply_child_button_style(btn, on, false)
+	tool_highlight_changed.emit(int(_active_tool), _active_type)
 
 
 # --- Category / tool icons (procedural) ---------------------------------

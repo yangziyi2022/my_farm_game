@@ -412,7 +412,7 @@ func _refresh() -> void:
 		if InventoryData.is_hand_tool(item):
 			tip += "\nDrag to hotbar · Use while walking"
 		elif InventoryData.is_feedable(item):
-			tip += "\nClick to feed animals (build) · Use while walking"
+			tip += "\nFeed (species diet) · Click animal / Walk Use"
 		if i < HOTBAR_SIZE:
 			tip += "\nWalk hotbar slot %d" % (i + 1)
 		tip += "\nDrag to rearrange"

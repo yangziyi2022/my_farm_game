@@ -7,6 +7,8 @@ const SelectionActionBarScript = preload("res://scripts/selection_action_bar.gd"
 signal status_message(text: String)
 signal select_mode_requested
 signal feed_mode_cancelled
+## Planting failed because the tile isn't dirt yet — guide the player to Hoe.
+signal need_hoe_hint
 
 enum Mode { PLACE, SELECT, MULTISELECT, HOE, HARVEST, FISH, FEED }
 
@@ -52,6 +54,7 @@ var selected_item: ItemData.ItemType = ItemData.ItemType.GRASS
 var mode: Mode = Mode.SELECT
 var feed_item: InventoryData.Item = InventoryData.Item.WHEAT
 var _place_rotation: int = 0
+var animal_info_card: AnimalInfoCard = null
 
 var _dragging: bool = false
 var _place_drag: bool = false
@@ -114,6 +117,8 @@ func set_walk_mode_blocked(blocked: bool) -> void:
 	if blocked:
 		_cancel_action()
 		PointerInput.gameplay_captures_primary = false
+		if animal_info_card:
+			animal_info_card.clear()
 
 
 func _ensure_marquee_ui() -> void:
@@ -349,6 +354,27 @@ func _process(_delta: float) -> void:
 		_update_group_drag_follow()
 	if _marquee_active:
 		_update_marquee_visual(PointerInput.get_position())
+	_update_animal_aim_card()
+
+
+func _update_animal_aim_card() -> void:
+	if animal_info_card == null:
+		return
+	# Hide while placing ghost or actively dragging selection.
+	if mode == Mode.PLACE or _dragging or _group_dragging or _marquee_active:
+		animal_info_card.clear()
+		return
+	var screen := PointerInput.get_position()
+	var hit := _raycast_pick_object(screen)
+	if hit == null or not ItemData.is_animal(hit.get_meta("item_type")):
+		# Fallback: ground cell under cursor may hold an animal.
+		var cell := _raycast_ground_cell(screen)
+		if _is_valid_cell(cell):
+			hit = grid_manager.get_animal_at(cell)
+	if hit and ItemData.is_animal(hit.get_meta("item_type")):
+		animal_info_card.show_animal(hit)
+	else:
+		animal_info_card.clear()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -634,7 +660,7 @@ func _begin_place_drag() -> void:
 	_place_commit_pos = _ghost_grid_pos
 	if not _is_valid_cell(_place_commit_pos):
 		_place_drag = false
-		status_message.emit("Cannot place here")
+		_report_cannot_place(_place_commit_pos)
 		return
 	_place_drag = true
 	status_message.emit("Release to place at ghost cell")
@@ -657,7 +683,17 @@ func _commit_place_at(place_pos: Vector2i) -> void:
 		if placed == null and selected_item != ItemData.ItemType.GRASS:
 			pass
 	else:
-		status_message.emit("Cannot place here")
+		_report_cannot_place(place_pos)
+
+
+func _report_cannot_place(place_pos: Vector2i) -> void:
+	if (
+		ItemData.needs_dirt_to_plant(selected_item)
+		and grid_manager.plant_blocked_needs_hoe(place_pos, selected_item)
+	):
+		need_hoe_hint.emit()
+		return
+	status_message.emit("Cannot place here")
 
 
 func _is_selectable(obj: Node3D) -> bool:
@@ -1309,22 +1345,11 @@ func _try_feed(grid_pos: Vector2i, hit_obj: Node3D) -> void:
 	if hit_obj == null or not ItemData.is_animal(hit_obj.get_meta("item_type")):
 		status_message.emit("Click an animal to feed")
 		return
-	if inventory_manager and not inventory_manager.remove_item(feed_item):
-		status_message.emit("No %s left" % InventoryData.get_item_name(feed_item))
+	var result := AnimalInteraction.try_feed(hit_obj, feed_item, inventory_manager)
+	status_message.emit(str(result.get("message", "")))
+	if result.get("ok", false) and inventory_manager and inventory_manager.get_count(feed_item) <= 0:
 		enter_select_mode()
-		return
-	AnimalFeedEffect.play(hit_obj)
-	AudioManager.play("feed")
-	AudioManager.play_animal_for_item(
-		hit_obj.get_meta("item_type"),
-		false,
-		hit_obj.global_position
-	)
-	status_message.emit("Fed %s to %s!" % [
-		InventoryData.get_item_name(feed_item),
-		ItemData.get_item_name(hit_obj.get_meta("item_type")),
-	])
-
+		feed_mode_cancelled.emit()
 
 func _on_left_release(screen_pos: Vector2) -> void:
 	if _marquee_active:
@@ -1358,7 +1383,7 @@ func _on_left_release(screen_pos: Vector2) -> void:
 		if _ghost_place_valid and _is_valid_cell(_ghost_grid_pos):
 			_commit_place_at(_ghost_grid_pos)
 		else:
-			status_message.emit("Cannot place here")
+			_report_cannot_place(_ghost_grid_pos)
 		return
 
 	# Desktop place-drag: commit on release at the locked / dragged ghost cell.

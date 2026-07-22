@@ -127,10 +127,35 @@ func set_undo_enabled(enabled: bool) -> void:
 func set_select_highlight(select_on: bool, multi_on: bool) -> void:
 	if _select_btn:
 		_select_btn.button_pressed = select_on
-		_select_btn.modulate = Color(1.15, 1.12, 0.9) if select_on else Color.WHITE
+		_style_toggle_highlight(_select_btn, Color(0.35, 0.55, 0.85), select_on)
 	if _multiselect_btn:
 		_multiselect_btn.button_pressed = multi_on
-		_multiselect_btn.modulate = Color(1.15, 1.12, 0.9) if multi_on else Color.WHITE
+		_style_toggle_highlight(_multiselect_btn, Color(0.4, 0.7, 0.75), multi_on)
+
+
+func _style_toggle_highlight(btn: Button, tint: Color, selected: bool) -> void:
+	var style := StyleBoxFlat.new()
+	style.set_corner_radius_all(12)
+	style.content_margin_left = 8
+	style.content_margin_right = 8
+	if selected:
+		style.bg_color = Color(tint.r, tint.g, tint.b, 1.0).lightened(0.08)
+		style.set_border_width_all(3)
+		style.border_color = Color(0.95, 0.88, 0.35, 1.0)
+	else:
+		style.bg_color = Color(tint.r, tint.g, tint.b, 0.95)
+		style.set_border_width_all(2)
+		style.border_color = Color(1, 1, 1, 0.35)
+	btn.add_theme_stylebox_override("normal", style)
+	var hover := style.duplicate() as StyleBoxFlat
+	hover.bg_color = style.bg_color.lightened(0.1)
+	btn.add_theme_stylebox_override("hover", hover)
+	var pressed := style.duplicate() as StyleBoxFlat
+	pressed.bg_color = Color(tint.r, tint.g, tint.b, 1.0).lightened(0.05)
+	pressed.set_border_width_all(3)
+	pressed.border_color = Color(0.95, 0.88, 0.35, 1.0)
+	btn.add_theme_stylebox_override("pressed", pressed)
+	btn.modulate = Color(1.12, 1.1, 0.95) if selected else Color.WHITE
 
 
 func _on_mute_pressed() -> void:

@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://c674n0uth1u8v"
 path.s3tc="res://.godot/imported/sickle_medieval+sickle+3d+model_normal.jpg-a5acf4ab196404a778f9d818d1d9d6eb.s3tc.ctex"
+path.etc2="res://.godot/imported/sickle_medieval+sickle+3d+model_normal.jpg-a5acf4ab196404a778f9d818d1d9d6eb.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/others/sickle_medieval+sickle+3d+model_normal.jpg"
-dest_files=["res://.godot/imported/sickle_medieval+sickle+3d+model_normal.jpg-a5acf4ab196404a778f9d818d1d9d6eb.s3tc.ctex"]
+dest_files=["res://.godot/imported/sickle_medieval+sickle+3d+model_normal.jpg-a5acf4ab196404a778f9d818d1d9d6eb.s3tc.ctex", "res://.godot/imported/sickle_medieval+sickle+3d+model_normal.jpg-a5acf4ab196404a778f9d818d1d9d6eb.etc2.ctex"]
 
 [params]
 

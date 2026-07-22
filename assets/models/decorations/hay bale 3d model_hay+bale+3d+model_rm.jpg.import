@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://dxa33ssttaqj2"
 path.s3tc="res://.godot/imported/hay bale 3d model_hay+bale+3d+model_rm.jpg-c626afb954e39b622b03dbe7096b4dfd.s3tc.ctex"
+path.etc2="res://.godot/imported/hay bale 3d model_hay+bale+3d+model_rm.jpg-c626afb954e39b622b03dbe7096b4dfd.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/decorations/hay bale 3d model_hay+bale+3d+model_rm.jpg"
-dest_files=["res://.godot/imported/hay bale 3d model_hay+bale+3d+model_rm.jpg-c626afb954e39b622b03dbe7096b4dfd.s3tc.ctex"]
+dest_files=["res://.godot/imported/hay bale 3d model_hay+bale+3d+model_rm.jpg-c626afb954e39b622b03dbe7096b4dfd.s3tc.ctex", "res://.godot/imported/hay bale 3d model_hay+bale+3d+model_rm.jpg-c626afb954e39b622b03dbe7096b4dfd.etc2.ctex"]
 
 [params]
 

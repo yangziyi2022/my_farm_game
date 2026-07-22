@@ -9,6 +9,10 @@
 # *.import
 export/**/*.import
 
+# GLB decimation backups / temp (tools/decimate_glbs.py)
+assets/models/_glb_originals/
+tools/.decimate_tmp/
+
 # Exported builds / local packages
 export/
 build/

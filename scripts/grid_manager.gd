@@ -987,6 +987,17 @@ func can_hoe_at(grid_pos: Vector2i) -> bool:
 	return ItemData.is_hoeable(get_terrain_type_at(grid_pos))
 
 
+func plant_blocked_needs_hoe(grid_pos: Vector2i, item_type: ItemData.ItemType) -> bool:
+	## True when a seed/crop can't plant because this tile isn't dirt yet.
+	if not ItemData.needs_dirt_to_plant(item_type):
+		return false
+	if not is_in_bounds(grid_pos):
+		return false
+	if has_content(grid_pos):
+		return false
+	return get_terrain_type_at(grid_pos) != ItemData.ItemType.DIRT
+
+
 func replace_object(
 	grid_pos: Vector2i,
 	item_type: ItemData.ItemType,
@@ -1692,6 +1703,10 @@ func get_all_objects_data() -> Array:
 		}
 		if ItemData.is_growable_plant(obj.get_meta("item_type")):
 			entry["growth_stage"] = obj.get_meta("growth_stage", 0)
+		if ItemData.is_animal(obj.get_meta("item_type")):
+			var needs := obj.get_node_or_null("AnimalNeeds") as AnimalNeeds
+			if needs:
+				entry.merge(needs.to_save_dict())
 		if has_terrain(anchor):
 			entry["ground"] = ItemData.get_item_id(_terrain[anchor].get_meta("item_type"))
 		result.append(entry)
@@ -1758,6 +1773,62 @@ func get_animal_at(grid_pos: Vector2i) -> Node3D:
 	if obj and ItemData.is_animal(obj.get_meta("item_type")):
 		return obj
 	return null
+
+
+func count_animals_near(anchor: Vector2i, radius: int, exclude: Node3D = null) -> int:
+	## Count animals within Chebyshev radius (excludes `exclude`).
+	var seen: Dictionary = {}
+	var count := 0
+	for dx in range(-radius, radius + 1):
+		for dy in range(-radius, radius + 1):
+			var cell := anchor + Vector2i(dx, dy)
+			if not is_in_bounds(cell):
+				continue
+			var animal := get_animal_at(cell)
+			if animal == null or seen.has(animal):
+				continue
+			if exclude != null and animal == exclude:
+				continue
+			seen[animal] = true
+			count += 1
+	return count
+
+
+func has_water_near(anchor: Vector2i, radius: int) -> bool:
+	for dx in range(-radius, radius + 1):
+		for dy in range(-radius, radius + 1):
+			var cell := anchor + Vector2i(dx, dy)
+			if is_in_bounds(cell) and is_swimmable_cell(cell):
+				return true
+	return false
+
+
+## Walk-mode feed attract: hungry animals seek the player holding edible food.
+var _feed_attract_active: bool = false
+var _feed_attract_pos: Vector3 = Vector3.ZERO
+var _feed_attract_grid: Vector2i = Vector2i(-9999, -9999)
+var _feed_attract_item: int = -1  # InventoryData.Item as int, or -1
+
+
+func set_feed_attract(active: bool, world_pos: Vector3 = Vector3.ZERO, item = null) -> void:
+	_feed_attract_active = active
+	if not active:
+		_feed_attract_item = -1
+		return
+	_feed_attract_pos = world_pos
+	_feed_attract_grid = world_to_grid_nearest(world_pos)
+	_feed_attract_item = int(item) if item != null else -1
+
+
+func get_feed_attract() -> Dictionary:
+	if not _feed_attract_active or _feed_attract_item < 0:
+		return {"active": false}
+	return {
+		"active": true,
+		"pos": _feed_attract_pos,
+		"grid": _feed_attract_grid,
+		"item": _feed_attract_item as InventoryData.Item,
+	}
 
 
 func animal_can_step_to(animal: Node3D, to: Vector2i) -> bool:
@@ -1938,6 +2009,16 @@ func load_objects_data(data: Array) -> void:
 			if not has_terrain(grid_pos):
 				place_object_silent(item_type, grid_pos, rotation, growth_stage)
 			continue
-		place_object_silent(item_type, grid_pos, rotation, growth_stage)
+		var obj := place_object_silent(item_type, grid_pos, rotation, growth_stage)
+		if obj and ItemData.is_animal(item_type) and (
+			entry.has("satiety") or entry.has("affinity") or entry.has("mood")
+		):
+			var needs := obj.get_node_or_null("AnimalNeeds") as AnimalNeeds
+			if needs:
+				needs.apply_saved(
+					float(entry.get("satiety", AnimalNeeds.DEFAULT_SATIETY)),
+					float(entry.get("affinity", AnimalNeeds.DEFAULT_AFFINITY)),
+					float(entry.get("mood", AnimalNeeds.DEFAULT_MOOD))
+				)
 	_sync_grass_visibility()
 	repair_content_registry()

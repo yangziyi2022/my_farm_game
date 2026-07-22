@@ -65,6 +65,13 @@ func _ready() -> void:
 	_walk_mode.setup(grid_manager, camera, camera_controller, placement_controller, inventory_manager)
 	_walk_mode.status_message.connect(_on_status_message)
 
+	var animal_card := AnimalInfoCard.new()
+	animal_card.name = "AnimalInfoCard"
+	$UI.add_child(animal_card)
+	animal_card.setup(camera)
+	placement_controller.animal_info_card = animal_card
+	_walk_mode.animal_info_card = animal_card
+
 	item_palette.item_selected.connect(placement_controller.set_selected_item)
 	item_palette.select_tool_activated.connect(_on_select_tool_activated)
 	item_palette.multiselect_tool_activated.connect(_on_multiselect_tool_activated)
@@ -75,6 +82,7 @@ func _ready() -> void:
 	placement_controller.select_mode_requested.connect(item_palette.activate_select_tool)
 	placement_controller.feed_mode_cancelled.connect(inventory_bar.clear_feed_selection)
 	placement_controller.status_message.connect(_on_status_message)
+	placement_controller.need_hoe_hint.connect(_on_need_hoe_hint)
 	inventory_bar.feed_item_selected.connect(_on_feed_item_selected)
 	inventory_bar.feed_selection_cleared.connect(_on_feed_selection_cleared)
 
@@ -212,6 +220,12 @@ func _on_multiselect_tool_activated() -> void:
 
 func _on_hoe_tool_activated() -> void:
 	placement_controller.enter_hoe_mode()
+
+
+func _on_need_hoe_hint() -> void:
+	## Player tried to plant on grass — open Tools → Hoe with a pulse highlight.
+	item_palette.guide_to_hoe()
+	_on_status_message("Seeds need dirt — use Hoe on grass first, then plant again")
 
 
 func _on_harvest_tool_activated() -> void:

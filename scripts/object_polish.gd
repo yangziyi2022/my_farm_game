@@ -229,6 +229,11 @@ static func _attach_animal_behavior(
 	controller.setup(pivot, obj, grid_manager)
 	obj.add_child(controller)
 
+	var needs := AnimalNeeds.new()
+	needs.name = "AnimalNeeds"
+	needs.setup(obj, item_type, grid_manager)
+	obj.add_child(needs)
+
 
 static func _configure_animal(controller: AnimalController, item_type: ItemData.ItemType) -> void:
 	match item_type:

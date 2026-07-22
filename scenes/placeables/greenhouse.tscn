@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://greenhouse_placeable"]
 
-[ext_resource type="PackedScene" uid="uid://byfas6unuy8qp" path="res://assets/models/buildings/greenhouse 3d model.glb" id="1_greenhouse"]
+[ext_resource type="PackedScene" path="res://assets/models/buildings/greenhouse.glb" id="1_greenhouse"]
 
 [node name="GreenhousePlaceable" type="Node3D"]
 

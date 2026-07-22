@@ -1,8 +1,8 @@
 [gd_scene format=3 uid="uid://farmhouse_placeable"]
 
-[ext_resource type="PackedScene" uid="uid://buhu462togq8c" path="res://assets/models/buildings/farmhouse.glb" id="1_farmhouse"]
+[ext_resource type="PackedScene" path="res://assets/models/buildings/farmhouse.glb" id="1_farmhouse"]
 
 [node name="FarmhousePlaceable" type="Node3D"]
 
 [node name="Model" parent="." instance=ExtResource("1_farmhouse")]
-transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 0, 0.481, 0)
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 0, 0, 0)

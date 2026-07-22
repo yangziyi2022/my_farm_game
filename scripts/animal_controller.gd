@@ -4,10 +4,13 @@ extends Node
 ## Idle / wander / species quirks for farm animals.
 ## Root stays grid-anchored in meta; can step into neighboring free cells.
 
-enum State { IDLE, WALKING, SPECIAL }
+enum State { IDLE, WALKING, SPECIAL, SEEK_PLAYER }
 enum Species { GENERIC, CHICKEN, SHEEP, PIG, RABBIT, DUCK, COW }
 
 const WATER_SEEK_RADIUS: int = 3
+const FOOD_SEEK_RADIUS: int = 5
+const FOOD_SEEK_CHECK_INTERVAL: float = 0.45
+const PET_BOB_DURATION: float = 0.35
 
 @export var walk_speed: float = 0.35
 @export var wander_radius: float = 0.22
@@ -46,6 +49,8 @@ var _swim_time: float = 0.0
 var _gait_visual: Node3D
 var _legs: Array[Node3D] = []
 var _walk_phase: float = 0.0
+var _seek_check_timer: float = 0.0
+var _pet_bob_t: float = 0.0
 
 
 func setup(pivot: Node3D, root: Node3D = null, grid: GridManager = null) -> void:
@@ -98,6 +103,11 @@ func _process(delta: float) -> void:
 	_facing_angle = lerp_angle(_facing_angle, _target_angle, turn_speed * delta)
 	_swim_time += delta
 
+	_seek_check_timer -= delta
+	if _seek_check_timer <= 0.0:
+		_seek_check_timer = FOOD_SEEK_CHECK_INTERVAL
+		_try_begin_seek_player()
+
 	match _state:
 		State.IDLE:
 			_timer -= delta
@@ -108,7 +118,10 @@ func _process(delta: float) -> void:
 			_update_walk(delta)
 		State.SPECIAL:
 			_update_special(delta)
+		State.SEEK_PLAYER:
+			_update_seek_player(delta)
 
+	_update_pet_bob(delta)
 	_sync_yaw()
 
 
@@ -127,7 +140,96 @@ func _ground_pivot_y() -> float:
 	return _swim_pivot_y if (species == Species.DUCK and _is_on_water()) else _base_pivot_y
 
 
+func play_pet_react() -> void:
+	_pet_bob_t = PET_BOB_DURATION
+
+
+func _update_pet_bob(delta: float) -> void:
+	if _pet_bob_t <= 0.0 or _pivot == null:
+		return
+	_pet_bob_t = maxf(0.0, _pet_bob_t - delta)
+	var t := 1.0 - (_pet_bob_t / PET_BOB_DURATION)
+	var bob := sin(t * PI) * 0.06
+	_pivot.position.y = _ground_pivot_y() + bob
+
+
+func _needs_node() -> AnimalNeeds:
+	if _root == null:
+		return null
+	return _root.get_node_or_null("AnimalNeeds") as AnimalNeeds
+
+
+func _try_begin_seek_player() -> void:
+	if _grid == null or _root == null:
+		return
+	if _state == State.WALKING or _state == State.SPECIAL:
+		return
+	var attract: Dictionary = _grid.get_feed_attract()
+	if not attract.get("active", false):
+		if _state == State.SEEK_PLAYER:
+			_enter_idle()
+		return
+	var needs := _needs_node()
+	if needs == null or not needs.is_hungry():
+		if _state == State.SEEK_PLAYER:
+			_enter_idle()
+		return
+	var animal_type: ItemData.ItemType = _root.get_meta("item_type")
+	var food: InventoryData.Item = attract["item"]
+	if not AnimalDiet.can_eat(animal_type, food):
+		if _state == State.SEEK_PLAYER:
+			_enter_idle()
+		return
+	var from: Vector2i = _root.get_meta("grid_pos")
+	var target: Vector2i = attract["grid"]
+	var dist := maxi(absi(target.x - from.x), absi(target.y - from.y))
+	if dist > FOOD_SEEK_RADIUS:
+		if _state == State.SEEK_PLAYER:
+			_enter_idle()
+		return
+	# Look at the player even when adjacent.
+	var player_pos: Vector3 = attract["pos"]
+	var delta_xz := player_pos - _root.global_position
+	_target_angle = atan2(delta_xz.x, delta_xz.z)
+	_state = State.SEEK_PLAYER
+	_timer = 0.0
+
+
+func _update_seek_player(delta: float) -> void:
+	_apply_idle_pose(delta)
+	_timer -= delta
+	if _timer > 0.0:
+		return
+	_timer = 0.55
+	var attract: Dictionary = _grid.get_feed_attract() if _grid else {"active": false}
+	if not attract.get("active", false):
+		_enter_idle()
+		return
+	var needs := _needs_node()
+	if needs == null or not needs.is_hungry():
+		_enter_idle()
+		return
+	var from: Vector2i = _root.get_meta("grid_pos")
+	var target: Vector2i = attract["grid"]
+	var dist := maxi(absi(target.x - from.x), absi(target.y - from.y))
+	if dist <= 1:
+		# Adjacent: keep facing player.
+		var player_pos: Vector3 = attract["pos"]
+		var delta_xz := player_pos - _root.global_position
+		_target_angle = atan2(delta_xz.x, delta_xz.z)
+		return
+	if dist > FOOD_SEEK_RADIUS:
+		_enter_idle()
+		return
+	var step := _best_step_toward(from, target)
+	if step == Vector2i.ZERO:
+		return
+	_begin_cross_tile_step(from + step)
+
+
 func _pick_next_action() -> void:
+	if _state == State.SEEK_PLAYER:
+		return
 	if randf() < look_around_chance and _state == State.IDLE:
 		_target_angle = randf_range(0.0, TAU)
 	# Occasional ambient voice — spatial volume handled by AudioManager.

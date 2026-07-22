@@ -2,20 +2,21 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://1b7wg2tu27pq"
+uid="uid://c4wpnwbnogx6q"
 path.s3tc="res://.godot/imported/barn_green+house+3d+model_normal.jpg-1771238f789bb5f0123fc6c5728076ab.s3tc.ctex"
+path.etc2="res://.godot/imported/barn_green+house+3d+model_normal.jpg-1771238f789bb5f0123fc6c5728076ab.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
-"md5": "7a1f6ce5b74382e774049a7c63215f39"
+"md5": "bbcc479daac40f46d85e3aa44936e258"
 }
 
 [deps]
 
 source_file="res://assets/models/buildings/barn_green+house+3d+model_normal.jpg"
-dest_files=["res://.godot/imported/barn_green+house+3d+model_normal.jpg-1771238f789bb5f0123fc6c5728076ab.s3tc.ctex"]
+dest_files=["res://.godot/imported/barn_green+house+3d+model_normal.jpg-1771238f789bb5f0123fc6c5728076ab.s3tc.ctex", "res://.godot/imported/barn_green+house+3d+model_normal.jpg-1771238f789bb5f0123fc6c5728076ab.etc2.ctex"]
 
 [params]
 

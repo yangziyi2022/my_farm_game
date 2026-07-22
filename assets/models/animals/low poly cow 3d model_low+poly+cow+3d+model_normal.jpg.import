@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://cnej4gsqyebqb"
 path.s3tc="res://.godot/imported/low poly cow 3d model_low+poly+cow+3d+model_normal.jpg-7966e1508eb5c91333f08c3202f0693d.s3tc.ctex"
+path.etc2="res://.godot/imported/low poly cow 3d model_low+poly+cow+3d+model_normal.jpg-7966e1508eb5c91333f08c3202f0693d.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/animals/low poly cow 3d model_low+poly+cow+3d+model_normal.jpg"
-dest_files=["res://.godot/imported/low poly cow 3d model_low+poly+cow+3d+model_normal.jpg-7966e1508eb5c91333f08c3202f0693d.s3tc.ctex"]
+dest_files=["res://.godot/imported/low poly cow 3d model_low+poly+cow+3d+model_normal.jpg-7966e1508eb5c91333f08c3202f0693d.s3tc.ctex", "res://.godot/imported/low poly cow 3d model_low+poly+cow+3d+model_normal.jpg-7966e1508eb5c91333f08c3202f0693d.etc2.ctex"]
 
 [params]
 

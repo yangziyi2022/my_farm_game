@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://granary_placeable"]
 
-[ext_resource type="PackedScene" uid="uid://dkhhsjqltwkd4" path="res://assets/models/buildings/granary 3d model.glb" id="1_granary"]
+[ext_resource type="PackedScene" path="res://assets/models/buildings/granary.glb" id="1_granary"]
 
 [node name="GranaryPlaceable" type="Node3D"]
 

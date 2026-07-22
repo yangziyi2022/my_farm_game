@@ -15,10 +15,10 @@ enum Item {
 
 const ITEMS: Dictionary = {
 	Item.WHEAT: {"id": "wheat", "name": "Wheat", "color": Color(0.9, 0.78, 0.25), "feedable": true, "letter": "W"},
-	Item.CARROT: {"id": "carrot", "name": "Carrot", "color": Color(0.95, 0.55, 0.15), "feedable": false, "letter": "C"},
-	Item.SUNFLOWER: {"id": "sunflower", "name": "Sunflower", "color": Color(0.95, 0.78, 0.1), "feedable": false, "letter": "S"},
+	Item.CARROT: {"id": "carrot", "name": "Carrot", "color": Color(0.95, 0.55, 0.15), "feedable": true, "letter": "C"},
+	Item.SUNFLOWER: {"id": "sunflower", "name": "Sunflower", "color": Color(0.95, 0.78, 0.1), "feedable": true, "letter": "S"},
 	Item.WOOD: {"id": "wood", "name": "Wood", "color": Color(0.55, 0.38, 0.22), "feedable": false, "letter": "T"},
-	Item.FISH: {"id": "fish", "name": "Fish", "color": Color(0.35, 0.55, 0.85), "feedable": false, "letter": "F"},
+	Item.FISH: {"id": "fish", "name": "Fish", "color": Color(0.35, 0.55, 0.85), "feedable": true, "letter": "F"},
 	Item.MEAT: {"id": "meat", "name": "Meat", "color": Color(0.75, 0.35, 0.35), "feedable": false, "letter": "M"},
 	Item.TOOL_HOE: {
 		"id": "tool_hoe",

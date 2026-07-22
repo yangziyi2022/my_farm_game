@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://d1xysg6qoe6eq"
 path.s3tc="res://.godot/imported/wheat_wheat+field+3d+model_normal.jpg-6668da556bc59f99cdf1320fbb49b02b.s3tc.ctex"
+path.etc2="res://.godot/imported/wheat_wheat+field+3d+model_normal.jpg-6668da556bc59f99cdf1320fbb49b02b.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/crops/wheat_wheat+field+3d+model_normal.jpg"
-dest_files=["res://.godot/imported/wheat_wheat+field+3d+model_normal.jpg-6668da556bc59f99cdf1320fbb49b02b.s3tc.ctex"]
+dest_files=["res://.godot/imported/wheat_wheat+field+3d+model_normal.jpg-6668da556bc59f99cdf1320fbb49b02b.s3tc.ctex", "res://.godot/imported/wheat_wheat+field+3d+model_normal.jpg-6668da556bc59f99cdf1320fbb49b02b.etc2.ctex"]
 
 [params]
 

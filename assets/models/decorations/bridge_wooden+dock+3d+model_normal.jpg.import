@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://bflkvdtirqh7y"
 path.s3tc="res://.godot/imported/bridge_wooden+dock+3d+model_normal.jpg-c6b5ec6b500bb8ed2d6654501d860c05.s3tc.ctex"
+path.etc2="res://.godot/imported/bridge_wooden+dock+3d+model_normal.jpg-c6b5ec6b500bb8ed2d6654501d860c05.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/decorations/bridge_wooden+dock+3d+model_normal.jpg"
-dest_files=["res://.godot/imported/bridge_wooden+dock+3d+model_normal.jpg-c6b5ec6b500bb8ed2d6654501d860c05.s3tc.ctex"]
+dest_files=["res://.godot/imported/bridge_wooden+dock+3d+model_normal.jpg-c6b5ec6b500bb8ed2d6654501d860c05.s3tc.ctex", "res://.godot/imported/bridge_wooden+dock+3d+model_normal.jpg-c6b5ec6b500bb8ed2d6654501d860c05.etc2.ctex"]
 
 [params]
 

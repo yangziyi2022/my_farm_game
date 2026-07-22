@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://w6q3r28idwfb"
 path.s3tc="res://.godot/imported/stone well 3d model_stone+well+3d+model_rm.jpg-4262e6c60b6e9124a7349fe154427ab0.s3tc.ctex"
+path.etc2="res://.godot/imported/stone well 3d model_stone+well+3d+model_rm.jpg-4262e6c60b6e9124a7349fe154427ab0.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/decorations/stone well 3d model_stone+well+3d+model_rm.jpg"
-dest_files=["res://.godot/imported/stone well 3d model_stone+well+3d+model_rm.jpg-4262e6c60b6e9124a7349fe154427ab0.s3tc.ctex"]
+dest_files=["res://.godot/imported/stone well 3d model_stone+well+3d+model_rm.jpg-4262e6c60b6e9124a7349fe154427ab0.s3tc.ctex", "res://.godot/imported/stone well 3d model_stone+well+3d+model_rm.jpg-4262e6c60b6e9124a7349fe154427ab0.etc2.ctex"]
 
 [params]
 

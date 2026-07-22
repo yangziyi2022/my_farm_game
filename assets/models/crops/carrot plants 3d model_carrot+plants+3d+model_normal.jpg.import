@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://b4rqdtmaqy01k"
 path.s3tc="res://.godot/imported/carrot plants 3d model_carrot+plants+3d+model_normal.jpg-f877e831f282a0856bbb9d56a19deabf.s3tc.ctex"
+path.etc2="res://.godot/imported/carrot plants 3d model_carrot+plants+3d+model_normal.jpg-f877e831f282a0856bbb9d56a19deabf.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/crops/carrot plants 3d model_carrot+plants+3d+model_normal.jpg"
-dest_files=["res://.godot/imported/carrot plants 3d model_carrot+plants+3d+model_normal.jpg-f877e831f282a0856bbb9d56a19deabf.s3tc.ctex"]
+dest_files=["res://.godot/imported/carrot plants 3d model_carrot+plants+3d+model_normal.jpg-f877e831f282a0856bbb9d56a19deabf.s3tc.ctex", "res://.godot/imported/carrot plants 3d model_carrot+plants+3d+model_normal.jpg-f877e831f282a0856bbb9d56a19deabf.etc2.ctex"]
 
 [params]
 

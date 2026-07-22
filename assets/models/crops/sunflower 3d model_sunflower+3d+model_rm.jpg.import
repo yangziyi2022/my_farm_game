@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://57o4j775x23v"
 path.s3tc="res://.godot/imported/sunflower 3d model_sunflower+3d+model_rm.jpg-dd39b4b5e016e5f3543e2fe5ca7d7a81.s3tc.ctex"
+path.etc2="res://.godot/imported/sunflower 3d model_sunflower+3d+model_rm.jpg-dd39b4b5e016e5f3543e2fe5ca7d7a81.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/crops/sunflower 3d model_sunflower+3d+model_rm.jpg"
-dest_files=["res://.godot/imported/sunflower 3d model_sunflower+3d+model_rm.jpg-dd39b4b5e016e5f3543e2fe5ca7d7a81.s3tc.ctex"]
+dest_files=["res://.godot/imported/sunflower 3d model_sunflower+3d+model_rm.jpg-dd39b4b5e016e5f3543e2fe5ca7d7a81.s3tc.ctex", "res://.godot/imported/sunflower 3d model_sunflower+3d+model_rm.jpg-dd39b4b5e016e5f3543e2fe5ca7d7a81.etc2.ctex"]
 
 [params]
 

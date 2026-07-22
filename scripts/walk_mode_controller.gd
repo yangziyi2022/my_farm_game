@@ -32,6 +32,8 @@ var camera_controller: CameraController
 var placement_controller: PlacementController
 var inventory_manager: InventoryManager
 
+var animal_info_card: AnimalInfoCard = null
+
 var state: State = State.OFF
 var _avatar: PlayerAvatar
 var _ghost_cell: Vector2i = Vector2i(-9999, -9999)
@@ -127,6 +129,10 @@ func exit_walk() -> void:
 		camera_controller.set_build_orbit_enabled(true)
 	if placement_controller:
 		placement_controller.set_walk_mode_blocked(false)
+	if grid_manager:
+		grid_manager.set_feed_attract(false)
+	if animal_info_card:
+		animal_info_card.clear()
 	state = State.OFF
 	walk_ended.emit()
 	status_message.emit("Back to build view")
@@ -266,6 +272,8 @@ func _process(delta: float) -> void:
 		_apply_follow_camera(false)
 		_update_use_button_label()
 		_update_hotbar_name_label()
+		_update_feed_attract()
+		_update_animal_aim_card()
 
 
 func _update_key_vec() -> void:
@@ -599,7 +607,7 @@ func _on_use_pressed() -> void:
 		return
 	var item = _avatar.get_held_inventory_item()
 	if item == null:
-		status_message.emit("Select a hotbar item first (1–8)")
+		_avatar.play_use_swing(Callable(self, "_try_pet"))
 		return
 	# Fishing reel / cast uses the same Use button without always swinging twice.
 	if item == InventoryData.Item.TOOL_ROD and _fish_phase == 2:
@@ -619,8 +627,77 @@ func _apply_use_impact(item: InventoryData.Item) -> void:
 		_:
 			if InventoryData.is_feedable(item):
 				_use_feed(item)
+			elif _aimed_animal() != null:
+				_try_pet()
 			else:
 				status_message.emit("Waved %s" % InventoryData.get_item_name(item))
+
+
+func _aimed_animal() -> Node3D:
+	for cell in _use_target_cells():
+		var animal := grid_manager.get_animal_at(cell)
+		if animal:
+			return animal
+	return null
+
+
+func _try_pet() -> void:
+	var animal := _aimed_animal()
+	if animal == null:
+		status_message.emit("Look at / face an animal to pet")
+		return
+	var result := AnimalInteraction.try_pet(animal)
+	status_message.emit(str(result.get("message", "")))
+	if result.get("ok", false):
+		var ctrl := animal.get_node_or_null("AnimalController") as AnimalController
+		if ctrl:
+			ctrl.play_pet_react()
+
+
+func _update_feed_attract() -> void:
+	if grid_manager == null or _avatar == null or not is_instance_valid(_avatar):
+		return
+	var item = _avatar.get_held_inventory_item()
+	if item != null and InventoryData.is_feedable(item):
+		grid_manager.set_feed_attract(true, _avatar.global_position, item)
+	else:
+		grid_manager.set_feed_attract(false)
+
+
+func _update_animal_aim_card() -> void:
+	if animal_info_card == null:
+		return
+	var animal := _raycast_view_animal()
+	if animal == null:
+		animal = _aimed_animal()
+	if animal:
+		animal_info_card.show_animal(animal)
+	else:
+		animal_info_card.clear()
+
+
+func _raycast_view_animal() -> Node3D:
+	if camera == null or grid_manager == null or _avatar == null:
+		return null
+	var vp := camera.get_viewport()
+	if vp == null:
+		return null
+	var center: Vector2 = vp.get_visible_rect().size * 0.5
+	var from := camera.project_ray_origin(center)
+	var to := from + camera.project_ray_normal(center) * 40.0
+	var space := camera.get_world_3d().direct_space_state
+	var query := PhysicsRayQueryParameters3D.create(from, to)
+	query.collide_with_areas = false
+	query.collide_with_bodies = true
+	var result := space.intersect_ray(query)
+	if result.is_empty():
+		return null
+	var node: Node = result.collider as Node
+	while node != null and is_instance_valid(node):
+		if node is Node3D and node.has_meta("item_type") and ItemData.is_animal(node.get_meta("item_type")):
+			return node as Node3D
+		node = node.get_parent()
+	return null
 
 
 func _facing_cell() -> Vector2i:
@@ -799,21 +876,10 @@ func _use_feed(item: InventoryData.Item) -> void:
 		var animal := grid_manager.get_animal_at(cell)
 		if animal == null:
 			continue
-		if inventory_manager and not inventory_manager.remove_item(item):
-			status_message.emit("No %s left" % InventoryData.get_item_name(item))
-			return
-		AnimalFeedEffect.play(animal)
-		AudioManager.play("feed")
-		AudioManager.play_animal_for_item(
-			animal.get_meta("item_type"),
-			false,
-			animal.global_position
-		)
-		status_message.emit("Fed %s to %s!" % [
-			InventoryData.get_item_name(item),
-			ItemData.get_item_name(animal.get_meta("item_type")),
-		])
-		_apply_held_from_hotbar()
+		var result := AnimalInteraction.try_feed(animal, item, inventory_manager)
+		status_message.emit(str(result.get("message", "")))
+		if result.get("ok", false):
+			_apply_held_from_hotbar()
 		return
 	status_message.emit("Look at / face an animal to feed")
 
