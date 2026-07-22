@@ -288,6 +288,16 @@ static func _configure_animal(controller: AnimalController, item_type: ItemData.
 			controller.idle_time_max = 7.5
 			controller.cross_tile_chance = 0.4
 			controller.special_chance = 0.08
+		ItemData.ItemType.BUTTERFLY:
+			controller.species = AnimalController.Species.BUTTERFLY
+			controller.walk_speed = 0.85
+			controller.wander_radius = 0.38
+			controller.idle_time_min = 0.4
+			controller.idle_time_max = 1.4
+			controller.walk_chance = 0.9
+			controller.cross_tile_chance = 0.85
+			controller.special_chance = 0.0
+			controller.look_around_chance = 0.2
 		_:
 			controller.species = AnimalController.Species.GENERIC
 			controller.cross_tile_chance = 0.5
@@ -317,8 +327,8 @@ static func _create_visual_pivot(obj: Node3D, pivot_name: String) -> Node3D:
 			continue
 		if child is MeshInstance3D:
 			child.reparent(pivot)
-		elif child is Node3D and child.name in ["Visual", "Head"]:
-			# Scene wrappers + sheep Head (for graze animation).
+		elif child is Node3D and child.name in ["Visual", "Head", "WingL", "WingR"]:
+			# Scene wrappers, sheep Head, butterfly wings (flap around body).
 			child.reparent(pivot)
 
 	return pivot

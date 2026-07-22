@@ -158,6 +158,29 @@ func is_swinging() -> bool:
 	return _swinging
 
 
+func set_sitting(sitting: bool) -> void:
+	## Compact seated pose on a bench (lower torso / head).
+	if _body == null or _head == null:
+		return
+	var nose := get_node_or_null("Nose") as Node3D
+	if sitting:
+		_body.position = Vector3(0.0, 0.38, 0.0)
+		_body.scale = Vector3(1.0, 0.62, 1.05)
+		_head.position = Vector3(0.0, 0.88, 0.0)
+		if nose:
+			nose.position = Vector3(0.0, 0.86, -0.22)
+		if _swing_pivot:
+			_swing_pivot.position = Vector3(0.22, 0.72, 0.0)
+	else:
+		_body.position = Vector3(0.0, 0.64, 0.0)
+		_body.scale = Vector3.ONE
+		_head.position = Vector3(0.0, 1.28, 0.0)
+		if nose:
+			nose.position = Vector3(0.0, 1.26, -0.22)
+		if _swing_pivot:
+			_swing_pivot.position = Vector3(0.22, 1.05, 0.0)
+
+
 func play_use_swing(on_impact: Callable = Callable()) -> void:
 	if _swinging or _swing_pivot == null:
 		if on_impact.is_valid():

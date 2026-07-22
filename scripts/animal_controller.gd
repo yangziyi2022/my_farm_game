@@ -5,13 +5,15 @@ extends Node
 ## Root stays grid-anchored in meta; can step into neighboring free cells.
 
 enum State { IDLE, WALKING, SPECIAL, SEEK_PLAYER }
-enum Species { GENERIC, CHICKEN, SHEEP, PIG, RABBIT, DUCK, COW }
+enum Species { GENERIC, CHICKEN, SHEEP, PIG, RABBIT, DUCK, COW, BUTTERFLY }
 
 const WATER_SEEK_RADIUS: int = 3
 const FOOD_SEEK_RADIUS: int = 5
+const FLOWER_SEEK_RADIUS: int = 5
 const FOOD_SEEK_CHECK_INTERVAL: float = 0.45
 const PET_BOB_DURATION: float = 0.55
 const PET_BOB_HEIGHT: float = 0.11
+const BUTTERFLY_HOVER_Y: float = 0.72
 
 @export var walk_speed: float = 0.35
 @export var wander_radius: float = 0.22
@@ -52,6 +54,9 @@ var _legs: Array[Node3D] = []
 var _walk_phase: float = 0.0
 var _seek_check_timer: float = 0.0
 var _pet_bob_t: float = 0.0
+var _wing_l: Node3D
+var _wing_r: Node3D
+var _flutter_t: float = 0.0
 
 
 func setup(pivot: Node3D, root: Node3D = null, grid: GridManager = null) -> void:
@@ -65,6 +70,12 @@ func setup(pivot: Node3D, root: Node3D = null, grid: GridManager = null) -> void
 		_head = _pivot.find_child("Head", true, false) as Node3D
 		if _head:
 			_head_base_rot_x = _head.rotation.x
+		_wing_l = _pivot.find_child("WingL", true, false) as Node3D
+		_wing_r = _pivot.find_child("WingR", true, false) as Node3D
+		if _wing_l == null and _root:
+			_wing_l = _root.find_child("WingL", true, false) as Node3D
+		if _wing_r == null and _root:
+			_wing_r = _root.find_child("WingR", true, false) as Node3D
 		_cache_gait_nodes()
 		_sync_yaw()
 
@@ -123,6 +134,7 @@ func _process(delta: float) -> void:
 			_update_seek_player(delta)
 
 	_update_pet_bob(delta)
+	_update_butterfly_flight(delta)
 	_sync_yaw()
 
 
@@ -138,7 +150,25 @@ func _is_on_water() -> bool:
 
 
 func _ground_pivot_y() -> float:
+	if species == Species.BUTTERFLY:
+		return BUTTERFLY_HOVER_Y + sin(_flutter_t * 5.5) * 0.06
 	return _swim_pivot_y if (species == Species.DUCK and _is_on_water()) else _base_pivot_y
+
+
+func _update_butterfly_flight(delta: float) -> void:
+	if species != Species.BUTTERFLY:
+		return
+	_flutter_t += delta
+	# Flap around body hinges (Z): outer tips rise / fall; slight rest dihedral.
+	var flap := sin(_flutter_t * 18.0) * 0.7
+	var dihedral := 0.22
+	if _wing_l:
+		_wing_l.rotation = Vector3(0.0, 0.0, dihedral + flap)
+	if _wing_r:
+		_wing_r.rotation = Vector3(0.0, 0.0, -(dihedral + flap))
+	# Keep hovering even while idle.
+	if _pet_bob_t <= 0.0 and _pivot and _state != State.WALKING:
+		_pivot.position.y = lerpf(_pivot.position.y, _ground_pivot_y(), minf(1.0, delta * 8.0))
 
 
 func play_pet_react(from_world: Vector3 = Vector3.ZERO) -> void:
@@ -295,6 +325,8 @@ func _pick_next_action() -> void:
 	if randf() < walk_chance:
 		if species == Species.DUCK and _try_duck_water_step():
 			return
+		if species == Species.BUTTERFLY and _try_butterfly_flower_step():
+			return
 		if randf() < cross_tile_chance and _try_start_cross_tile_walk():
 			return
 		_start_local_walk()
@@ -326,8 +358,46 @@ func _try_start_special() -> bool:
 			return false
 		Species.RABBIT:
 			return false
+		Species.BUTTERFLY:
+			return false
 		_:
 			return false
+
+
+func _try_butterfly_flower_step() -> bool:
+	## Within 5 cells of a flower → step toward it; when near, flutter around it.
+	if _grid == null or _root == null:
+		return false
+	var from: Vector2i = _root.get_meta("grid_pos")
+	var flowers := _grid.find_flower_attractants_within(from, FLOWER_SEEK_RADIUS)
+	if flowers.is_empty():
+		return false
+	var target: Vector2i = flowers[0]
+	var dist := maxi(absi(target.x - from.x), absi(target.y - from.y))
+	if dist <= 1:
+		# Already beside a bloom — local flutter, sometimes hop to another adjacent cell.
+		if randf() < 0.55:
+			return _try_step_near_cell(target)
+		_start_local_walk()
+		return true
+	var step := _best_step_toward(from, target)
+	if step == Vector2i.ZERO:
+		return false
+	return _begin_cross_tile_step(from + step)
+
+
+func _try_step_near_cell(anchor: Vector2i) -> bool:
+	var dirs: Array[Vector2i] = [
+		Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1),
+	]
+	dirs.shuffle()
+	for dir in dirs:
+		var to: Vector2i = anchor + dir
+		if maxi(absi(to.x - anchor.x), absi(to.y - anchor.y)) > 1:
+			continue
+		if _begin_cross_tile_step(to):
+			return true
+	return false
 
 
 func _try_duck_water_step() -> bool:

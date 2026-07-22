@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://vt2bh20gc0k6"
-path="res://.godot/imported/tree.glb-c411e4b1ee8dce06df422f41c3888b74.scn"
+uid="uid://baiw2i82ke752"
+path="res://.godot/imported/apple tree 3d model.glb-53a79722670b8bbfa9073f31272377b7.scn"
 
 [deps]
 
-source_file="res://assets/models/nature/tree.glb"
-dest_files=["res://.godot/imported/tree.glb-c411e4b1ee8dce06df422f41c3888b74.scn"]
+source_file="res://assets/models/nature/apple tree 3d model.glb"
+dest_files=["res://.godot/imported/apple tree 3d model.glb-53a79722670b8bbfa9073f31272377b7.scn"]
 
 [params]
 

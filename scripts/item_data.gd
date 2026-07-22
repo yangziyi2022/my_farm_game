@@ -46,6 +46,7 @@ enum ItemType {
 	RABBIT,
 	BENCH,
 	HAY_BALE,
+	BUTTERFLY,
 }
 
 const CATEGORIES: Dictionary = {
@@ -295,6 +296,16 @@ const ITEMS: Dictionary = {
 		"eye_color": Color(0.2, 0.15, 0.15),
 		"size": Vector3(0.48, 0.42, 0.6),
 		"offset_y": 0.24,
+		"rotatable": true,
+	},
+	ItemType.BUTTERFLY: {
+		"id": "butterfly",
+		"name": "Butterfly",
+		"category": Category.ANIMAL,
+		"color": Color(0.95, 0.55, 0.85),
+		"wing_color": Color(0.55, 0.75, 0.98),
+		"size": Vector3(0.35, 0.2, 0.35),
+		"offset_y": 0.7,
 		"rotatable": true,
 	},
 	ItemType.FLOWER_RED: {
@@ -566,6 +577,20 @@ static func blocks_animal(item_type: ItemType) -> bool:
 
 static func can_live_on_water(item_type: ItemType) -> bool:
 	return item_type == ItemType.DUCK
+
+
+static func can_fly(item_type: ItemType) -> bool:
+	return item_type == ItemType.BUTTERFLY
+
+
+static func is_flower_attractant(item_type: ItemType) -> bool:
+	## Plants butterflies seek (within a few cells).
+	return item_type in [
+		ItemType.FLOWER_RED,
+		ItemType.FLOWER_YELLOW,
+		ItemType.TULIP,
+		ItemType.SUNFLOWER,
+	]
 
 
 static func should_sway(item_type: ItemType) -> bool:

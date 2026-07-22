@@ -10,7 +10,7 @@ signal feed_mode_cancelled
 ## Planting failed because the tile isn't dirt yet — guide the player to Hoe.
 signal need_hoe_hint
 
-enum Mode { PLACE, SELECT, MULTISELECT, HOE, HARVEST, FISH, FEED }
+enum Mode { PLACE, SELECT, MULTISELECT, HOE, HARVEST, FISH, FEED, FERTILIZE }
 
 var grid_manager: GridManager
 var camera: Camera3D
@@ -240,6 +240,30 @@ func enter_fish_mode() -> void:
 	status_message.emit(LocaleManager.t("Rod — click water to cast, wait for a bite, click again to reel in"))
 
 
+func enter_fertilize_mode() -> void:
+	if inventory_manager:
+		inventory_manager.ensure_default_tools()
+	if inventory_manager and not inventory_manager.has_item(InventoryData.Item.COMPOST):
+		status_message.emit(LocaleManager.t("No Compost left — harvest crops to get more"))
+		return
+	mode = Mode.FERTILIZE
+	_dragging = false
+	_place_drag = false
+	_group_dragging = false
+	_cancel_marquee()
+	_reset_selection_state()
+	_remove_ghost()
+	_reset_fishing_session()
+	_hide_tool_cursor()
+	feed_mode_cancelled.emit()
+	_show_cursor_overlay(
+		LocaleManager.t("Fertilize"),
+		InventoryData.get_color(InventoryData.Item.COMPOST)
+	)
+	_ensure_tool_footprint()
+	status_message.emit(LocaleManager.t("Fertilize — click a growing plant (uses 1 Compost)"))
+
+
 func enter_feed_mode(item: InventoryData.Item) -> void:
 	if not InventoryData.is_feedable(item):
 		return
@@ -336,7 +360,7 @@ func _process(_delta: float) -> void:
 				_apply_ghost_at_cell(_ghost_grid_pos)
 		else:
 			_update_ghost_from_pointer()
-	if mode == Mode.HOE or mode == Mode.HARVEST or mode == Mode.FISH:
+	if mode == Mode.HOE or mode == Mode.HARVEST or mode == Mode.FISH or mode == Mode.FERTILIZE:
 		_update_tool_footprint()
 	if mode == Mode.FISH:
 		_update_fishing(_delta)
@@ -567,6 +591,12 @@ func _on_left_press(screen_pos: Vector2) -> void:
 	if mode == Mode.HARVEST:
 		_register_click(null)
 		_begin_harvest_swipe(screen_pos)
+		return
+
+	# Fertilize: single tap on a growing (not mature) plant.
+	if mode == Mode.FERTILIZE:
+		_register_click(null)
+		_try_fertilize_at(_raycast_ground_cell(screen_pos))
 		return
 
 	if hit.is_empty():
@@ -1631,8 +1661,46 @@ func _tool_cell_valid(cell: Vector2i) -> bool:
 			return grid_manager.is_plant_mature(cell)
 		Mode.FISH:
 			return grid_manager.try_fish(cell)
+		Mode.FERTILIZE:
+			return _cell_can_fertilize(cell)
 		_:
 			return false
+
+
+func _cell_can_fertilize(cell: Vector2i) -> bool:
+	if not _is_valid_cell(cell) or grid_manager == null:
+		return false
+	var plant := grid_manager.get_content_at(cell)
+	if plant == null or not plant.has_meta("item_type"):
+		return false
+	if not ItemData.is_growable_plant(plant.get_meta("item_type")):
+		return false
+	var growth := plant.get_node_or_null("CropGrowth") as CropGrowth
+	return growth != null and not growth.is_mature() and not growth.is_fertilized()
+
+
+func _try_fertilize_at(grid_pos: Vector2i) -> void:
+	if not _is_valid_cell(grid_pos):
+		status_message.emit(LocaleManager.t("Aim at a growing plant to fertilize"))
+		return
+	if inventory_manager == null or not inventory_manager.has_item(InventoryData.Item.COMPOST):
+		status_message.emit(LocaleManager.t("No Compost left — harvest crops to get more"))
+		return
+	var plant := grid_manager.get_content_at(grid_pos)
+	if plant == null or not plant.has_meta("item_type") or not ItemData.is_growable_plant(plant.get_meta("item_type")):
+		status_message.emit(LocaleManager.t("Aim at a growing plant to fertilize"))
+		return
+	var growth := plant.get_node_or_null("CropGrowth") as CropGrowth
+	if growth == null:
+		status_message.emit(LocaleManager.t("Can't fertilize that"))
+		return
+	var result := growth.try_fertilize()
+	status_message.emit(str(result.get("message", "")))
+	if result.get("ok", false):
+		inventory_manager.remove_item(InventoryData.Item.COMPOST, 1)
+		AudioManager.play("hoe")
+		if not inventory_manager.has_item(InventoryData.Item.COMPOST):
+			status_message.emit(LocaleManager.t("No Compost left — harvest crops to get more"))
 
 
 func _update_tool_footprint() -> void:

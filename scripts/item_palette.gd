@@ -7,10 +7,11 @@ signal multiselect_tool_activated
 signal hoe_tool_activated
 signal harvest_tool_activated
 signal rod_tool_activated
+signal fertilize_tool_activated
 ## Emitted when active tool/item highlight changes (for top-right Select buttons).
 signal tool_highlight_changed(tool: int, item_type: int)
 
-enum Tool { SELECT, MULTISELECT, HOE, HARVEST, ROD }
+enum Tool { SELECT, MULTISELECT, HOE, HARVEST, ROD, FERTILIZE }
 
 const SELECT_TOOL := -1
 const ICON_SIZE := Vector2(48, 48)
@@ -28,6 +29,7 @@ var _multiselect_btn: Button
 var _hoe_btn: Button
 var _harvest_btn: Button
 var _rod_btn: Button
+var _fertilize_btn: Button
 var _active_type: int = SELECT_TOOL
 var _active_tool: Tool = Tool.SELECT
 
@@ -238,7 +240,7 @@ func _build_palette() -> void:
 	outer.add_theme_constant_override("separation", 12 if _touch_layout else 10)
 	content_pad.add_child(outer)
 
-	# Tools accordion: hammer -> hoe / harvest / rod
+	# Tools accordion: hammer -> hoe / harvest / rod / fertilize
 	var tools_body := VBoxContainer.new()
 	tools_body.add_theme_constant_override("separation", 6 if _touch_layout else 4)
 	_hoe_btn = _make_child_button(LocaleManager.t("Hoe"))
@@ -250,6 +252,9 @@ func _build_palette() -> void:
 	_rod_btn = _make_child_button(LocaleManager.t("Rod"))
 	_rod_btn.pressed.connect(_on_rod_tool_pressed)
 	tools_body.add_child(_rod_btn)
+	_fertilize_btn = _make_child_button(LocaleManager.t("Fertilize"))
+	_fertilize_btn.pressed.connect(_on_fertilize_tool_pressed)
+	tools_body.add_child(_fertilize_btn)
 	_add_section(outer, "tools", LocaleManager.t("Tool"), _icon_hammer(), Color(0.55, 0.45, 0.35), tools_body)
 
 	# Category accordions
@@ -480,6 +485,11 @@ func _on_rod_tool_pressed() -> void:
 	rod_tool_activated.emit()
 
 
+func _on_fertilize_tool_pressed() -> void:
+	activate_fertilize_tool()
+	fertilize_tool_activated.emit()
+
+
 func _on_item_pressed(item_type: ItemData.ItemType) -> void:
 	if _active_type == item_type and _active_tool == Tool.SELECT:
 		activate_select_tool()
@@ -596,6 +606,14 @@ func activate_rod_tool() -> void:
 	_update_button_styles()
 
 
+func activate_fertilize_tool() -> void:
+	_active_tool = Tool.FERTILIZE
+	_active_type = SELECT_TOOL
+	_clear_hoe_guide()
+	_set_open_section("tools")
+	_update_button_styles()
+
+
 func select_item(item_type: ItemData.ItemType) -> void:
 	_active_tool = Tool.SELECT
 	_active_type = item_type
@@ -627,6 +645,10 @@ func _update_button_styles() -> void:
 		var rod_on := _active_tool == Tool.ROD
 		_rod_btn.button_pressed = rod_on
 		_apply_child_button_style(_rod_btn, rod_on, false)
+	if _fertilize_btn:
+		var fert_on := _active_tool == Tool.FERTILIZE
+		_fertilize_btn.button_pressed = fert_on
+		_apply_child_button_style(_fertilize_btn, fert_on, false)
 	for type in _buttons:
 		var btn: Button = _buttons[type]
 		var on: bool = _active_tool == Tool.SELECT and int(type) == _active_type

@@ -1844,6 +1844,21 @@ func animal_can_step_to(animal: Node3D, to: Vector2i) -> bool:
 	if not is_in_bounds(to):
 		return false
 	var item_type: ItemData.ItemType = animal.get_meta("item_type")
+	var from: Vector2i = animal.get_meta("grid_pos")
+	var delta := to - from
+	# Orthogonal steps only — diagonal lets animals slip through fence-corner gaps.
+	if absi(delta.x) + absi(delta.y) != 1:
+		return false
+	# Butterflies hover over empty cells only (never overwrite props / flowers).
+	if ItemData.can_fly(item_type):
+		if has_content(to):
+			var occ: Node3D = _objects[to]
+			return occ == null or not is_instance_valid(occ) or occ == animal
+		if _swimmers.has(to):
+			var other_swim = _swimmers[to]
+			if other_swim != null and is_instance_valid(other_swim) and other_swim != animal:
+				return false
+		return true
 	# Occupied cells are impassable, except water-source props (pond) for swimming animals.
 	if has_content(to):
 		var occupant: Node3D = _objects[to]
@@ -1863,12 +1878,26 @@ func animal_can_step_to(animal: Node3D, to: Vector2i) -> bool:
 				return false
 	if is_swimmable_cell(to) and not ItemData.can_live_on_water(item_type):
 		return false
-	# Orthogonal steps only — diagonal lets animals slip through fence-corner gaps.
-	var from: Vector2i = animal.get_meta("grid_pos")
-	var delta := to - from
-	if absi(delta.x) + absi(delta.y) != 1:
-		return false
 	return true
+
+
+func find_flower_attractants_within(anchor: Vector2i, radius: int) -> Array[Vector2i]:
+	## Chebyshev neighborhood of flower / sunflower tiles, nearest first.
+	var found: Array[Vector2i] = []
+	for dist in range(0, radius + 1):
+		for dx in range(-dist, dist + 1):
+			for dy in range(-dist, dist + 1):
+				if maxi(absi(dx), absi(dy)) != dist:
+					continue
+				var cell := anchor + Vector2i(dx, dy)
+				if not is_in_bounds(cell):
+					continue
+				var obj := get_content_at(cell)
+				if obj == null or not obj.has_meta("item_type"):
+					continue
+				if ItemData.is_flower_attractant(obj.get_meta("item_type")):
+					found.append(cell)
+	return found
 
 
 func is_water_cell(grid_pos: Vector2i) -> bool:

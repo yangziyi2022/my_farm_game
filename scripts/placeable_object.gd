@@ -100,6 +100,8 @@ func _build_procedural(item_type: ItemData.ItemType, _growth_stage: int = 0) -> 
 			_build_duck(self, info)
 		ItemData.ItemType.RABBIT:
 			_build_rabbit(self, info)
+		ItemData.ItemType.BUTTERFLY:
+			_build_butterfly(self, info)
 		ItemData.ItemType.FLOWER_RED, ItemData.ItemType.FLOWER_YELLOW, ItemData.ItemType.TULIP:
 			_build_growing_flower(self, info, false)
 		ItemData.ItemType.SUNFLOWER:
@@ -167,7 +169,7 @@ static func _build_tree(parent: Node3D, info: Dictionary) -> void:
 
 
 static func _build_growing_tree(parent: Node3D, info: Dictionary) -> void:
-	# Stage 0 — four seeds; 1 sapling; 2 young tree; 3 mature tree.glb.
+	# Stage 0 — four seeds; 1 sapling; 2 young apple tree; 3 mature apple tree.
 	parent.add_child(_make_four_seed_stage(Color(0.4, 0.28, 0.15)))
 
 	var s1 := Node3D.new()
@@ -183,9 +185,9 @@ static func _build_growing_tree(parent: Node3D, info: Dictionary) -> void:
 	_add_mesh(s1, leaf, info["color"], Vector3(0.0, 0.3, 0.0))
 	parent.add_child(s1)
 
-	const TREE_GLB := "res://assets/models/nature/tree.glb"
-	parent.add_child(_make_glb_model_stage("Stage2", TREE_GLB, 2.15))
-	parent.add_child(_make_glb_model_stage("Stage3", TREE_GLB, 3.05))
+	const TREE_GLB := "res://assets/models/nature/apple tree 3d model.glb"
+	parent.add_child(_make_glb_model_stage("Stage2", TREE_GLB, 2.0))
+	parent.add_child(_make_glb_model_stage("Stage3", TREE_GLB, 2.85))
 
 
 static func _make_glb_model_stage(stage_name: String, glb_path: String, model_scale: float) -> Node3D:
@@ -1015,6 +1017,35 @@ static func _build_rabbit(parent: Node3D, info: Dictionary) -> void:
 	tail.radius = 0.05
 	tail.height = 0.08
 	_add_mesh(parent, tail, fur.lightened(0.1), Vector3(0.0, 0.2, -0.14))
+
+
+static func _build_butterfly(parent: Node3D, info: Dictionary) -> void:
+	## Body + wing hinges at the thorax so flaps pivot around the body, not wing centers.
+	var body_col: Color = info.get("color", Color(0.95, 0.55, 0.85))
+	var wing_col: Color = info.get("wing_color", Color(0.55, 0.75, 0.98))
+	const BODY_Y := 0.55
+
+	var body := CapsuleMesh.new()
+	body.radius = 0.028
+	body.height = 0.13
+	_add_mesh(parent, body, body_col.darkened(0.15), Vector3(0.0, BODY_Y, 0.0), Vector3(90.0, 0.0, 0.0))
+
+	# Hinge at body side; mesh offset so the inner edge sits on the hinge.
+	var wing_l := Node3D.new()
+	wing_l.name = "WingL"
+	wing_l.position = Vector3(-0.02, BODY_Y, 0.0)
+	parent.add_child(wing_l)
+	var wl := BoxMesh.new()
+	wl.size = Vector3(0.2, 0.012, 0.15)
+	_add_mesh(wing_l, wl, wing_col, Vector3(-0.1, 0.0, 0.0))
+
+	var wing_r := Node3D.new()
+	wing_r.name = "WingR"
+	wing_r.position = Vector3(0.02, BODY_Y, 0.0)
+	parent.add_child(wing_r)
+	var wr := BoxMesh.new()
+	wr.size = Vector3(0.2, 0.012, 0.15)
+	_add_mesh(wing_r, wr, body_col, Vector3(0.1, 0.0, 0.0))
 
 
 static func _build_flower(parent: Node3D, info: Dictionary) -> void:

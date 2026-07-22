@@ -84,6 +84,7 @@ func _ready() -> void:
 	item_palette.hoe_tool_activated.connect(_on_hoe_tool_activated)
 	item_palette.harvest_tool_activated.connect(_on_harvest_tool_activated)
 	item_palette.rod_tool_activated.connect(_on_rod_tool_activated)
+	item_palette.fertilize_tool_activated.connect(_on_fertilize_tool_activated)
 	item_palette.tool_highlight_changed.connect(_on_palette_tool_highlight)
 	placement_controller.select_mode_requested.connect(item_palette.activate_select_tool)
 	placement_controller.feed_mode_cancelled.connect(inventory_bar.clear_feed_selection)
@@ -244,6 +245,10 @@ func _on_harvest_tool_activated() -> void:
 
 func _on_rod_tool_activated() -> void:
 	placement_controller.enter_fish_mode()
+
+
+func _on_fertilize_tool_activated() -> void:
+	placement_controller.enter_fertilize_mode()
 
 
 func _on_walk_mode_pressed() -> void:

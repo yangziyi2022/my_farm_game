@@ -45,6 +45,8 @@ var state: State = State.OFF
 var _avatar: PlayerAvatar
 var _ghost_cell: Vector2i = Vector2i(-9999, -9999)
 var _busy: bool = false  # vault / hop tween lock
+var _sitting: bool = false
+var _sit_bench: Node3D = null
 
 ## Saved build-camera state.
 var _saved_projection: int = Camera3D.PROJECTION_ORTHOGONAL
@@ -132,6 +134,7 @@ func exit_walk() -> void:
 	_key_vec = Vector2.ZERO
 	_stick_active = false
 	_reset_walk_fish()
+	_stand_up(false)
 	_teardown_avatar()
 	_hide_walk_hud()
 	_hide_place_hint()
@@ -315,6 +318,11 @@ func _apply_move(delta: float) -> void:
 	if _avatar == null or not is_instance_valid(_avatar):
 		return
 	var input := _move_input()
+	if _sitting:
+		if input.length() >= JOYSTICK_DEADZONE:
+			_stand_up(true)
+		else:
+			return
 	if input.length() < JOYSTICK_DEADZONE:
 		_sync_height(delta)
 		return
@@ -398,6 +406,8 @@ func _start_vault(landing: Vector2i) -> void:
 
 func _sync_height(delta: float) -> void:
 	if _avatar == null or not is_instance_valid(_avatar):
+		return
+	if _sitting:
 		return
 	var cell := grid_manager.world_to_grid_nearest(_avatar.position)
 	var target_y := grid_manager.player_surface_height(cell)
@@ -620,8 +630,18 @@ func _on_use_pressed() -> void:
 		return
 	if _avatar.is_swinging():
 		return
+	if _sitting:
+		_stand_up(true)
+		return
 	var item = _avatar.get_held_inventory_item()
 	if item == null:
+		if _aimed_animal() != null:
+			_avatar.play_use_swing(Callable(self, "_try_pet"))
+			return
+		var bench := _aimed_bench()
+		if bench != null:
+			_sit_on_bench(bench)
+			return
 		_avatar.play_use_swing(Callable(self, "_try_pet"))
 		return
 	# Fishing reel / cast uses the same Use button without always swinging twice.
@@ -659,6 +679,49 @@ func _aimed_animal() -> Node3D:
 		if animal:
 			return animal
 	return null
+
+
+func _aimed_bench() -> Node3D:
+	## Prefer facing / view cell, then the tile the player is already standing on.
+	for cell in _use_target_cells():
+		var obj := grid_manager.get_content_at(cell)
+		if obj and obj.has_meta("item_type") and obj.get_meta("item_type") == ItemData.ItemType.BENCH:
+			return obj
+	return null
+
+
+func _sit_on_bench(bench: Node3D) -> void:
+	if _avatar == null or bench == null or not is_instance_valid(bench):
+		return
+	if not bench.has_meta("grid_pos"):
+		return
+	var anchor: Vector2i = bench.get_meta("grid_pos")
+	var footprint := grid_manager.get_object_footprint(bench)
+	var rotation := grid_manager.get_object_rotation(bench)
+	var seat := grid_manager.footprint_center_world(anchor, footprint, rotation)
+	seat.y = grid_manager.player_surface_height(anchor)
+	_sitting = true
+	_sit_bench = bench
+	_avatar.position = seat
+	_avatar.grid_pos = grid_manager.world_to_grid_nearest(seat)
+	_avatar.set_sitting(true)
+	status_message.emit(LocaleManager.t("Resting on the bench"))
+	_update_use_button_label()
+
+
+func _stand_up(announce: bool = true) -> void:
+	if not _sitting:
+		return
+	_sitting = false
+	_sit_bench = null
+	if _avatar and is_instance_valid(_avatar):
+		_avatar.set_sitting(false)
+		var cell := grid_manager.world_to_grid_nearest(_avatar.position)
+		_avatar.position.y = grid_manager.player_surface_height(cell)
+		_avatar.grid_pos = cell
+	if announce:
+		status_message.emit(LocaleManager.t("Stood up"))
+	_update_use_button_label()
 
 
 func _aimed_plant() -> Node3D:
@@ -1018,6 +1081,9 @@ func _use_feed(item: InventoryData.Item) -> void:
 func _update_use_button_label() -> void:
 	if _use_btn == null:
 		return
+	if _sitting:
+		_use_btn.text = LocaleManager.t("Stand")
+		return
 	if _fish_phase == 2:
 		_use_btn.text = LocaleManager.t("Reel")
 		return
@@ -1028,7 +1094,12 @@ func _update_use_button_label() -> void:
 	if _avatar:
 		item = _avatar.get_held_inventory_item()
 	if item == null:
-		_use_btn.text = LocaleManager.t("Pet") if _aimed_animal() else LocaleManager.t("Use")
+		if _aimed_animal() != null:
+			_use_btn.text = LocaleManager.t("Pet")
+		elif _aimed_bench() != null:
+			_use_btn.text = LocaleManager.t("Rest")
+		else:
+			_use_btn.text = LocaleManager.t("Use")
 	elif InventoryData.is_fertilizer(item):
 		_use_btn.text = LocaleManager.t("Fertilize")
 	else:
@@ -1185,12 +1256,12 @@ func _build_ui() -> void:
 	_ui_layer.add_child(_walk_hud)
 
 	_exit_btn = _make_hud_button(LocaleManager.t("Exit"), Color(0.75, 0.3, 0.28))
-	_exit_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	# Sit below Dynamic Island / notch on modern phones.
-	_exit_btn.offset_left = -148.0
-	_exit_btn.offset_top = 72.0
-	_exit_btn.offset_right = -36.0
-	_exit_btn.offset_bottom = 128.0
+	_exit_btn.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	# Top-left so it never overlaps day/night controls (top-right).
+	_exit_btn.offset_left = 28.0
+	_exit_btn.offset_top = 56.0
+	_exit_btn.offset_right = 140.0
+	_exit_btn.offset_bottom = 112.0
 	_exit_btn.pressed.connect(exit_walk)
 	_walk_hud.add_child(_exit_btn)
 

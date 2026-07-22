@@ -2,21 +2,21 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://de3ekgsnuujkv"
-path.s3tc="res://.godot/imported/tree_tall+evergreen+tree+3d+model_basecolor.jpg-bb59df295794e0e9b6ecc6b66565dc0f.s3tc.ctex"
-path.etc2="res://.godot/imported/tree_tall+evergreen+tree+3d+model_basecolor.jpg-bb59df295794e0e9b6ecc6b66565dc0f.etc2.ctex"
+uid="uid://cnuwfsxefqmsn"
+path.s3tc="res://.godot/imported/apple tree 3d model_apple+tree+3d+model_basecolor.jpg-a49d5900a0ecd0eea6241750861261aa.s3tc.ctex"
+path.etc2="res://.godot/imported/apple tree 3d model_apple+tree+3d+model_basecolor.jpg-a49d5900a0ecd0eea6241750861261aa.etc2.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
-"md5": "d746c4e32ddb6b7ca583604e024ab1cc"
+"md5": "3489e04b92481577be0d9898da7f92b0"
 }
 
 [deps]
 
-source_file="res://assets/models/nature/tree_tall+evergreen+tree+3d+model_basecolor.jpg"
-dest_files=["res://.godot/imported/tree_tall+evergreen+tree+3d+model_basecolor.jpg-bb59df295794e0e9b6ecc6b66565dc0f.s3tc.ctex", "res://.godot/imported/tree_tall+evergreen+tree+3d+model_basecolor.jpg-bb59df295794e0e9b6ecc6b66565dc0f.etc2.ctex"]
+source_file="res://assets/models/nature/apple tree 3d model_apple+tree+3d+model_basecolor.jpg"
+dest_files=["res://.godot/imported/apple tree 3d model_apple+tree+3d+model_basecolor.jpg-a49d5900a0ecd0eea6241750861261aa.s3tc.ctex", "res://.godot/imported/apple tree 3d model_apple+tree+3d+model_basecolor.jpg-a49d5900a0ecd0eea6241750861261aa.etc2.ctex"]
 
 [params]
 
