@@ -81,6 +81,7 @@ var _hotbar_counts: Array[Label] = []
 var _hotbar_selected: int = -1
 var _use_btn: Button
 var _rename_btn: Button
+var _collect_btn: Button
 var _rename_dialog: ConfirmationDialog
 var _rename_edit: LineEdit
 var _rename_target: Node3D = null
@@ -813,6 +814,7 @@ func _update_aim_cards() -> void:
 		else:
 			plant_info_card.clear()
 	_update_rename_button(animal)
+	_update_collect_button(animal)
 
 
 func _soft_aim_interactable() -> Node3D:
@@ -1346,6 +1348,16 @@ func _build_ui() -> void:
 	_rename_btn.pressed.connect(_on_rename_pressed)
 	_walk_hud.add_child(_rename_btn)
 
+	_collect_btn = _make_hud_button(LocaleManager.t("Collect"), Color(0.55, 0.62, 0.4))
+	_collect_btn.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
+	_collect_btn.offset_left = -220.0
+	_collect_btn.offset_right = -100.0
+	_collect_btn.offset_top = 120.0
+	_collect_btn.offset_bottom = 180.0
+	_collect_btn.visible = false
+	_collect_btn.pressed.connect(_on_collect_pressed)
+	_walk_hud.add_child(_collect_btn)
+
 	_build_rename_dialog()
 
 
@@ -1395,6 +1407,35 @@ func _update_rename_button(animal: Node3D) -> void:
 	if _rename_btn == null:
 		return
 	_rename_btn.visible = animal != null and is_instance_valid(animal)
+
+
+func _update_collect_button(animal: Node3D) -> void:
+	if _collect_btn == null:
+		return
+	# Empty-hand only so Collect never replaces Pet on Use.
+	var hands_empty := _avatar != null and _avatar.get_held_inventory_item() == null
+	var life := AnimalInteraction.get_life(animal) if animal else null
+	var ready := hands_empty and life != null and life.can_collect_produce()
+	_collect_btn.visible = ready
+	if ready:
+		_collect_btn.text = life.get_collect_button_label()
+
+
+func _on_collect_pressed() -> void:
+	if state != State.WALKING or _busy:
+		return
+	if _avatar and _avatar.get_held_inventory_item() != null:
+		status_message.emit(LocaleManager.t("Empty hands to collect"))
+		return
+	var animal := _aimed_animal()
+	if animal == null:
+		status_message.emit(LocaleManager.t("Look at / face an animal to collect"))
+		return
+	var result := AnimalInteraction.try_collect_produce(animal, inventory_manager)
+	status_message.emit(str(result.get("message", "")))
+	_update_collect_button(animal)
+	if animal_info_card and result.get("ok", false):
+		animal_info_card.show_animal(animal)
 
 
 func _on_rename_pressed() -> void:
@@ -1603,6 +1644,8 @@ func _show_walk_hud() -> void:
 		_hotbar_selected = 0
 	if _rename_btn:
 		_rename_btn.visible = false
+	if _collect_btn:
+		_collect_btn.visible = false
 	_reset_walk_fish()
 	_refresh_hotbar()
 
@@ -1615,6 +1658,8 @@ func _hide_walk_hud() -> void:
 	_hotbar_selected = -1
 	if _rename_btn:
 		_rename_btn.visible = false
+	if _collect_btn:
+		_collect_btn.visible = false
 	if _rename_dialog and _rename_dialog.visible:
 		_rename_dialog.hide()
 	_rename_target = null
@@ -1632,6 +1677,8 @@ func _is_pointer_over_walk_ui(screen_pos: Vector2) -> bool:
 		if _use_btn and _use_btn.get_global_rect().has_point(screen_pos):
 			return true
 		if _rename_btn and _rename_btn.visible and _rename_btn.get_global_rect().has_point(screen_pos):
+			return true
+		if _collect_btn and _collect_btn.visible and _collect_btn.get_global_rect().has_point(screen_pos):
 			return true
 	return false
 

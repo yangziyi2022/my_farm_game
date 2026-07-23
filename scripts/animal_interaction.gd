@@ -10,6 +10,12 @@ static func get_needs(animal: Node3D) -> AnimalNeeds:
 	return animal.get_node_or_null("AnimalNeeds") as AnimalNeeds
 
 
+static func get_life(animal: Node3D) -> AnimalLife:
+	if animal == null or not is_instance_valid(animal):
+		return null
+	return animal.get_node_or_null("AnimalLife") as AnimalLife
+
+
 static func get_display_name(animal: Node3D) -> String:
 	if animal == null or not is_instance_valid(animal):
 		return ""
@@ -79,12 +85,129 @@ static func try_feed(
 	AnimalFeedEffect.play(animal)
 	AudioManager.play("feed")
 	AudioManager.play_animal_for_item(animal_type, false, animal.global_position)
+	var breed_msg := ""
+	if result.get("ok", false):
+		var life := get_life(animal)
+		if life:
+			life.mark_player_fed()
+		breed_msg = _try_breed_after_feed(animal, inventory_manager)
+	var message := str(result.get("message", ""))
+	if not breed_msg.is_empty():
+		message = "%s\n%s" % [message, breed_msg]
 	return {
 		"ok": true,
 		"consumed": true,
 		"favorite": result.get("favorite", false),
-		"message": result.get("message", ""),
+		"message": message,
 	}
+
+
+static func try_collect_produce(animal: Node3D, inventory_manager: InventoryManager) -> Dictionary:
+	var life := get_life(animal)
+	if life == null:
+		return {"ok": false, "message": LocaleManager.t("Can't collect from that")}
+	var result := life.collect_produce()
+	if not result.get("ok", false):
+		return result
+	var item = result.get("item")
+	if item == null or inventory_manager == null:
+		return {"ok": false, "message": LocaleManager.t("Can't collect from that")}
+	inventory_manager.add_item(item, 1)
+	AudioManager.play("harvest")
+	return result
+
+
+static func _try_breed_after_feed(animal: Node3D, _inventory_manager: InventoryManager) -> String:
+	## If a compatible adult partner is nearby and both are ready, spawn a baby.
+	var life := get_life(animal)
+	var needs := get_needs(animal)
+	if life == null or needs == null or not life.can_breed() or not life.meets_breed_needs(needs):
+		return ""
+	if not animal.has_meta("item_type") or not animal.has_meta("grid_pos"):
+		return ""
+	var animal_type: ItemData.ItemType = animal.get_meta("item_type")
+	if not ItemData.can_breed(animal_type):
+		return ""
+	var grid := _find_grid(animal)
+	if grid == null:
+		return ""
+	var partner := _find_breed_partner(animal, animal_type, grid)
+	if partner == null:
+		return ""
+	var partner_life := get_life(partner)
+	var partner_needs := get_needs(partner)
+	if partner_life == null or partner_needs == null:
+		return ""
+	if not partner_life.can_breed() or not partner_life.meets_breed_needs(partner_needs):
+		return ""
+	var baby_cell := _find_birth_cell(animal, partner, grid)
+	if baby_cell.x < -9000:
+		return ""
+	var baby := grid.spawn_animal_baby(animal_type, baby_cell)
+	if baby == null:
+		return ""
+	life.mark_bred()
+	partner_life.mark_bred()
+	AnimalFeedEffect.play(baby)
+	return LocaleManager.tf("A baby %s was born!", [ItemData.get_item_name(animal_type)])
+
+
+static func _find_grid(animal: Node3D) -> GridManager:
+	var life := get_life(animal)
+	if life:
+		var g := life.get_grid()
+		if g:
+			return g
+	var n: Node = animal
+	while n:
+		if n is GridManager:
+			return n as GridManager
+		var gm := n.get_node_or_null("GridManager") as GridManager
+		if gm:
+			return gm
+		n = n.get_parent()
+	return null
+
+
+static func _find_breed_partner(
+	animal: Node3D,
+	animal_type: ItemData.ItemType,
+	grid: GridManager
+) -> Node3D:
+	var from: Vector2i = animal.get_meta("grid_pos")
+	var best: Node3D = null
+	var best_dist := 999
+	for dx in range(-AnimalLife.BREED_SEARCH_RADIUS, AnimalLife.BREED_SEARCH_RADIUS + 1):
+		for dy in range(-AnimalLife.BREED_SEARCH_RADIUS, AnimalLife.BREED_SEARCH_RADIUS + 1):
+			if dx == 0 and dy == 0:
+				continue
+			var cell := from + Vector2i(dx, dy)
+			var other := grid.get_animal_at(cell)
+			if other == null or other == animal:
+				continue
+			if not other.has_meta("item_type") or other.get_meta("item_type") != animal_type:
+				continue
+			var dist := maxi(absi(dx), absi(dy))
+			if dist < best_dist:
+				best_dist = dist
+				best = other
+	return best
+
+
+static func _find_birth_cell(a: Node3D, b: Node3D, grid: GridManager) -> Vector2i:
+	var cells: Array[Vector2i] = []
+	for origin_animal in [a, b]:
+		var origin: Vector2i = origin_animal.get_meta("grid_pos")
+		for dir in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			var cell: Vector2i = origin + dir
+			if cell in cells:
+				continue
+			cells.append(cell)
+	cells.shuffle()
+	for cell in cells:
+		if grid.can_place_at(cell, a.get_meta("item_type"), 0):
+			return cell
+	return Vector2i(-9999, -9999)
 
 
 static func try_pet(animal: Node3D) -> Dictionary:

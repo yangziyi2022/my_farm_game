@@ -27,6 +27,13 @@ const BUTTERFLY_HOVER_Y: float = 0.72
 @export var hop_height: float = 0.12
 @export var species: Species = Species.GENERIC
 
+var personality: AnimalLife.Personality = AnimalLife.Personality.FRIENDLY
+var _base_walk_speed: float = 0.35
+var _base_idle_min: float = 2.0
+var _base_idle_max: float = 5.0
+var _base_walk_chance: float = 0.5
+var _food_seek_radius: int = FOOD_SEEK_RADIUS
+
 var _root: Node3D
 var _pivot: Node3D
 var _head: Node3D
@@ -66,6 +73,11 @@ func setup(pivot: Node3D, root: Node3D = null, grid: GridManager = null) -> void
 	_facing_angle = randf_range(0.0, TAU)
 	_target_angle = _facing_angle
 	_base_pivot_y = 0.0
+	_base_walk_speed = walk_speed
+	_base_idle_min = idle_time_min
+	_base_idle_max = idle_time_max
+	_base_walk_chance = walk_chance
+	_food_seek_radius = FOOD_SEEK_RADIUS
 	if _pivot:
 		_head = _pivot.find_child("Head", true, false) as Node3D
 		if _head:
@@ -78,6 +90,32 @@ func setup(pivot: Node3D, root: Node3D = null, grid: GridManager = null) -> void
 			_wing_r = _root.find_child("WingR", true, false) as Node3D
 		_cache_gait_nodes()
 		_sync_yaw()
+
+
+func apply_personality(p: AnimalLife.Personality) -> void:
+	personality = p
+	walk_speed = _base_walk_speed
+	idle_time_min = _base_idle_min
+	idle_time_max = _base_idle_max
+	walk_chance = _base_walk_chance
+	_food_seek_radius = FOOD_SEEK_RADIUS
+	match personality:
+		AnimalLife.Personality.FRIENDLY:
+			walk_chance = minf(0.85, _base_walk_chance + 0.15)
+			_food_seek_radius = FOOD_SEEK_RADIUS + 1
+		AnimalLife.Personality.SHY:
+			walk_chance = maxf(0.35, _base_walk_chance - 0.1)
+			idle_time_min = _base_idle_min + 0.4
+			idle_time_max = _base_idle_max + 1.2
+		AnimalLife.Personality.GLUTTONOUS:
+			walk_speed = _base_walk_speed * 1.35
+			walk_chance = minf(0.92, _base_walk_chance + 0.25)
+			_food_seek_radius = FOOD_SEEK_RADIUS + 2
+		AnimalLife.Personality.SLEEPY:
+			walk_chance = maxf(0.22, _base_walk_chance - 0.28)
+			idle_time_min = _base_idle_min + 1.5
+			idle_time_max = _base_idle_max + 3.5
+			special_chance = maxf(0.05, special_chance * 0.5)
 
 
 func _cache_gait_nodes() -> void:
@@ -244,13 +282,29 @@ func _try_begin_seek_player() -> void:
 		return
 	if _state == State.WALKING or _state == State.SPECIAL:
 		return
+	# Shy animals back away from a nearby player until affinity is high.
+	if personality == AnimalLife.Personality.SHY and _try_shy_retreat():
+		return
 	var attract: Dictionary = _grid.get_feed_attract()
 	if not attract.get("active", false):
 		if _state == State.SEEK_PLAYER:
 			_enter_idle()
 		return
 	var needs := _needs_node()
-	if needs == null or not needs.is_hungry():
+	if needs == null:
+		if _state == State.SEEK_PLAYER:
+			_enter_idle()
+		return
+	var hungry_ok := needs.is_hungry()
+	if personality == AnimalLife.Personality.FRIENDLY:
+		hungry_ok = needs.satiety < 65.0
+	elif personality == AnimalLife.Personality.GLUTTONOUS:
+		hungry_ok = needs.satiety < 75.0
+	elif personality == AnimalLife.Personality.SHY:
+		hungry_ok = needs.is_hungry() and needs.affinity >= 40.0
+	elif personality == AnimalLife.Personality.SLEEPY:
+		hungry_ok = needs.satiety < AnimalNeeds.VERY_HUNGRY_THRESHOLD
+	if not hungry_ok:
 		if _state == State.SEEK_PLAYER:
 			_enter_idle()
 		return
@@ -263,7 +317,7 @@ func _try_begin_seek_player() -> void:
 	var from: Vector2i = _root.get_meta("grid_pos")
 	var target: Vector2i = attract["grid"]
 	var dist := maxi(absi(target.x - from.x), absi(target.y - from.y))
-	if dist > FOOD_SEEK_RADIUS:
+	if dist > _food_seek_radius:
 		if _state == State.SEEK_PLAYER:
 			_enter_idle()
 		return
@@ -273,6 +327,27 @@ func _try_begin_seek_player() -> void:
 	_target_angle = atan2(delta_xz.x, delta_xz.z)
 	_state = State.SEEK_PLAYER
 	_timer = 0.0
+
+
+func _try_shy_retreat() -> bool:
+	var attract: Dictionary = _grid.get_feed_attract() if _grid else {"active": false}
+	# Without a nearby player attract, no retreat.
+	if not attract.get("active", false):
+		return false
+	var needs := _needs_node()
+	if needs == null or needs.affinity >= 50.0:
+		return false
+	var from: Vector2i = _root.get_meta("grid_pos")
+	var target: Vector2i = attract["grid"]
+	var dist := maxi(absi(target.x - from.x), absi(target.y - from.y))
+	if dist > 2 or dist == 0:
+		return false
+	# Step away from the player.
+	var away := from - target
+	var step := Vector2i(signi(away.x), 0) if absi(away.x) >= absi(away.y) else Vector2i(0, signi(away.y))
+	if step == Vector2i.ZERO:
+		return false
+	return _begin_cross_tile_step(from + step)
 
 
 func _update_seek_player(delta: float) -> void:
@@ -286,7 +361,7 @@ func _update_seek_player(delta: float) -> void:
 		_enter_idle()
 		return
 	var needs := _needs_node()
-	if needs == null or not needs.is_hungry():
+	if needs == null:
 		_enter_idle()
 		return
 	var from: Vector2i = _root.get_meta("grid_pos")
@@ -298,7 +373,7 @@ func _update_seek_player(delta: float) -> void:
 		var delta_xz := player_pos - _root.global_position
 		_target_angle = atan2(delta_xz.x, delta_xz.z)
 		return
-	if dist > FOOD_SEEK_RADIUS:
+	if dist > _food_seek_radius:
 		_enter_idle()
 		return
 	var step := _best_step_toward(from, target)
@@ -309,6 +384,8 @@ func _update_seek_player(delta: float) -> void:
 
 func _pick_next_action() -> void:
 	if _state == State.SEEK_PLAYER:
+		return
+	if personality == AnimalLife.Personality.SLEEPY and randf() < 0.45 and _try_sleepy_nap_spot():
 		return
 	if randf() < look_around_chance and _state == State.IDLE:
 		_target_angle = randf_range(0.0, TAU)
@@ -332,6 +409,35 @@ func _pick_next_action() -> void:
 		_start_local_walk()
 	else:
 		_reset_idle_timer()
+
+
+func _try_sleepy_nap_spot() -> bool:
+	## Prefer lingering near a tree or bench when sleepy.
+	if _grid == null or _root == null:
+		return false
+	var from: Vector2i = _root.get_meta("grid_pos")
+	for dist in range(0, 3):
+		for dx in range(-dist, dist + 1):
+			for dy in range(-dist, dist + 1):
+				if maxi(absi(dx), absi(dy)) != dist:
+					continue
+				var cell := from + Vector2i(dx, dy)
+				var obj := _grid.get_content_at(cell)
+				if obj == null or not obj.has_meta("item_type"):
+					continue
+				var t: ItemData.ItemType = obj.get_meta("item_type")
+				if t != ItemData.ItemType.TREE and t != ItemData.ItemType.BENCH:
+					continue
+				if dist == 0:
+					_timer = randf_range(idle_time_min + 1.0, idle_time_max + 2.0)
+					_state = State.IDLE
+					return true
+				var step := _best_step_toward(from, cell)
+				if step != Vector2i.ZERO and _begin_cross_tile_step(from + step):
+					return true
+	_timer = randf_range(idle_time_min + 0.8, idle_time_max + 1.5)
+	_state = State.IDLE
+	return true
 
 
 func _try_ambient_voice() -> void:

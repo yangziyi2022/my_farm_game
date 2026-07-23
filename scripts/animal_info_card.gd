@@ -8,11 +8,13 @@ const OFFSET := Vector2(18, -110)
 
 var _panel: PanelContainer
 var _name_lbl: Label
+var _meta_lbl: Label
 var _aff_bar: ProgressBar
 var _sat_bar: ProgressBar
 var _mood_bar: ProgressBar
 var _target: Node3D
 var _needs: AnimalNeeds
+var _life: AnimalLife
 var _camera: Camera3D
 
 
@@ -50,6 +52,13 @@ func _build_ui() -> void:
 	_name_lbl.add_theme_font_size_override("font_size", 14)
 	_name_lbl.add_theme_color_override("font_color", Color(0.95, 0.93, 0.88))
 	vbox.add_child(_name_lbl)
+
+	_meta_lbl = Label.new()
+	_meta_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_meta_lbl.add_theme_font_size_override("font_size", 11)
+	_meta_lbl.add_theme_color_override("font_color", Color(0.75, 0.78, 0.7))
+	_meta_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vbox.add_child(_meta_lbl)
 
 	_aff_bar = _add_stat_row(vbox, LocaleManager.t("Affinity"), Color(0.92, 0.55, 0.62))
 	_sat_bar = _add_stat_row(vbox, LocaleManager.t("Satiety"), Color(0.85, 0.72, 0.28))
@@ -100,25 +109,38 @@ func show_animal(animal: Node3D) -> void:
 	if _needs and _needs != needs and is_instance_valid(_needs):
 		if _needs.needs_changed.is_connected(_on_needs_changed):
 			_needs.needs_changed.disconnect(_on_needs_changed)
+	if _life and is_instance_valid(_life) and _life.life_changed.is_connected(_on_life_changed):
+		_life.life_changed.disconnect(_on_life_changed)
 	_target = animal
 	_needs = needs
+	_life = AnimalInteraction.get_life(animal)
 	if not _needs.needs_changed.is_connected(_on_needs_changed):
 		_needs.needs_changed.connect(_on_needs_changed)
+	if _life and not _life.life_changed.is_connected(_on_life_changed):
+		_life.life_changed.connect(_on_life_changed)
 	_name_lbl.text = AnimalInteraction.get_display_name(animal)
 	_refresh_bars()
+	_refresh_meta()
 	visible = true
 
 
 func clear() -> void:
 	if _needs and is_instance_valid(_needs) and _needs.needs_changed.is_connected(_on_needs_changed):
 		_needs.needs_changed.disconnect(_on_needs_changed)
+	if _life and is_instance_valid(_life) and _life.life_changed.is_connected(_on_life_changed):
+		_life.life_changed.disconnect(_on_life_changed)
 	_target = null
 	_needs = null
+	_life = null
 	visible = false
 
 
 func _on_needs_changed() -> void:
 	_refresh_bars()
+
+
+func _on_life_changed() -> void:
+	_refresh_meta()
 
 
 func _refresh_bars() -> void:
@@ -127,6 +149,23 @@ func _refresh_bars() -> void:
 	_aff_bar.value = _needs.affinity
 	_sat_bar.value = _needs.satiety
 	_mood_bar.value = _needs.mood
+
+
+func _refresh_meta() -> void:
+	if _meta_lbl == null:
+		return
+	if _life == null:
+		_meta_lbl.text = ""
+		return
+	var bits: PackedStringArray = []
+	if _life.is_baby():
+		bits.append(LocaleManager.t("Baby"))
+	else:
+		bits.append(LocaleManager.t("Adult"))
+	bits.append(_life.personality_display_name())
+	if _life.can_collect_produce():
+		bits.append(LocaleManager.t("Ready to collect"))
+	_meta_lbl.text = " · ".join(bits)
 
 
 func _process(_delta: float) -> void:

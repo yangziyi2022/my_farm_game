@@ -1035,7 +1035,8 @@ func place_object_silent(
 	item_type: ItemData.ItemType,
 	grid_pos: Vector2i,
 	rotation: int = 0,
-	growth_stage: int = 0
+	growth_stage: int = 0,
+	as_baby: bool = false
 ) -> Node3D:
 	if ItemData.needs_dirt_to_plant(item_type):
 		# Keep full-size dirt under crops (restore for legacy saves that stripped it).
@@ -1043,10 +1044,19 @@ func place_object_silent(
 			remove_object_silent(grid_pos)
 		if not has_terrain(grid_pos):
 			_spawn_object(ItemData.ItemType.DIRT, grid_pos, 0, 0, false, false)
-		return _spawn_object(item_type, grid_pos, rotation, growth_stage, false, false)
+		return _spawn_object(item_type, grid_pos, rotation, growth_stage, false, false, as_baby)
 	if ItemData.is_terrain(item_type) and has_terrain(grid_pos) and not has_content(grid_pos):
 		_remove_terrain_silent(grid_pos)
-	return _spawn_object(item_type, grid_pos, rotation, growth_stage, false, false)
+	return _spawn_object(item_type, grid_pos, rotation, growth_stage, false, false, as_baby)
+
+
+func spawn_animal_baby(item_type: ItemData.ItemType, grid_pos: Vector2i) -> Node3D:
+	## Breed spawn: baby stage, no undo (parent feed already consumed food).
+	if not ItemData.is_animal(item_type):
+		return null
+	if not can_place_at(grid_pos, item_type, 0):
+		return null
+	return _spawn_object(item_type, grid_pos, 0, 0, true, false, true)
 
 
 func replace_object_silent(
@@ -1068,7 +1078,8 @@ func _spawn_object(
 	rotation: int,
 	growth_stage: int,
 	animate_placement: bool,
-	record_undo: bool
+	record_undo: bool,
+	as_baby: bool = false
 ) -> Node3D:
 	var obj: Node3D = PlaceableObject.create(item_type, grid_pos, rotation, growth_stage)
 	var footprint := ItemData.get_footprint(item_type)
@@ -1076,6 +1087,8 @@ func _spawn_object(
 	obj.set_meta("footprint", footprint)
 	obj.set_meta("occupancy_rotation", rotation)
 	obj.set_meta("placement_invalid", false)
+	if as_baby:
+		obj.set_meta("life_stage", "baby")
 	obj.position = grid_to_world(grid_pos)
 	objects_container.add_child(obj)
 
@@ -1710,6 +1723,9 @@ func get_all_objects_data() -> Array:
 			var needs := obj.get_node_or_null("AnimalNeeds") as AnimalNeeds
 			if needs:
 				entry.merge(needs.to_save_dict())
+			var life := obj.get_node_or_null("AnimalLife") as AnimalLife
+			if life:
+				entry.merge(life.to_save_dict())
 			if obj.has_meta("custom_name"):
 				var custom := str(obj.get_meta("custom_name")).strip_edges()
 				if not custom.is_empty():
@@ -2045,7 +2061,10 @@ func load_objects_data(data: Array) -> void:
 			if not has_terrain(grid_pos):
 				place_object_silent(item_type, grid_pos, rotation, growth_stage)
 			continue
-		var obj := place_object_silent(item_type, grid_pos, rotation, growth_stage)
+		var as_baby := (
+			ItemData.is_animal(item_type) and str(entry.get("life_stage", "")) == "baby"
+		)
+		var obj := place_object_silent(item_type, grid_pos, rotation, growth_stage, as_baby)
 		if obj and ItemData.is_growable_plant(item_type) and (
 			entry.has("fertilized") or entry.has("growth_elapsed")
 		):
@@ -2068,5 +2087,18 @@ func load_objects_data(data: Array) -> void:
 						float(entry.get("affinity", AnimalNeeds.DEFAULT_AFFINITY)),
 						float(entry.get("mood", AnimalNeeds.DEFAULT_MOOD))
 					)
+			if (
+				entry.has("life_stage")
+				or entry.has("personality")
+				or entry.has("growth_elapsed")
+				or entry.has("breed_cooldown")
+				or entry.has("produce_cooldown")
+			):
+				var life := obj.get_node_or_null("AnimalLife") as AnimalLife
+				if life:
+					life.apply_saved(entry)
+					var ctrl := obj.get_node_or_null("AnimalController") as AnimalController
+					if ctrl:
+						ctrl.apply_personality(life.personality)
 	_sync_grass_visibility()
 	repair_content_registry()

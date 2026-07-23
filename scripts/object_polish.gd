@@ -222,6 +222,9 @@ static func _attach_animal_behavior(
 	item_type: ItemData.ItemType,
 	grid_manager: GridManager = null
 ) -> void:
+	var as_baby := false
+	if obj.has_meta("life_stage"):
+		as_baby = str(obj.get_meta("life_stage")) == "baby"
 	var pivot := _create_visual_pivot(obj, ANIMAL_PIVOT_NAME)
 	var controller := AnimalController.new()
 	controller.name = "AnimalController"
@@ -233,6 +236,12 @@ static func _attach_animal_behavior(
 	needs.name = "AnimalNeeds"
 	needs.setup(obj, item_type, grid_manager)
 	obj.add_child(needs)
+
+	var life := AnimalLife.new()
+	life.name = "AnimalLife"
+	life.setup(obj, item_type, grid_manager, as_baby)
+	obj.add_child(life)
+	controller.apply_personality(life.personality)
 
 
 static func _configure_animal(controller: AnimalController, item_type: ItemData.ItemType) -> void:

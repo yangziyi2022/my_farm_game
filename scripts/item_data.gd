@@ -583,6 +583,33 @@ static func can_fly(item_type: ItemType) -> bool:
 	return item_type == ItemType.BUTTERFLY
 
 
+static func can_breed(item_type: ItemType) -> bool:
+	## Butterflies don't breed via feeding.
+	return is_animal(item_type) and item_type != ItemType.BUTTERFLY
+
+
+static func can_have_personality(item_type: ItemType) -> bool:
+	return can_breed(item_type)
+
+
+static func get_animal_produce(item_type: ItemType):
+	## Primary produce InventoryData.Item, or null.
+	match item_type:
+		ItemType.COW:
+			return InventoryData.Item.MILK
+		ItemType.SHEEP:
+			return InventoryData.Item.WOOL
+		_:
+			return null
+
+
+static func get_animal_secondary_produce(item_type: ItemType):
+	## Optional second product (sheep milk).
+	if item_type == ItemType.SHEEP:
+		return InventoryData.Item.SHEEP_MILK
+	return null
+
+
 static func is_flower_attractant(item_type: ItemType) -> bool:
 	## Plants butterflies seek (within a few cells).
 	return item_type in [
