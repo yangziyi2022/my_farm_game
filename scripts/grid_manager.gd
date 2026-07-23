@@ -1843,11 +1843,15 @@ func get_occupancy_rotation(obj: Node3D) -> int:
 
 func get_all_objects_data() -> Array:
 	var result: Array = []
+	var stale_terrain: Array[Vector2i] = []
 	# Save terrain-only cells first.
-	for grid_pos: Vector2i in _terrain:
+	for grid_pos: Vector2i in _terrain.keys():
+		var terrain = _terrain[grid_pos]
+		if terrain == null or not is_instance_valid(terrain):
+			stale_terrain.append(grid_pos)
+			continue
 		if has_content(grid_pos):
 			continue
-		var terrain: Node3D = _terrain[grid_pos]
 		result.append({
 			"type": ItemData.get_item_id(terrain.get_meta("item_type")),
 			"grid_x": grid_pos.x,
@@ -1855,41 +1859,75 @@ func get_all_objects_data() -> Array:
 			"rotation": terrain.get_meta("rotation", 0),
 			"layer": "terrain",
 		})
+	for cell in stale_terrain:
+		_terrain.erase(cell)
+
 	# Save content once per object (anchor cell only for multi-cell footprints).
+	# Skip freed refs left in occupancy maps (otherwise save crashes).
 	var saved_content: Dictionary = {}
-	for grid_pos: Vector2i in _objects:
-		var obj: Node3D = _objects[grid_pos]
+	var stale_content: Array[Vector2i] = []
+	for grid_pos: Vector2i in _objects.keys():
+		var obj = _objects[grid_pos]
+		if obj == null or not is_instance_valid(obj):
+			stale_content.append(grid_pos)
+			continue
 		if saved_content.has(obj):
 			continue
-		var anchor: Vector2i = obj.get_meta("grid_pos")
+		if not obj.has_meta("item_type") or not obj.has_meta("grid_pos"):
+			continue
 		saved_content[obj] = true
-		var entry := {
-			"type": ItemData.get_item_id(obj.get_meta("item_type")),
-			"grid_x": anchor.x,
-			"grid_y": anchor.y,
-			"rotation": obj.get_meta("rotation", 0),
-			"layer": "content",
-		}
-		if ItemData.is_growable_plant(obj.get_meta("item_type")):
-			entry["growth_stage"] = obj.get_meta("growth_stage", 0)
-			var growth := obj.get_node_or_null("CropGrowth") as CropGrowth
-			if growth:
-				entry.merge(growth.to_save_dict())
-		if ItemData.is_animal(obj.get_meta("item_type")):
-			var needs := obj.get_node_or_null("AnimalNeeds") as AnimalNeeds
-			if needs:
-				entry.merge(needs.to_save_dict())
-			var life := obj.get_node_or_null("AnimalLife") as AnimalLife
-			if life:
-				entry.merge(life.to_save_dict())
-			if obj.has_meta("custom_name"):
-				var custom := str(obj.get_meta("custom_name")).strip_edges()
-				if not custom.is_empty():
-					entry["custom_name"] = custom
-		if has_terrain(anchor):
-			entry["ground"] = ItemData.get_item_id(_terrain[anchor].get_meta("item_type"))
-		result.append(entry)
+		result.append(_build_content_save_entry(obj))
+	for cell in stale_content:
+		_objects.erase(cell)
+
+	# Ducks on ponds live in _swimmers only — still need to persist.
+	var stale_swimmers: Array[Vector2i] = []
+	for grid_pos: Vector2i in _swimmers.keys():
+		var obj = _swimmers[grid_pos]
+		if obj == null or not is_instance_valid(obj):
+			stale_swimmers.append(grid_pos)
+			continue
+		if saved_content.has(obj):
+			continue
+		if not obj.has_meta("item_type") or not obj.has_meta("grid_pos"):
+			continue
+		saved_content[obj] = true
+		result.append(_build_content_save_entry(obj))
+	for cell in stale_swimmers:
+		_swimmers.erase(cell)
 	return result
+
+
+func _build_content_save_entry(obj: Node3D) -> Dictionary:
+	var anchor: Vector2i = obj.get_meta("grid_pos")
+	var entry := {
+		"type": ItemData.get_item_id(obj.get_meta("item_type")),
+		"grid_x": anchor.x,
+		"grid_y": anchor.y,
+		"rotation": obj.get_meta("rotation", 0),
+		"layer": "content",
+	}
+	if ItemData.is_growable_plant(obj.get_meta("item_type")):
+		entry["growth_stage"] = obj.get_meta("growth_stage", 0)
+		var growth := obj.get_node_or_null("CropGrowth") as CropGrowth
+		if growth:
+			entry.merge(growth.to_save_dict())
+	if ItemData.is_animal(obj.get_meta("item_type")):
+		var needs := obj.get_node_or_null("AnimalNeeds") as AnimalNeeds
+		if needs:
+			entry.merge(needs.to_save_dict())
+		var life := obj.get_node_or_null("AnimalLife") as AnimalLife
+		if life:
+			entry.merge(life.to_save_dict())
+		if obj.has_meta("custom_name"):
+			var custom := str(obj.get_meta("custom_name")).strip_edges()
+			if not custom.is_empty():
+				entry["custom_name"] = custom
+	if has_terrain(anchor):
+		var ground = _terrain.get(anchor)
+		if ground != null and is_instance_valid(ground):
+			entry["ground"] = ItemData.get_item_id(ground.get_meta("item_type"))
+	return entry
 
 
 func clear_all() -> void:
