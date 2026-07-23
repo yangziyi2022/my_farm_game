@@ -6,9 +6,10 @@ extends Node3D
 
 signal collected(item: InventoryData.Item)
 
-const IDLE_BOB: float = 0.035
-const PICK_RADIUS: float = 0.95
-const SPRITE_PIXEL_SIZE: float = 0.012
+const IDLE_BOB: float = 0.02
+const PICK_RADIUS: float = 0.85
+## World size of one texture pixel — keep ground drops small (~0.5–0.6 m).
+const SPRITE_PIXEL_SIZE: float = 0.0022
 
 var item: InventoryData.Item = InventoryData.Item.WHEAT
 var ready_to_pick: bool = false
@@ -65,14 +66,14 @@ func _build_visual() -> void:
 	var shadow := MeshInstance3D.new()
 	shadow.name = "Shadow"
 	var disc := CylinderMesh.new()
-	disc.top_radius = 0.16
-	disc.bottom_radius = 0.16
-	disc.height = 0.02
+	disc.top_radius = 0.09
+	disc.bottom_radius = 0.09
+	disc.height = 0.015
 	shadow.mesh = disc
-	shadow.position = Vector3(0.0, 0.01, 0.0)
+	shadow.position = Vector3(0.0, 0.008, 0.0)
 	var sm := StandardMaterial3D.new()
 	sm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	sm.albedo_color = Color(0.0, 0.0, 0.0, 0.28)
+	sm.albedo_color = Color(0.0, 0.0, 0.0, 0.22)
 	sm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	shadow.material_override = sm
 	shadow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

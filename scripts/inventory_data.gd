@@ -95,6 +95,8 @@ const SLOT_INDEX := DEFAULT_SLOT
 
 static var _icon_cache: Dictionary = {}
 
+const ICON_DIR := "res://assets/icons/items"
+
 
 static func from_plant_type(plant_type: ItemData.ItemType) -> Item:
 	match plant_type:
@@ -156,11 +158,22 @@ static func get_by_id(item_id: String) -> Item:
 static func get_icon(item: Item) -> Texture2D:
 	if _icon_cache.has(item):
 		return _icon_cache[item]
+	var id := str(ITEMS[item]["id"])
+	var path := "%s/%s.png" % [ICON_DIR, id]
+	if ResourceLoader.exists(path):
+		var tex := load(path) as Texture2D
+		if tex:
+			_icon_cache[item] = tex
+			return tex
 	var color: Color = get_color(item)
 	var letter: String = str(ITEMS[item].get("letter", "?"))
-	var tex := _make_icon_texture(color, letter)
-	_icon_cache[item] = tex
-	return tex
+	var fallback := _make_icon_texture(color, letter)
+	_icon_cache[item] = fallback
+	return fallback
+
+
+static func clear_icon_cache() -> void:
+	_icon_cache.clear()
 
 
 static func _make_icon_texture(color: Color, letter: String) -> ImageTexture:
