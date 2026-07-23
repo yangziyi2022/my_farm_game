@@ -34,6 +34,8 @@ var _sky_mat: ProceduralSkyMaterial
 var _sun_visual: MeshInstance3D
 var _moon_visual: Node3D
 var _stars: MultiMeshInstance3D
+var _clouds_root: Node3D
+var _cloud_drifts: Array[Dictionary] = []
 var _last_phase: String = ""
 var _energy_mul: float = 1.0
 var _meteor_night: bool = false
@@ -112,6 +114,7 @@ func _process(delta: float) -> void:
 		update_sky = (Engine.get_process_frames() % 3) == 0
 	_apply_frame(update_sky)
 	_update_meteors(delta)
+	_update_clouds(delta, get_normalized_time())
 
 
 func _apply_frame(update_sky: bool = true) -> void:
@@ -337,6 +340,114 @@ func _ensure_celestial_visuals() -> void:
 	if _stars == null:
 		_stars = _make_starfield("NightStars", 120 if OS.has_feature("mobile") else 280)
 		add_child(_stars)
+	if _clouds_root == null:
+		_ensure_clouds()
+
+
+func _ensure_clouds() -> void:
+	## A handful of soft puff clouds that drift slowly — decoration only.
+	_clouds_root = Node3D.new()
+	_clouds_root.name = "DriftClouds"
+	add_child(_clouds_root)
+	_cloud_drifts.clear()
+	var specs: Array = [
+		{"x": -10.0, "z": 8.0, "y": 14.0, "s": 1.15, "spd": 0.22},
+		{"x": 6.0, "z": -12.0, "y": 16.5, "s": 0.9, "spd": 0.16},
+		{"x": 14.0, "z": 4.0, "y": 13.0, "s": 1.35, "spd": 0.12},
+		{"x": -4.0, "z": -6.0, "y": 18.0, "s": 0.75, "spd": 0.28},
+		{"x": 2.0, "z": 14.0, "y": 15.5, "s": 1.0, "spd": 0.18},
+	]
+	# Fewer on mobile.
+	var count := 3 if OS.has_feature("mobile") else specs.size()
+	for i in range(count):
+		var spec: Dictionary = specs[i]
+		var cloud := _make_cloud_puff("Cloud%d" % i, float(spec["s"]))
+		cloud.position = _center + Vector3(float(spec["x"]), float(spec["y"]), float(spec["z"]))
+		_clouds_root.add_child(cloud)
+		_cloud_drifts.append({
+			"node": cloud,
+			"base": cloud.position,
+			"speed": float(spec["spd"]),
+			"phase": randf() * TAU,
+			"bob": randf_range(0.15, 0.35),
+		})
+
+
+func _make_cloud_puff(cloud_name: String, scale_mul: float) -> Node3D:
+	var root := Node3D.new()
+	root.name = cloud_name
+	root.scale = Vector3.ONE * scale_mul
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(1.0, 1.0, 1.0, 0.78)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var offsets := [
+		Vector3(0.0, 0.0, 0.0),
+		Vector3(1.1, 0.15, 0.2),
+		Vector3(-1.0, 0.1, 0.15),
+		Vector3(0.35, 0.35, -0.7),
+		Vector3(-0.4, 0.25, 0.75),
+	]
+	var radii := [1.15, 0.85, 0.8, 0.7, 0.65]
+	for i in range(offsets.size()):
+		var puff := MeshInstance3D.new()
+		var sphere := SphereMesh.new()
+		sphere.radius = radii[i]
+		sphere.height = radii[i] * 1.35
+		sphere.radial_segments = 10
+		sphere.rings = 6
+		puff.mesh = sphere
+		puff.position = offsets[i]
+		puff.material_override = mat
+		puff.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(puff)
+	return root
+
+
+func _update_clouds(delta: float, t: float) -> void:
+	if _clouds_root == null:
+		return
+	# Soft day presence; nearly gone at night.
+	var day_vis := 1.0
+	if t >= 0.48 and t < 0.58:
+		day_vis = 1.0 - smoothstep(0.48, 0.58, t)
+	elif t >= 0.58 and t < 0.95:
+		day_vis = 0.08
+	elif t >= 0.95 or t < 0.06:
+		day_vis = smoothstep(0.95, 1.0, t) if t >= 0.95 else smoothstep(0.0, 0.08, t)
+	_clouds_root.visible = day_vis > 0.05
+	if not _clouds_root.visible:
+		return
+
+	var tint := Color(1.0, 1.0, 1.0, 0.72 * day_vis)
+	if t > 0.42 and t < 0.55:
+		# Warm sunset blush.
+		var warm := smoothstep(0.42, 0.48, t) * (1.0 - smoothstep(0.5, 0.55, t))
+		tint = tint.lerp(Color(1.0, 0.78, 0.62, tint.a), warm)
+
+	var span := 28.0
+	for entry in _cloud_drifts:
+		var cloud: Node3D = entry["node"]
+		if cloud == null or not is_instance_valid(cloud):
+			continue
+		entry["phase"] = float(entry["phase"]) + delta * 0.35
+		var base: Vector3 = entry["base"]
+		var speed: float = entry["speed"]
+		# Drift mostly along +X, wrap around the island.
+		base.x += speed * delta
+		if base.x > _center.x + span:
+			base.x = _center.x - span
+		entry["base"] = base
+		var bob: float = float(entry["bob"]) * sin(float(entry["phase"]))
+		cloud.position = Vector3(base.x, base.y + bob, base.z)
+		# Tint all puff materials.
+		for child in cloud.get_children():
+			if child is MeshInstance3D:
+				var mi := child as MeshInstance3D
+				var mat := mi.material_override as StandardMaterial3D
+				if mat:
+					mat.albedo_color = tint
 
 
 func _make_disc(mesh_name: String, radius: float, color: Color, emission: float) -> MeshInstance3D:
