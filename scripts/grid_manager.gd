@@ -48,6 +48,9 @@ var _swimmers: Dictionary = {}  # Vector2i -> Node3D
 var _selected: Node3D = null
 var _grid_visual: Node3D
 var _water_fish_manager: WaterFishManager
+var _ground_loot: Array[GroundLoot] = []
+## Tree instance_id → last bump timestamp (debounce).
+var _tree_bump_times: Dictionary = {}
 var _grass_mmi: MultiMeshInstance3D = null
 var _grass_cell_index: Dictionary = {}  # Vector2i -> int
 var _grass_visible_xform: Dictionary = {}  # Vector2i -> Transform3D
@@ -382,7 +385,7 @@ func player_can_stand_at(grid_pos: Vector2i) -> bool:
 		return false
 	if t == ItemData.ItemType.BRIDGE or t == ItemData.ItemType.BENCH:
 		return true
-	if ItemData.blocks_animal(t):
+	if ItemData.blocks_player(t):
 		return false
 	if ItemData.is_water_source(t):
 		return false
@@ -404,6 +407,159 @@ func player_surface_height(grid_pos: Vector2i) -> float:
 
 func player_is_fence(grid_pos: Vector2i) -> bool:
 	return has_content(grid_pos) and get_item_type_at(grid_pos) == ItemData.ItemType.FENCE
+
+
+func player_is_tree(grid_pos: Vector2i) -> bool:
+	return has_content(grid_pos) and get_item_type_at(grid_pos) == ItemData.ItemType.TREE
+
+
+const TREE_BUMP_THRESHOLD: int = 5
+const TREE_BUMP_DEBOUNCE: float = 0.4
+const TREE_APPLE_COOLDOWN: float = 18.0
+
+
+func register_obstacle_bump(grid_pos: Vector2i) -> void:
+	## Player / animal walked into a solid cell — trees may drop apples.
+	if not player_is_tree(grid_pos):
+		return
+	var tree := get_content_at(grid_pos)
+	if tree == null or not is_instance_valid(tree):
+		return
+	# Only fruiting stages (young / mature apple tree).
+	var stage: int = int(tree.get_meta("growth_stage", 0))
+	if stage < 2:
+		return
+	var id := tree.get_instance_id()
+	var now := Time.get_ticks_msec() * 0.001
+	var last: float = float(_tree_bump_times.get(id, -999.0))
+	if now - last < TREE_BUMP_DEBOUNCE:
+		return
+	_tree_bump_times[id] = now
+	# Global cool-down after a drop so one tree isn't farmed endlessly.
+	var apple_cd: float = float(tree.get_meta("apple_cooldown", 0.0))
+	if apple_cd > now:
+		return
+	var bumps: int = int(tree.get_meta("bump_count", 0)) + 1
+	tree.set_meta("bump_count", bumps)
+	if bumps < TREE_BUMP_THRESHOLD:
+		# Soft shake so bumps feel responsive.
+		_shake_tree(tree)
+		return
+	tree.set_meta("bump_count", 0)
+	tree.set_meta("apple_cooldown", now + TREE_APPLE_COOLDOWN)
+	_drop_apple_from_tree(tree)
+
+
+func _shake_tree(tree: Node3D) -> void:
+	if tree == null or not is_instance_valid(tree):
+		return
+	var sway := tree.get_node_or_null("SwayPivot") as Node3D
+	var target: Node3D = sway if sway else tree
+	var base_rot := target.rotation.z
+	var tw := target.create_tween()
+	tw.tween_property(target, "rotation:z", base_rot + deg_to_rad(4.0), 0.06)
+	tw.tween_property(target, "rotation:z", base_rot - deg_to_rad(3.5), 0.08)
+	tw.tween_property(target, "rotation:z", base_rot, 0.08)
+
+
+func _drop_apple_from_tree(tree: Node3D) -> void:
+	if tree == null or not is_instance_valid(tree) or objects_container == null:
+		return
+	_shake_tree(tree)
+	var base := tree.global_position
+	var land := base + Vector3(randf_range(-0.45, 0.45), 0.12, randf_range(-0.45, 0.45))
+	var fall_from := base + Vector3(randf_range(-0.2, 0.2), randf_range(1.4, 2.1), randf_range(-0.2, 0.2))
+	spawn_ground_loot(InventoryData.Item.APPLE, land, fall_from)
+	AudioManager.play("harvest")
+
+
+func spawn_ground_loot(
+	item: InventoryData.Item,
+	land_pos: Vector3,
+	fall_from: Vector3 = Vector3.ZERO
+) -> GroundLoot:
+	if objects_container == null:
+		return null
+	# Slight scatter so stacked drops don't perfectly overlap.
+	var jitter := Vector3(randf_range(-0.12, 0.12), 0.0, randf_range(-0.12, 0.12))
+	var land := land_pos + jitter
+	land.y = 0.12
+	var from := fall_from
+	if from == Vector3.ZERO:
+		from = land + Vector3(0.0, 0.85, 0.0)
+	return GroundLoot.spawn(objects_container, item, land, self, from)
+
+
+func register_ground_loot(loot: GroundLoot) -> void:
+	if loot == null or not is_instance_valid(loot):
+		return
+	if not _ground_loot.has(loot):
+		_ground_loot.append(loot)
+
+
+func unregister_ground_loot(loot: GroundLoot) -> void:
+	_ground_loot.erase(loot)
+
+
+func get_ground_loot() -> Array[GroundLoot]:
+	_prune_ground_loot()
+	return _ground_loot
+
+
+func find_ground_loot_near(world_pos: Vector3, radius: float = GroundLoot.PICK_RADIUS) -> GroundLoot:
+	_prune_ground_loot()
+	var best: GroundLoot = null
+	var best_d := radius
+	for loot in _ground_loot:
+		if loot == null or not is_instance_valid(loot) or not loot.ready_to_pick:
+			continue
+		var d := loot.xz_distance_to(world_pos)
+		if d <= best_d:
+			best_d = d
+			best = loot
+	return best
+
+
+func adsorb_loot_to(avatar: Node3D, inventory: InventoryManager, radius: float = GroundLoot.PICK_RADIUS) -> int:
+	if avatar == null or not is_instance_valid(avatar) or inventory == null:
+		return 0
+	_prune_ground_loot()
+	var picked := 0
+	var snapshot: Array[GroundLoot] = _ground_loot.duplicate()
+	for loot in snapshot:
+		if loot == null or not is_instance_valid(loot) or not loot.ready_to_pick:
+			continue
+		if loot.xz_distance_to(avatar.global_position) <= radius:
+			if loot.adsorb_to(avatar, inventory):
+				picked += 1
+	return picked
+
+
+func find_ground_loot_at_screen(camera: Camera3D, screen_pos: Vector2, max_screen_px: float = 56.0) -> GroundLoot:
+	if camera == null:
+		return null
+	_prune_ground_loot()
+	var best: GroundLoot = null
+	var best_d := max_screen_px
+	for loot in _ground_loot:
+		if loot == null or not is_instance_valid(loot) or not loot.ready_to_pick:
+			continue
+		if camera.is_position_behind(loot.global_position):
+			continue
+		var sp := camera.unproject_position(loot.global_position + Vector3(0.0, 0.15, 0.0))
+		var d := sp.distance_to(screen_pos)
+		if d < best_d:
+			best_d = d
+			best = loot
+	return best
+
+
+func _prune_ground_loot() -> void:
+	var cleaned: Array[GroundLoot] = []
+	for loot in _ground_loot:
+		if loot != null and is_instance_valid(loot):
+			cleaned.append(loot)
+	_ground_loot = cleaned
 
 
 func get_play_radius() -> float:
@@ -1738,6 +1894,12 @@ func get_all_objects_data() -> Array:
 
 func clear_all() -> void:
 	_deselect()
+	_prune_ground_loot()
+	for loot in _ground_loot.duplicate():
+		if loot != null and is_instance_valid(loot):
+			loot.queue_free()
+	_ground_loot.clear()
+	_tree_bump_times.clear()
 	var content_objs: Array[Node3D] = get_all_content_objects()
 	for obj in content_objs:
 		if is_instance_valid(obj):
@@ -2093,6 +2255,7 @@ func load_objects_data(data: Array) -> void:
 				or entry.has("growth_elapsed")
 				or entry.has("breed_cooldown")
 				or entry.has("produce_cooldown")
+				or entry.has("sheared")
 			):
 				var life := obj.get_node_or_null("AnimalLife") as AnimalLife
 				if life:

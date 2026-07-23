@@ -589,6 +589,7 @@ func _try_start_cross_tile_walk() -> bool:
 
 func _begin_cross_tile_step(to: Vector2i) -> bool:
 	if not _grid.animal_can_step_to(_root, to):
+		_grid.register_obstacle_bump(to)
 		return false
 	if not _grid.move_animal_to(_root, to):
 		return false

@@ -20,6 +20,8 @@ const FOLLOW_HEIGHT: float = 2.4
 const GHOST_HOVER_Y: float = 0.55
 const PLACE_TAP_THRESHOLD: float = 14.0
 const MOVE_SPEED: float = 3.6
+## Farther from island center → faster (edge exploration).
+const MOVE_SPEED_MAX: float = 6.2
 const HEIGHT_LERP: float = 10.0
 const JOYSTICK_RADIUS: float = 64.0
 const JOYSTICK_DEADZONE: float = 0.18
@@ -293,6 +295,8 @@ func _process(delta: float) -> void:
 		_update_hotbar_name_label()
 		_update_feed_attract()
 		_update_aim_cards()
+		if grid_manager and inventory_manager and _avatar:
+			grid_manager.adsorb_loot_to(_avatar, inventory_manager)
 
 
 func _update_key_vec() -> void:
@@ -335,7 +339,7 @@ func _apply_move(delta: float) -> void:
 		_sync_height(delta)
 		return
 	wish = wish.normalized()
-	var speed := MOVE_SPEED * clampf(input.length(), 0.0, 1.0)
+	var speed := _move_speed_for_position() * clampf(input.length(), 0.0, 1.0)
 	var delta_pos := wish * speed * delta
 
 	# Face movement direction.
@@ -349,6 +353,21 @@ func _apply_move(delta: float) -> void:
 	_try_axis_move(Vector3(0.0, 0.0, delta_pos.z))
 	_sync_height(delta)
 	_avatar.grid_pos = grid_manager.world_to_grid_nearest(_avatar.position)
+
+
+func _move_speed_for_position() -> float:
+	## Near center ≈ MOVE_SPEED; near play-radius edge approaches MOVE_SPEED_MAX.
+	if grid_manager == null or _avatar == null:
+		return MOVE_SPEED
+	var center := grid_manager.get_map_center()
+	var dx := _avatar.position.x - center.x
+	var dz := _avatar.position.z - center.z
+	var dist := sqrt(dx * dx + dz * dz)
+	var edge := maxf(grid_manager.play_radius * 0.92, 1.0)
+	var t := clampf(dist / edge, 0.0, 1.0)
+	# Ease-in so the boost is subtle near the farm core.
+	t = t * t
+	return lerpf(MOVE_SPEED, MOVE_SPEED_MAX, t)
 
 
 func _try_axis_move(delta_pos: Vector3) -> void:
@@ -366,6 +385,8 @@ func _try_axis_move(delta_pos: Vector3) -> void:
 			_start_vault(beyond)
 			return
 	# Blocked — leave position unchanged on this axis.
+	if grid_manager.player_is_tree(cell):
+		grid_manager.register_obstacle_bump(cell)
 
 
 func _vault_landing(fence_cell: Vector2i, delta_pos: Vector3) -> Vector2i:
@@ -994,20 +1015,25 @@ func _use_harvest() -> void:
 			continue
 		var plant := grid_manager.get_content_at(cell)
 		var plant_type = null
+		var drop_pos := grid_manager.grid_to_world(cell)
 		if plant:
 			plant_type = plant.get_meta("item_type")
+			drop_pos = plant.global_position
 			HarvestEffect.play(plant)
 		AudioManager.play("harvest")
 		var harvest_item = grid_manager.harvest_plant(cell)
-		if harvest_item != null and inventory_manager:
-			inventory_manager.add_item(harvest_item)
+		if harvest_item != null:
+			grid_manager.spawn_ground_loot(harvest_item, drop_pos + Vector3(0.0, 0.12, 0.0))
 			# Occasional compost from non-tree crops fuels the fertilize loop.
 			if (
 				plant_type != null
 				and plant_type != ItemData.ItemType.TREE
 				and randf() < COMPOST_DROP_CHANCE
 			):
-				inventory_manager.add_item(InventoryData.Item.COMPOST, 1)
+				grid_manager.spawn_ground_loot(
+					InventoryData.Item.COMPOST,
+					drop_pos + Vector3(0.2, 0.12, 0.1)
+				)
 				status_message.emit(
 					LocaleManager.tf("Harvested %s! (+compost)", [
 						InventoryData.get_item_name(harvest_item),
@@ -1436,6 +1462,11 @@ func _on_collect_pressed() -> void:
 	_update_collect_button(animal)
 	if animal_info_card and result.get("ok", false):
 		animal_info_card.show_animal(animal)
+	if result.get("ok", false) and grid_manager:
+		var drop_item = result.get("item")
+		if drop_item != null:
+			var drop_at := animal.global_position + Vector3(0.25, 0.12, 0.15)
+			grid_manager.spawn_ground_loot(drop_item, drop_at)
 
 
 func _on_rename_pressed() -> void:

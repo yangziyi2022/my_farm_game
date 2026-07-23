@@ -36,6 +36,8 @@ var produce_cooldown: float = 0.0
 var feed_freshness: float = 0.0
 ## Sheep alternates wool ↔ sheep milk between collects.
 var sheep_next_is_wool: bool = true
+## Sheep looks bald/black until produce cooldown finishes after a shear.
+var sheared: bool = false
 
 var _root: Node3D
 var _animal_type: ItemData.ItemType = ItemData.ItemType.COW
@@ -79,9 +81,11 @@ func apply_saved(data: Dictionary) -> void:
 	breed_cooldown = float(data.get("breed_cooldown", 0.0))
 	produce_cooldown = float(data.get("produce_cooldown", 0.0))
 	sheep_next_is_wool = bool(data.get("sheep_next_is_wool", true))
+	sheared = bool(data.get("sheared", false))
 	personality = personality_from_id(str(data.get("personality", "friendly")))
 	_cache_pivot()
 	_apply_visual_scale()
+	_apply_sheared_visual(sheared)
 	_sync_meta()
 	life_changed.emit()
 
@@ -93,6 +97,7 @@ func to_save_dict() -> Dictionary:
 		"breed_cooldown": snappedf(breed_cooldown, 0.1),
 		"produce_cooldown": snappedf(produce_cooldown, 0.1),
 		"sheep_next_is_wool": sheep_next_is_wool,
+		"sheared": sheared,
 		"personality": personality_id(),
 	}
 
@@ -176,6 +181,9 @@ func collect_produce() -> Dictionary:
 		return {"ok": false, "message": LocaleManager.t("Can't collect from that")}
 	produce_cooldown = PRODUCE_COOLDOWN_SEC
 	if _animal_type == ItemData.ItemType.SHEEP:
+		if item == InventoryData.Item.WOOL:
+			sheared = true
+			_apply_sheared_visual(true)
 		sheep_next_is_wool = not sheep_next_is_wool
 	life_changed.emit()
 	var who := AnimalInteraction.get_display_name(_root) if _root else ItemData.get_item_name(_animal_type)
@@ -225,9 +233,14 @@ func mark_bred() -> void:
 
 
 func _process(delta: float) -> void:
+	var prev_produce := produce_cooldown
 	breed_cooldown = maxf(0.0, breed_cooldown - delta)
 	produce_cooldown = maxf(0.0, produce_cooldown - delta)
 	feed_freshness = maxf(0.0, feed_freshness - delta)
+	if sheared and prev_produce > 0.0 and produce_cooldown <= 0.0:
+		sheared = false
+		_apply_sheared_visual(false)
+		life_changed.emit()
 	if stage == Stage.BABY:
 		growth_elapsed += delta
 		if growth_elapsed >= GROWTH_SECONDS:
@@ -277,8 +290,27 @@ func _apply_visual_scale() -> void:
 	_pivot.scale = Vector3.ONE * s
 
 
+func _apply_sheared_visual(bald: bool) -> void:
+	if _animal_type != ItemData.ItemType.SHEEP:
+		return
+	_cache_pivot()
+	var search_root: Node = _pivot if _pivot else _root
+	if search_root == null or not is_instance_valid(search_root):
+		return
+	for node in search_root.find_children("Wool*", "MeshInstance3D", true, false):
+		if is_instance_valid(node):
+			(node as MeshInstance3D).visible = not bald
+	var bald_body := search_root.find_child("BaldBody", true, false) as MeshInstance3D
+	if bald_body:
+		bald_body.visible = bald
+
+
 func _sync_meta() -> void:
 	if _root == null or not is_instance_valid(_root):
 		return
 	_root.set_meta("life_stage", "baby" if stage == Stage.BABY else "adult")
 	_root.set_meta("personality", personality_id())
+	if sheared:
+		_root.set_meta("sheared", true)
+	elif _root.has_meta("sheared"):
+		_root.remove_meta("sheared")

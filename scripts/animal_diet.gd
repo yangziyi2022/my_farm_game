@@ -9,7 +9,7 @@ enum Quality { REJECTED, ACCEPTABLE, FAVORITE }
 const DIETS: Dictionary = {
 	ItemData.ItemType.COW: {
 		"favorites": [InventoryData.Item.WHEAT],
-		"accepts": [],
+		"accepts": [InventoryData.Item.APPLE],
 	},
 	ItemData.ItemType.SHEEP: {
 		"favorites": [InventoryData.Item.WHEAT],
@@ -17,7 +17,7 @@ const DIETS: Dictionary = {
 	},
 	ItemData.ItemType.PIG: {
 		"favorites": [InventoryData.Item.CARROT],
-		"accepts": [InventoryData.Item.WHEAT],
+		"accepts": [InventoryData.Item.WHEAT, InventoryData.Item.APPLE],
 	},
 	ItemData.ItemType.CHICKEN: {
 		"favorites": [InventoryData.Item.SUNFLOWER],

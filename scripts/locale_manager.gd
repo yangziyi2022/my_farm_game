@@ -208,6 +208,8 @@ const ZH_TW: Dictionary = {
 	"Shear": "剪毛",
 	"Sheep Milk": "羊奶",
 	"Wool": "羊毛",
+	"Apple": "蘋果",
+	"Picked up %s": "撿起了 %s",
 	"Friendly": "親人",
 	"Shy": "害羞",
 	"Gluttonous": "貪吃",

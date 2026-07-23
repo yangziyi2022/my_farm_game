@@ -536,6 +536,13 @@ func _on_left_press(screen_pos: Vector2) -> void:
 
 	# Select uses ground-cell picking — don't bail just because physics ray missed.
 	if mode == Mode.SELECT:
+		# Ground loot first — click floats the icon into the bag.
+		var loot := grid_manager.find_ground_loot_at_screen(camera, screen_pos) if grid_manager else null
+		if loot and inventory_manager:
+			var loot_name := InventoryData.get_item_name(loot.item)
+			if loot.collect_float(inventory_manager):
+				status_message.emit(LocaleManager.tf("Picked up %s", [loot_name]))
+				return
 		var picked := _pick_selectable_at_screen(screen_pos)
 		_register_click(picked)
 		if picked:
@@ -557,6 +564,12 @@ func _on_left_press(screen_pos: Vector2) -> void:
 		return
 
 	if mode == Mode.MULTISELECT:
+		var multi_loot := grid_manager.find_ground_loot_at_screen(camera, screen_pos) if grid_manager else null
+		if multi_loot and inventory_manager:
+			var multi_name := InventoryData.get_item_name(multi_loot.item)
+			if multi_loot.collect_float(inventory_manager):
+				status_message.emit(LocaleManager.tf("Picked up %s", [multi_name]))
+				return
 		var picked := _pick_selectable_at_screen(screen_pos)
 		_register_click(picked)
 		_dragging = false
@@ -1217,8 +1230,10 @@ func _try_harvest(grid_pos: Vector2i, quiet: bool = false) -> bool:
 		return false
 	var plant := grid_manager.get_content_at(grid_pos)
 	var plant_type = null
+	var drop_pos := grid_manager.grid_to_world(grid_pos)
 	if plant:
 		plant_type = plant.get_meta("item_type")
+		drop_pos = plant.global_position
 		HarvestEffect.play(plant)
 		AudioManager.play("harvest")
 	var harvest_item = grid_manager.harvest_plant(grid_pos)
@@ -1228,10 +1243,12 @@ func _try_harvest(grid_pos: Vector2i, quiet: bool = false) -> bool:
 		return false
 	if tool_cursor:
 		tool_cursor.play_sickle_swing()
-	if inventory_manager:
-		inventory_manager.add_item(harvest_item)
-		if plant_type != null and plant_type != ItemData.ItemType.TREE and randf() < 0.28:
-			inventory_manager.add_item(InventoryData.Item.COMPOST, 1)
+	grid_manager.spawn_ground_loot(harvest_item, drop_pos + Vector3(0.0, 0.12, 0.0))
+	if plant_type != null and plant_type != ItemData.ItemType.TREE and randf() < 0.28:
+		grid_manager.spawn_ground_loot(
+			InventoryData.Item.COMPOST,
+			drop_pos + Vector3(0.2, 0.12, 0.1)
+		)
 	if not quiet:
 		status_message.emit(LocaleManager.t("Harvested %s!") % InventoryData.get_item_name(harvest_item))
 	return true

@@ -185,7 +185,7 @@ static func _build_growing_tree(parent: Node3D, info: Dictionary) -> void:
 	_add_mesh(s1, leaf, info["color"], Vector3(0.0, 0.3, 0.0))
 	parent.add_child(s1)
 
-	const TREE_GLB := "res://assets/models/nature/apple tree 3d model.glb"
+	const TREE_GLB := "res://assets/models/nature/apple.glb"
 	parent.add_child(_make_glb_model_stage("Stage2", TREE_GLB, 2.0))
 	parent.add_child(_make_glb_model_stage("Stage3", TREE_GLB, 2.85))
 
@@ -849,9 +849,18 @@ static func _build_chicken(parent: Node3D, info: Dictionary) -> void:
 
 static func _build_sheep(parent: Node3D, info: Dictionary) -> void:
 	## Fluffy cloud-like body from overlapping wool spheres + animated Head.
+	## Wool* meshes hide after shearing; BaldBody (dark) shows until wool regrows.
 	var wool: Color = info["color"]
 	var face: Color = info.get("face_color", Color(0.35, 0.32, 0.3))
 	var eye: Color = Color(0.08, 0.08, 0.1)
+
+	var bald := SphereMesh.new()
+	bald.radius = 0.13
+	bald.height = 0.26
+	var bald_mi := _add_mesh(parent, bald, Color(0.07, 0.06, 0.06), Vector3(0.0, 0.26, 0.0))
+	bald_mi.name = "BaldBody"
+	bald_mi.scale = Vector3(1.25, 0.88, 1.55)
+	bald_mi.visible = false
 
 	var cloud_offsets := [
 		Vector3(0.0, 0.28, 0.0),
@@ -868,7 +877,8 @@ static func _build_sheep(parent: Node3D, info: Dictionary) -> void:
 		var puff := SphereMesh.new()
 		puff.radius = cloud_radii[i]
 		puff.height = cloud_radii[i] * 1.7
-		_add_mesh(parent, puff, wool, cloud_offsets[i])
+		var puff_mi := _add_mesh(parent, puff, wool, cloud_offsets[i])
+		puff_mi.name = "Wool%d" % i
 
 	for side in [-1.0, 1.0]:
 		for z in [0.06, -0.1]:

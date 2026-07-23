@@ -2,21 +2,21 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://whmvhwre2mbt"
-path.s3tc="res://.godot/imported/apple tree 3d model_apple+tree+3d+model_rm.jpg-cc98e51c8ed755a0fa352af3fd7264ab.s3tc.ctex"
-path.etc2="res://.godot/imported/apple tree 3d model_apple+tree+3d+model_rm.jpg-cc98e51c8ed755a0fa352af3fd7264ab.etc2.ctex"
+uid="uid://kune4cw2xrfp"
+path.s3tc="res://.godot/imported/apple_polygonal+apple+tree+3d+model_rm.jpg-213448771ac3e68115f10272f99b3dd0.s3tc.ctex"
+path.etc2="res://.godot/imported/apple_polygonal+apple+tree+3d+model_rm.jpg-213448771ac3e68115f10272f99b3dd0.etc2.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
-"md5": "e35a74a42b14ded62830b31a0a4b2306"
+"md5": "a182d7a76cf98687024c7fe77dff8251"
 }
 
 [deps]
 
-source_file="res://assets/models/nature/apple tree 3d model_apple+tree+3d+model_rm.jpg"
-dest_files=["res://.godot/imported/apple tree 3d model_apple+tree+3d+model_rm.jpg-cc98e51c8ed755a0fa352af3fd7264ab.s3tc.ctex", "res://.godot/imported/apple tree 3d model_apple+tree+3d+model_rm.jpg-cc98e51c8ed755a0fa352af3fd7264ab.etc2.ctex"]
+source_file="res://assets/models/nature/apple_polygonal+apple+tree+3d+model_rm.jpg"
+dest_files=["res://.godot/imported/apple_polygonal+apple+tree+3d+model_rm.jpg-213448771ac3e68115f10272f99b3dd0.s3tc.ctex", "res://.godot/imported/apple_polygonal+apple+tree+3d+model_rm.jpg-213448771ac3e68115f10272f99b3dd0.etc2.ctex"]
 
 [params]
 

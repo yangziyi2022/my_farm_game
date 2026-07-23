@@ -575,6 +575,15 @@ static func blocks_animal(item_type: ItemType) -> bool:
 	return false
 
 
+static func blocks_player(item_type: ItemType) -> bool:
+	## Walk-mode solid props (buildings, fences, trees).
+	if blocks_animal(item_type):
+		return true
+	if item_type == ItemType.TREE:
+		return true
+	return false
+
+
 static func can_live_on_water(item_type: ItemType) -> bool:
 	return item_type == ItemType.DUCK
 

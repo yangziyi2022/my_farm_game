@@ -11,6 +11,8 @@ signal phase_changed(phase: String)
 const DAY_SECONDS := 300.0
 const NIGHT_SECONDS := 300.0
 const CYCLE_SECONDS := DAY_SECONDS + NIGHT_SECONDS
+## About 1 in 8 nights gets a sparse meteor shower.
+const METEOR_NIGHT_CHANCE := 0.12
 
 @export var orbit_radius: float = 32.0
 @export var sun_disc_radius: float = 1.15
@@ -34,6 +36,9 @@ var _moon_visual: Node3D
 var _stars: MultiMeshInstance3D
 var _last_phase: String = ""
 var _energy_mul: float = 1.0
+var _meteor_night: bool = false
+var _meteor_timer: float = 0.0
+var _meteors_root: Node3D
 
 
 func setup(
@@ -106,6 +111,7 @@ func _process(delta: float) -> void:
 	if OS.has_feature("mobile"):
 		update_sky = (Engine.get_process_frames() % 3) == 0
 	_apply_frame(update_sky)
+	_update_meteors(delta)
 
 
 func _apply_frame(update_sky: bool = true) -> void:
@@ -145,9 +151,19 @@ func _apply_frame(update_sky: bool = true) -> void:
 
 	var phase := get_phase()
 	if phase != _last_phase:
+		_on_phase_enter(phase)
 		_last_phase = phase
 		phase_changed.emit(phase)
 	time_changed.emit(t, sun_above)
+
+
+func _on_phase_enter(phase: String) -> void:
+	if phase == "night":
+		_meteor_night = randf() < METEOR_NIGHT_CHANCE
+		_meteor_timer = randf_range(4.0, 14.0) if _meteor_night else 9999.0
+	elif phase in ["dawn", "sunrise", "day", "sunset", "predawn"]:
+		_meteor_night = false
+		_clear_meteors()
 
 
 func _update_lights(
@@ -427,3 +443,69 @@ func _update_stars(t: float, sun_elevation: float, _moon_above: bool) -> void:
 	var mat := _stars.material_override as StandardMaterial3D
 	if mat:
 		mat.emission_energy_multiplier = lerpf(0.5, 3.0, night) * (0.88 + 0.12 * sin(_elapsed * 1.7))
+
+
+func _update_meteors(delta: float) -> void:
+	if not _meteor_night:
+		return
+	var phase := get_phase()
+	if phase != "night" and phase != "dusk":
+		return
+	_meteor_timer -= delta
+	if _meteor_timer > 0.0:
+		return
+	_spawn_meteor()
+	# Sparse streaks — a handful across a 5‑minute night.
+	_meteor_timer = randf_range(14.0, 32.0)
+
+
+func _ensure_meteors_root() -> void:
+	if _meteors_root and is_instance_valid(_meteors_root):
+		return
+	_meteors_root = Node3D.new()
+	_meteors_root.name = "Meteors"
+	add_child(_meteors_root)
+
+
+func _clear_meteors() -> void:
+	if _meteors_root and is_instance_valid(_meteors_root):
+		for child in _meteors_root.get_children():
+			if is_instance_valid(child):
+				child.queue_free()
+
+
+func _spawn_meteor() -> void:
+	_ensure_meteors_root()
+	var streak := MeshInstance3D.new()
+	streak.name = "Meteor"
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(0.06, 0.06, randf_range(2.2, 3.6))
+	streak.mesh = mesh
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(1.0, 0.96, 0.88)
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.92, 0.75)
+	mat.emission_energy_multiplier = 5.5
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	streak.material_override = mat
+	streak.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+	var start := _center + Vector3(
+		randf_range(-22.0, 22.0),
+		randf_range(16.0, 28.0),
+		randf_range(-22.0, 22.0)
+	)
+	var dir := Vector3(randf_range(-1.0, 1.0), randf_range(-0.85, -0.35), randf_range(-1.0, 1.0)).normalized()
+	var end := start + dir * randf_range(16.0, 30.0)
+	streak.global_position = start
+	if start.distance_squared_to(end) > 0.01:
+		streak.look_at(end, Vector3.UP)
+	_meteors_root.add_child(streak)
+
+	var duration := randf_range(0.4, 0.75)
+	var tw := streak.create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(streak, "global_position", end, duration).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.tween_property(mat, "albedo_color:a", 0.0, duration * 0.85).set_delay(duration * 0.15)
+	tw.chain().tween_callback(streak.queue_free)

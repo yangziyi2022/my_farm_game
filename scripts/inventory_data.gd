@@ -12,6 +12,7 @@ enum Item {
 	MILK,
 	SHEEP_MILK,
 	WOOL,
+	APPLE,
 	TOOL_HOE,
 	TOOL_HARVEST,
 	TOOL_ROD,
@@ -35,6 +36,7 @@ const ITEMS: Dictionary = {
 	Item.MILK: {"id": "milk", "name": "Milk", "color": Color(0.95, 0.95, 0.9), "feedable": false, "letter": "L"},
 	Item.SHEEP_MILK: {"id": "sheep_milk", "name": "Sheep Milk", "color": Color(0.92, 0.9, 0.82), "feedable": false, "letter": "E"},
 	Item.WOOL: {"id": "wool", "name": "Wool", "color": Color(0.88, 0.86, 0.8), "feedable": false, "letter": "O"},
+	Item.APPLE: {"id": "apple", "name": "Apple", "color": Color(0.85, 0.22, 0.2), "feedable": true, "letter": "A"},
 	Item.TOOL_HOE: {
 		"id": "tool_hoe",
 		"name": "Hoe",

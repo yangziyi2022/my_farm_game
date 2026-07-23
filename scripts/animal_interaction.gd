@@ -102,7 +102,8 @@ static func try_feed(
 	}
 
 
-static func try_collect_produce(animal: Node3D, inventory_manager: InventoryManager) -> Dictionary:
+static func try_collect_produce(animal: Node3D, _inventory_manager: InventoryManager = null) -> Dictionary:
+	## Marks produce collected; caller spawns GroundLoot (does not add to bag).
 	var life := get_life(animal)
 	if life == null:
 		return {"ok": false, "message": LocaleManager.t("Can't collect from that")}
@@ -110,9 +111,8 @@ static func try_collect_produce(animal: Node3D, inventory_manager: InventoryMana
 	if not result.get("ok", false):
 		return result
 	var item = result.get("item")
-	if item == null or inventory_manager == null:
+	if item == null:
 		return {"ok": false, "message": LocaleManager.t("Can't collect from that")}
-	inventory_manager.add_item(item, 1)
 	AudioManager.play("harvest")
 	return result
 
